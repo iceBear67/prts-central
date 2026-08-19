@@ -4,10 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
-import java.util.List;
-import java.util.NoSuchElementException;
-import java.util.Optional;
-import java.util.UUID;
+import java.util.*;
 
 @ApplicationScoped
 public class JobService {
@@ -47,10 +44,20 @@ public class JobService {
     }
 
     @Transactional
-    public Job complete(UUID jobId, boolean success) {
-        var job = requireOpen(jobId);
-        job.complete(success);
-        return job;
+    public Optional<Job> applyState(UUID jobId, JobState state) {
+        Objects.requireNonNull(state, "jobState");
+        var found = Job.<Job>findByIdOptional(jobId);
+        if (found.isEmpty()) {
+            return Optional.empty();
+        }
+        var job = found.get();
+        if (job.isCompleted() || job.getState() == state) {
+            return found;
+        }
+        var previous = job.getState();
+        job.transitionTo(state);
+        persistLog(job, "state", previous + " -> " + state, state == JobState.FAILED);
+        return found;
     }
 
     @Transactional
@@ -65,8 +72,12 @@ public class JobService {
 
     @Transactional
     public JobLog appendLog(UUID jobId, String topic, String message, Boolean error) {
+        return persistLog(requireOpen(jobId), topic, message, error);
+    }
+
+    private JobLog persistLog(Job job, String topic, String message, Boolean error) {
         var log = JobLog.builder()
-                .job(requireOpen(jobId))
+                .job(job)
                 .topic(topic)
                 .message(message)
                 .error(error)

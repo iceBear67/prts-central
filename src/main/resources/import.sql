@@ -18,14 +18,15 @@ CREATE TABLE "job"
     project_id   uuid        NOT NULL,
     created_at   timestamptz NOT NULL,
     completed_at timestamptz,
-    success      bool,                             -- tristate, false -> fail
+    state        varchar     NOT NULL DEFAULT 'PENDING',
     FOREIGN KEY (project_id)
         REFERENCES project (id)
         ON DELETE CASCADE,
+    CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS')),
     CHECK (
-        (completed_at IS NULL AND success IS NULL)
+        ((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL)
             OR
-        (completed_at IS NOT NULL AND success IS NOT NULL)
+        ((state = 'SUCCESS' OR state = 'FAILED') AND completed_at IS NOT NULL)
         )
 );
 
@@ -78,3 +79,22 @@ CREATE TABLE "oauth_identity"
             ON DELETE CASCADE,
     PRIMARY KEY (issuer, subject)
 );
+
+CREATE TABLE "resource_class"
+(
+    name         varchar NOT NULL PRIMARY KEY,
+    num_cpus     int     NOT NULL,
+    mem_count    int     NOT NULL,
+    disk_size    int     NOT NULL
+);
+
+CREATE TABLE "pending_job"
+(
+    id             uuid        NOT NULL PRIMARY KEY,
+    resource_class varchar     NOT NULL,
+    spec           jsonb       NOT NULL,
+    created_at     timestamptz NOT NULL,
+    FOREIGN KEY (resource_class) REFERENCES resource_class (name)
+);
+
+CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);

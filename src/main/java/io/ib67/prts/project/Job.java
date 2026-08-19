@@ -4,6 +4,8 @@ import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
@@ -23,6 +25,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -32,11 +35,17 @@ import java.util.UUID;
 @Table(
         name = "job",
         indexes = @Index(name = "idx_job_project_id", columnList = "project_id"),
-        check = @CheckConstraint(
-                name = "job_completion_consistency",
-                constraint = "(completed_at IS NULL AND success IS NULL) "
-                        + "OR (completed_at IS NOT NULL AND success IS NOT NULL)"
-        )
+        check = {
+                @CheckConstraint(
+                        name = "job_state_values",
+                        constraint = "state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS')"
+                ),
+                @CheckConstraint(
+                        name = "job_completion_consistency",
+                        constraint = "((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL) "
+                                + "OR ((state = 'SUCCESS' OR state = 'FAILED') AND completed_at IS NOT NULL)"
+                )
+        }
 )
 @Getter
 @Setter
@@ -61,27 +70,28 @@ public class Job extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Null while the job is still running. */
+    /** Null until the job reaches a terminal {@link JobState}. */
     @Column(name = "completed_at")
     private Instant completedAt;
 
-    /** Tristate: null while running, {@code TRUE} on success, {@code FALSE} on failure. */
-    @Column(name = "success")
-    private Boolean success;
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(name = "state", nullable = false, columnDefinition = "varchar")
+    private JobState state = JobState.PENDING;
 
     private UUID runner;
 
     /**
-     * Finishes the job. Both columns are written together because the check constraint rejects a
-     * row that has only one of them set.
+     * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check
+     * constraint: set on terminal states, cleared otherwise.
      */
-    public void complete(boolean succeeded) {
-        this.completedAt = Instant.now();
-        this.success = succeeded;
+    public void transitionTo(JobState next) {
+        this.state = Objects.requireNonNull(next, "state");
+        this.completedAt = next.isTerminal() ? Instant.now() : null;
     }
 
     public boolean isCompleted() {
-        return completedAt != null;
+        return state != null && state.isTerminal();
     }
 
     public static List<Job> listByProject(UUID projectId) {
