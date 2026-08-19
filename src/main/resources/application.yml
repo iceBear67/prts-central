@@ -24,7 +24,7 @@ quarkus:
             - "/api/worker/*"
           policy: "authenticated"
           auth-mechanism:
-            - "worker-api"
+            - "worker-token"
 
 
 "%dev":

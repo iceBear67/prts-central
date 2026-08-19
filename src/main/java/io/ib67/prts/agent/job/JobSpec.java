@@ -12,7 +12,8 @@ public record JobSpec(
         long maxMemoryBytes,
         long maxEphemeralStorages,
         List<String> command,
-        Map<UUID, VolumeSpec> volumes
+        Map<UUID, VolumeSpec> volumes,
+        long timeout
 ) {
     public record VolumeSpec(
             String mountPoint,

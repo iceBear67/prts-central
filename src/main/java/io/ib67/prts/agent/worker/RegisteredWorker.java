@@ -4,7 +4,7 @@ import jakarta.annotation.Nullable;
 import lombok.*;
 
 @Getter
-public class Worker {
+public class RegisteredWorker {
     protected final String name;
     protected final WorkerClient rpc;
     /**
@@ -14,7 +14,7 @@ public class Worker {
     @Nullable
     protected Info info;
 
-    public Worker(String name, WorkerClient rpc, @Nullable Info info) {
+    public RegisteredWorker(String name, WorkerClient rpc, @Nullable Info info) {
         this.name = name;
         this.rpc = rpc;
         this.info = info;

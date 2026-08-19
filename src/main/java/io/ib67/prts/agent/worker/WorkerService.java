@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit;
 public class WorkerService {
     private static final Logger LOG = Logger.getLogger(WorkerService.class);
 
-    private final Map<UUID, Worker> activeWorkers = new ConcurrentHashMap<>();
+    private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
     private final ScheduledExecutorService pendingTick = Executors.newSingleThreadScheduledExecutor(runnable -> {
         var thread = new Thread(runnable, "prts-pending-dispatch");
@@ -46,16 +46,18 @@ public class WorkerService {
         pendingTick.shutdownNow();
     }
 
-    public Map<UUID, Worker> getActiveWorkers() {
+    public Map<UUID, RegisteredWorker> getActiveWorkers() {
         return Collections.unmodifiableMap(activeWorkers);
     }
 
-    public Optional<Worker> getWorker(UUID id) {
+    public Optional<RegisteredWorker> getWorker(UUID id) {
         return Optional.ofNullable(activeWorkers.get(id));
     }
 
-    boolean registerWorker(UUID id, Worker worker) {
-        return activeWorkers.putIfAbsent(id, worker) == null;
+    boolean registerWorker(UUID id, RegisteredWorker registeredWorker) {
+        QuarkusTransaction.requiringNew().run(() ->
+                io.ib67.prts.agent.worker.entity.Worker.upsert(id, registeredWorker.getName()));
+        return activeWorkers.putIfAbsent(id, registeredWorker) == null;
     }
 
     void unregisterWorker(UUID id) {
@@ -66,7 +68,7 @@ public class WorkerService {
         }
     }
 
-    boolean updateInfo(UUID id, @Nullable Worker.Info info) {
+    boolean updateInfo(UUID id, @Nullable RegisteredWorker.Info info) {
         var worker = activeWorkers.get(id);
         if (worker == null) {
             return false;

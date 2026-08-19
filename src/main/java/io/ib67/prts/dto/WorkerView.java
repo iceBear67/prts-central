@@ -1,6 +1,6 @@
 package io.ib67.prts.dto;
 
-import io.ib67.prts.agent.worker.Worker;
+import io.ib67.prts.agent.worker.RegisteredWorker;
 import jakarta.annotation.Nullable;
 
 import java.util.UUID;
@@ -11,9 +11,9 @@ import java.util.UUID;
 public record WorkerView(
         UUID id,
         String name,
-        @Nullable Worker.Info info
+        @Nullable RegisteredWorker.Info info
 ) {
-    public static WorkerView of(UUID id, Worker worker) {
-        return new WorkerView(id, worker.getName(), worker.getInfo());
+    public static WorkerView of(UUID id, RegisteredWorker registeredWorker) {
+        return new WorkerView(id, registeredWorker.getName(), registeredWorker.getInfo());
     }
 }

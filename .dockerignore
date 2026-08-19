@@ -1,5 +1,5 @@
 *
-!build/*-worker
-!build/*-worker.jar
+!build/*-registeredWorker
+!build/*-registeredWorker.jar
 !build/lib/*
 !build/quarkus-app/*

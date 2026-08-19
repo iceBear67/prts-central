@@ -86,7 +86,7 @@ ENV LANGUAGE='en_US:en'
 
 
 COPY build/lib/* /deployments/lib/
-COPY build/*-worker.jar /deployments/quarkus-run.jar
+COPY build/*-registeredWorker.jar /deployments/quarkus-run.jar
 
 EXPOSE 8080
 USER 185

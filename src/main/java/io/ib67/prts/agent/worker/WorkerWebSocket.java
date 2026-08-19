@@ -46,7 +46,7 @@ public class WorkerWebSocket {
         if (connection.userData().get(INTERNAL_RUNNER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
         var result = workerService.registerWorker(
-                r.id(), new Worker(r.name(), new WorkerClient(connection, mapper), r.info()));
+                r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection, mapper), r.info()));
         if (result) {
             connection.userData().put(INTERNAL_RUNNER_ID, r.id().toString());
         }

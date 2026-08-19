@@ -98,3 +98,23 @@ CREATE TABLE "pending_job"
 );
 
 CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);
+
+CREATE TABLE "registeredWorker"
+(
+    id   uuid    NOT NULL PRIMARY KEY,
+    name varchar NOT NULL
+);
+
+CREATE TABLE "worker_volume"
+(
+    id         uuid        NOT NULL PRIMARY KEY,
+    name       varchar     NOT NULL,
+    created_at timestamptz NOT NULL,
+    worker_id  uuid        NOT NULL,
+    length     bigint      NOT NULL,
+    used       bigint      NOT NULL,
+    FOREIGN KEY (worker_id) REFERENCES registeredWorker (id),
+    CHECK (length >= 0 AND used >= 0 AND used <= length)
+);
+
+CREATE INDEX idx_worker_volume_worker_id ON worker_volume (worker_id);
