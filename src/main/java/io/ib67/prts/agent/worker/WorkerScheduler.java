@@ -1,4 +1,4 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -14,27 +14,27 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Scheduling overlay on {@link RunnerService}'s runner map: exclusive create-locks and
+ * Scheduling overlay on {@link WorkerService}'s worker map: exclusive create-locks and
  * draining of queued {@link PendingJob} rows. The map itself stays on the service.
  */
-final class RunnerScheduler {
-    private static final Logger LOG = Logger.getLogger(RunnerScheduler.class);
+final class WorkerScheduler {
+    private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
 
-    private final Map<UUID, Runner> runners;
+    private final Map<UUID, Worker> workers;
     private final Set<UUID> locked = ConcurrentHashMap.newKeySet();
     private final Set<UUID> inFlightPending = ConcurrentHashMap.newKeySet();
     private final Object lock = new Object();
 
-    RunnerScheduler(Map<UUID, Runner> runners) {
-        this.runners = runners;
+    WorkerScheduler(Map<UUID, Worker> workers) {
+        this.workers = workers;
     }
 
-    void onRunnerRemoved(UUID id) {
+    void onWorkerRemoved(UUID id) {
         locked.remove(id);
     }
 
-    void onCreateAcknowledged(UUID runnerId) {
-        unlock(runnerId);
+    void onCreateAcknowledged(UUID workerId) {
+        unlock(workerId);
     }
 
     void dispatchPending() {
@@ -71,7 +71,7 @@ final class RunnerScheduler {
     }
 
     /**
-     * Tries to place {@code spec} on a live runner. {@code false} means nobody eligible;
+     * Tries to place {@code spec} on a live worker. {@code false} means nobody eligible;
      * the caller should enqueue. RPC failure after a lock is taken is thrown (and unlocked).
      */
     boolean schedule0(ResourceClass required, JobSpec spec) {
@@ -81,7 +81,7 @@ final class RunnerScheduler {
         }
         var pick = selected.get();
         try {
-            pick.runner().getRpc().createJob(spec);
+            pick.worker().getRpc().createJob(spec);
             return true;
         } catch (RuntimeException e) {
             unlock(pick.id());
@@ -97,21 +97,21 @@ final class RunnerScheduler {
         }
     }
 
-    void unlock(UUID runnerId) {
-        locked.remove(runnerId);
+    void unlock(UUID workerId) {
+        locked.remove(workerId);
     }
 
     private Optional<Selection> select(ResourceClass required) {
-        return runners.entrySet().stream()
+        return workers.entrySet().stream()
                 .filter(entry -> !locked.contains(entry.getKey()))
                 .filter(entry -> capacityFits(entry.getValue().getInfo(), required))
                 .min(Comparator
-                        .comparingInt((Map.Entry<UUID, Runner> entry) -> entry.getValue().pendingJobCount())
+                        .comparingInt((Map.Entry<UUID, Worker> entry) -> entry.getValue().pendingJobCount())
                         .thenComparing(Map.Entry::getKey))
                 .map(entry -> new Selection(entry.getKey(), entry.getValue()));
     }
 
-    private static boolean capacityFits(@Nullable RunnerInfo available, ResourceClass required) {
+    private static boolean capacityFits(@Nullable Worker.Info available, ResourceClass required) {
         if (available == null || available.getCapacity() == null) {
             return true;
         }
@@ -121,6 +121,6 @@ final class RunnerScheduler {
                 && capacity.getNumDisks() >= required.getDiskSize();
     }
 
-    record Selection(UUID id, Runner runner) {
+    record Selection(UUID id, Worker worker) {
     }
 }

@@ -1,8 +1,8 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.runner.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.mutiny.Uni;
 
@@ -13,7 +13,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-public final class RunnerRpc {
+public final class WorkerClient {
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(5);
     private static final long CREATE_TIMEOUT_SECONDS = 30;
 
@@ -21,7 +21,7 @@ public final class RunnerRpc {
     private final ObjectMapper mapper;
     private final Map<UUID, CompletableFuture<UUID>> outstanding = new ConcurrentHashMap<>();
 
-    public RunnerRpc(WebSocketConnection conn, ObjectMapper mapper) {
+    public WorkerClient(WebSocketConnection conn, ObjectMapper mapper) {
         this.conn = conn;
         this.mapper = mapper;
     }
@@ -39,7 +39,7 @@ public final class RunnerRpc {
     }
 
     /**
-     * Asks the runner to create a job and blocks until it reports the new {@code jobId}.
+     * Asks the worker to create a job and blocks until it reports the new {@code jobId}.
      */
     public UUID createJob(JobSpec spec) {
         var requestId = UUID.randomUUID();
@@ -51,7 +51,7 @@ public final class RunnerRpc {
             return future.get(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             future.completeExceptionally(e);
-            throw new IllegalStateException("failed to create job on runner", e);
+            throw new IllegalStateException("failed to create job on worker", e);
         } finally {
             outstanding.remove(requestId);
         }

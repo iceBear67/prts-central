@@ -1,8 +1,8 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.ib67.prts.agent.runner.message.ClientboundMessage;
-import io.ib67.prts.agent.runner.message.ServerboundMessage;
+import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.project.JobService;
 import io.quarkus.websockets.next.*;
 import io.smallrye.common.annotation.Blocking;
@@ -11,13 +11,13 @@ import jakarta.inject.Inject;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-@WebSocket(path = "/ws/runner") //todo custom auth
-public class RunnerWebSocket {
-    private static final UserData.TypedKey<String> INTERNAL_RUNNER_ID = UserData.TypedKey.forString("runner_id");
+@WebSocket(path = "/ws/worker") //todo custom auth
+public class WorkerWebSocket {
+    private static final UserData.TypedKey<String> INTERNAL_RUNNER_ID = UserData.TypedKey.forString("worker_id");
     @Inject
     WebSocketConnection connection;
     @Inject
-    RunnerService runnerService;
+    WorkerService workerService;
     @Inject
     JobService jobService;
     @Inject
@@ -27,14 +27,14 @@ public class RunnerWebSocket {
     public void onClose() {
         var idStr = connection.userData().get(INTERNAL_RUNNER_ID);
         if (idStr == null) return;
-        runnerService.unregisterRunner(UUID.fromString(idStr));
+        workerService.unregisterWorker(UUID.fromString(idStr));
     }
 
     @OnTextMessage
     @Blocking
     public ClientboundMessage acceptMessage(ServerboundMessage message) {
         return switch (message) {
-            case ServerboundMessage.Register r -> handleRunnerRegister(r);
+            case ServerboundMessage.Register r -> handleWorkerRegister(r);
             case ServerboundMessage.UpdateJobLog u -> handleUpdateJobLog(u);
             case ServerboundMessage.UpdateResourceInfo u -> handleUpdateResourceInfo(u);
             case ServerboundMessage.JobCreated created -> handleJobCreated(created);
@@ -42,11 +42,11 @@ public class RunnerWebSocket {
         };
     }
 
-    private ClientboundMessage handleRunnerRegister(ServerboundMessage.Register r) {
+    private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
         if (connection.userData().get(INTERNAL_RUNNER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
-        var result = runnerService.registerRunner(
-                r.id(), new Runner(r.name(), new RunnerRpc(connection, mapper), r.info()));
+        var result = workerService.registerWorker(
+                r.id(), new Worker(r.name(), new WorkerClient(connection, mapper), r.info()));
         if (result) {
             connection.userData().put(INTERNAL_RUNNER_ID, r.id().toString());
         }
@@ -70,7 +70,7 @@ public class RunnerWebSocket {
         if (idStr == null) {
             return new ClientboundMessage.Response(false, "not registered");
         }
-        var updated = runnerService.updateInfo(UUID.fromString(idStr), u.info());
+        var updated = workerService.updateInfo(UUID.fromString(idStr), u.info());
         return new ClientboundMessage.Response(updated, updated ? "" : "not registered");
     }
 
@@ -79,7 +79,7 @@ public class RunnerWebSocket {
         if (idStr == null) {
             return new ClientboundMessage.Response(false, "not registered");
         }
-        var accepted = runnerService.onJobCreated(UUID.fromString(idStr), created.requestId(), created.jobId());
+        var accepted = workerService.onJobCreated(UUID.fromString(idStr), created.requestId(), created.jobId());
         return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
     }
 

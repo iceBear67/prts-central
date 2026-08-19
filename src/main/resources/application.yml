@@ -18,13 +18,13 @@ quarkus:
           paths:
             - "/api/*"
           policy: "authenticated"
-        runner_ws:
+        worker_ws:
           paths:
-            - "/ws/runner"
-            - "/api/runner/*"
+            - "/ws/worker"
+            - "/api/worker/*"
           policy: "authenticated"
           auth-mechanism:
-            - "runner-api"
+            - "worker-api"
 
 
 "%dev":

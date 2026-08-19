@@ -1,7 +1,7 @@
 package io.ib67.prts.project;
 
 /**
- * Lifecycle of a job. Stored on {@link Job} and reported by runners.
+ * Lifecycle of a job. Stored on {@link Job} and reported by workers.
  */
 public enum JobState {
     /** Pod has been created but has not been assigned resources yet. */

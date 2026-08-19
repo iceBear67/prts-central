@@ -1,4 +1,4 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -19,11 +19,11 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
-public class RunnerService {
-    private static final Logger LOG = Logger.getLogger(RunnerService.class);
+public class WorkerService {
+    private static final Logger LOG = Logger.getLogger(WorkerService.class);
 
-    private final Map<UUID, Runner> activeRunners = new ConcurrentHashMap<>();
-    private final RunnerScheduler scheduler = new RunnerScheduler(activeRunners);
+    private final Map<UUID, Worker> activeWorkers = new ConcurrentHashMap<>();
+    private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
     private final ScheduledExecutorService pendingTick = Executors.newSingleThreadScheduledExecutor(runnable -> {
         var thread = new Thread(runnable, "prts-pending-dispatch");
         thread.setDaemon(true);
@@ -46,47 +46,47 @@ public class RunnerService {
         pendingTick.shutdownNow();
     }
 
-    public Map<UUID, Runner> getActiveRunners() {
-        return Collections.unmodifiableMap(activeRunners);
+    public Map<UUID, Worker> getActiveWorkers() {
+        return Collections.unmodifiableMap(activeWorkers);
     }
 
-    public Optional<Runner> getRunner(UUID id) {
-        return Optional.ofNullable(activeRunners.get(id));
+    public Optional<Worker> getWorker(UUID id) {
+        return Optional.ofNullable(activeWorkers.get(id));
     }
 
-    boolean registerRunner(UUID id, Runner runner) {
-        return activeRunners.putIfAbsent(id, runner) == null;
+    boolean registerWorker(UUID id, Worker worker) {
+        return activeWorkers.putIfAbsent(id, worker) == null;
     }
 
-    void unregisterRunner(UUID id) {
-        scheduler.onRunnerRemoved(id);
-        var runner = activeRunners.remove(id);
-        if (runner != null) {
-            runner.getRpc().failAll(new IllegalStateException("runner disconnected"));
+    void unregisterWorker(UUID id) {
+        scheduler.onWorkerRemoved(id);
+        var worker = activeWorkers.remove(id);
+        if (worker != null) {
+            worker.getRpc().failAll(new IllegalStateException("worker disconnected"));
         }
     }
 
-    boolean updateInfo(UUID id, @Nullable RunnerInfo info) {
-        var runner = activeRunners.get(id);
-        if (runner == null) {
+    boolean updateInfo(UUID id, @Nullable Worker.Info info) {
+        var worker = activeWorkers.get(id);
+        if (worker == null) {
             return false;
         }
-        runner.setInfo(info);
+        worker.setInfo(info);
         return true;
     }
 
-    boolean onJobCreated(UUID runnerId, UUID requestId, UUID jobId) {
-        var runner = activeRunners.get(runnerId);
-        if (runner == null) {
+    boolean onJobCreated(UUID workerId, UUID requestId, UUID jobId) {
+        var worker = activeWorkers.get(workerId);
+        if (worker == null) {
             return false;
         }
-        scheduler.onCreateAcknowledged(runnerId);
-        runner.getRpc().completeCreate(requestId, jobId);
+        scheduler.onCreateAcknowledged(workerId);
+        worker.getRpc().completeCreate(requestId, jobId);
         return true;
     }
 
     /**
-     * Places the job on a live runner, or queues it. Returns the pending-row id when queued,
+     * Places the job on a live worker, or queues it. Returns the pending-row id when queued,
      * otherwise {@code null}.
      */
     public UUID schedule(ResourceClass resourceClass, JobSpec spec) {

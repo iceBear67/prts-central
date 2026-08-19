@@ -1,4 +1,4 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
@@ -13,7 +13,7 @@ import lombok.Setter;
 import lombok.ToString;
 
 /**
- * A named resource requirement. Runners are matched against these numbers when a job is scheduled.
+ * A named resource requirement. Workers are matched against these numbers when a job is scheduled.
  */
 @Entity
 @Table(name = "resource_class")

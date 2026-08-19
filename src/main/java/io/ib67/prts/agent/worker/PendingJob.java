@@ -1,4 +1,4 @@
-package io.ib67.prts.agent.runner;
+package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
@@ -27,8 +27,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * A job that could not be dispatched because no runner was online. Rows are drained FIFO once a
- * suitable runner shows up or updates its remaining resources.
+ * A job that could not be dispatched because no worker was online. Rows are drained FIFO once a
+ * suitable worker shows up or updates its remaining resources.
  */
 @Entity
 @Table(

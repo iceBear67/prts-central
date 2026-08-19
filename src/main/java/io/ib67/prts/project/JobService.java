@@ -27,19 +27,19 @@ public class JobService {
     }
 
     @Transactional
-    public Job create(UUID projectId, UUID runner) {
+    public Job create(UUID projectId, UUID worker) {
         var job = Job.builder()
                 .project(projectService.require(projectId))
-                .runner(runner)
+                .worker(worker)
                 .build();
         job.persist();
         return job;
     }
 
     @Transactional
-    public Job assignRunner(UUID jobId, UUID runner) {
+    public Job assignWorker(UUID jobId, UUID worker) {
         var job = requireOpen(jobId);
-        job.setRunner(runner);
+        job.setWorker(worker);
         return job;
     }
 

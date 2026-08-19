@@ -1,7 +1,7 @@
 package io.ib67.prts.auth;
 
 import io.agroal.api.security.NamePrincipal;
-import io.ib67.prts.agent.runner.RunnerConfig;
+import io.ib67.prts.agent.worker.WorkerConfig;
 import io.quarkus.security.identity.IdentityProviderManager;
 import io.quarkus.security.identity.SecurityIdentity;
 import io.quarkus.security.runtime.QuarkusSecurityIdentity;
@@ -13,11 +13,11 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 @ApplicationScoped
-@HttpAuthenticationMechanism("runner-api")
-public class RunnerAuthMechanism
+@HttpAuthenticationMechanism("worker-api")
+public class WorkerAuthMechanism
         implements io.quarkus.vertx.http.runtime.security.HttpAuthenticationMechanism {
     @Inject
-    RunnerConfig runnerConfig;
+    WorkerConfig workerConfig;
 
     @Override
     public Uni<SecurityIdentity> authenticate(RoutingContext context, IdentityProviderManager identityProviderManager) {
@@ -31,7 +31,7 @@ public class RunnerAuthMechanism
         }
 
         var token = authorization.substring("Bearer ".length());
-        var sk = runnerConfig.secret();
+        var sk = workerConfig.secret();
         if(token.length() != sk.length() || !sk.equals(token)) {
             return Uni.createFrom().nullItem();
         }

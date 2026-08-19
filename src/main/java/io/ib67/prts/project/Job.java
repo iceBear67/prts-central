@@ -79,7 +79,7 @@ public class Job extends PanacheEntityBase {
     @Column(name = "state", nullable = false, columnDefinition = "varchar")
     private JobState state = JobState.PENDING;
 
-    private UUID runner;
+    private UUID worker;
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check
