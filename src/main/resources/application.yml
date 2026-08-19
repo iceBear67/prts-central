@@ -1,0 +1,61 @@
+quarkus:
+  rest:
+    path: /api
+  cache:
+    caffeine:
+      user-permissions:
+        expire-after-write: PT5M
+        maximum-size: 10000
+  datasource:
+    db-kind: postgresql
+    # No jdbc.url in dev/test on purpose: Dev Services starts a throwaway PostgreSQL container.
+    jdbc:
+      url: "jdbc:postgresql://localhost:5432/?user=postgres&password=12345aa"
+  http:
+    auth:
+      permission:
+        oauth2_auth:
+          paths:
+            - "/api/*"
+          policy: "authenticated"
+        runner_ws:
+          paths:
+            - "/ws/runner"
+            - "/api/runner/*"
+          policy: "authenticated"
+          auth-mechanism:
+            - "runner-api"
+
+
+"%dev":
+  quarkus:
+    oidc:
+      # The issuer base URL, not the authorization endpoint: Quarkus discovers the endpoints from
+      # <auth-server-url>/.well-known/openid-configuration.
+      auth-server-url: "https://git.sfclub.cc"
+      client-id: "df2b6625-6b4f-4c1a-829d-41e6861deb14"
+      credentials:
+          secret: "gto_5n2mulz7xzm5ylrgbczekgx2f3dup7xdjz2jmgudnseokmvhlhra"
+      # Server-side authorization code flow with a session cookie.
+      application-type: web-app
+      authentication:
+        # openid is always requested; these two populate the name/email claims that
+        # OidcUserProvisioner needs to register a new user.
+        scopes:
+          - profile
+          - email
+        # Must match the redirect URI registered on the Gitea OAuth application exactly.
+        redirect-path: /auth/callback
+        # Send the user back to the page they originally requested after login.
+        restore-path-after-redirect: true
+    hibernate-orm:
+      schema-management:
+        strategy: drop-and-create
+
+"%prod":
+  quarkus:
+    datasource:
+      username: ${DB_USERNAME}
+      password: ${DB_PASSWORD}
+      jdbc:
+        url: ${DB_URL}
