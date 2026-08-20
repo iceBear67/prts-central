@@ -1,6 +1,8 @@
 package io.ib67.prts.project.resource;
 
+import io.ib67.prts.agent.job.JobSpecTemplate;
 import io.ib67.prts.dto.JobLogPage;
+import io.ib67.prts.dto.JobSpecTemplateView;
 import io.ib67.prts.dto.JobView;
 import io.ib67.prts.dto.PresignedUrlView;
 import io.ib67.prts.project.JobConfig;
@@ -17,6 +19,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
+import java.util.List;
 import java.util.UUID;
 
 @Path("/job")
@@ -28,6 +31,24 @@ public class JobResource {
     StorageService storageService;
     @Inject
     JobConfig jobConfig;
+
+    @GET
+    @Path("/template")
+    @Transactional
+    public List<JobSpecTemplateView> listTemplates() {
+        return JobSpecTemplate.listAllFetched().stream()
+                .map(JobSpecTemplateView::of)
+                .toList();
+    }
+
+    @GET
+    @Path("/template/{id}")
+    @Transactional
+    public JobSpecTemplateView getTemplate(@PathParam("id") UUID id) {
+        return JobSpecTemplate.findByIdFetched(id)
+                .map(JobSpecTemplateView::of)
+                .orElseThrow(NotFoundException::new);
+    }
 
     @GET
     @Path("/{id}")

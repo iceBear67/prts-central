@@ -100,6 +100,15 @@
 --
 -- CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);
 --
+-- CREATE TABLE "job_spec_template"
+-- (
+--     id             uuid    NOT NULL PRIMARY KEY,
+--     name           varchar NOT NULL,
+--     spec           jsonb   NOT NULL,
+--     resource_class varchar,
+--     FOREIGN KEY (resource_class) REFERENCES resource_class (name)
+-- );
+--
 -- CREATE TABLE "registeredWorker"
 -- (
 --     id   uuid    NOT NULL PRIMARY KEY,
