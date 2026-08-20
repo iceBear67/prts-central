@@ -53,6 +53,21 @@ public class StorageService {
         }
     }
 
+    public PresignedGet presignGet(String objectKey) {
+        var duration = storageConfig.presignDuration();
+        var expiresAt = Instant.now().plus(duration);
+        var presigned = presigner.presignGetObject(r -> r
+                .signatureDuration(duration)
+                .getObjectRequest(b -> b
+                        .bucket(storageConfig.bucket())
+                        .key(objectKey)));
+        return new PresignedGet(
+                objectKey,
+                presigned.url().toExternalForm(),
+                presigned.httpRequest().method().name(),
+                expiresAt);
+    }
+
     public PresignedPut presignPut(String objectKey, long contentLength) {
         var duration = storageConfig.presignDuration();
         var expiresAt = Instant.now().plus(duration);
@@ -93,5 +108,8 @@ public class StorageService {
     }
 
     public record PresignedPut(String objectKey, String url, String method, Instant expiresAt) {
+    }
+
+    public record PresignedGet(String objectKey, String url, String method, Instant expiresAt) {
     }
 }

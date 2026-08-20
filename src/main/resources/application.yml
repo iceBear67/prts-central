@@ -76,3 +76,7 @@ storage:
   bucket: prts-artifacts
   max-file-size: 512M
   max-job-size: 4G
+
+job:
+  log:
+    max-page-size: 20

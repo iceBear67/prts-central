@@ -1,6 +1,7 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.job.PendingJob;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.annotation.PostConstruct;

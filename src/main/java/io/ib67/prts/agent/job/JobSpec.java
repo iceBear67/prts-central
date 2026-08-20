@@ -8,9 +8,6 @@ public record JobSpec(
         String image,
         Map<String, String> environment,
         Map<String, String> labels,
-        int maxCpus,
-        long maxMemoryBytes,
-        long maxEphemeralStorages,
         List<String> command,
         Map<UUID, VolumeSpec> volumes,
         long timeout

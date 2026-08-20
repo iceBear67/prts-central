@@ -1,6 +1,6 @@
-package io.ib67.prts.agent.worker;
+package io.ib67.prts.agent.job;
 
-import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.worker.ResourceClass;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.panache.common.Sort;
 import jakarta.persistence.Column;

@@ -3,6 +3,7 @@ package io.ib67.prts.agent.worker.message;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.worker.ResourceClass;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -21,12 +22,13 @@ public sealed interface ClientboundMessage {
     record Response(boolean ok, String message) implements ClientboundMessage {
     }
 
-    record CreateJob(UUID requestId, JobSpec spec) implements ClientboundMessage {
+    record CreateJob(UUID requestId, JobSpec spec, ResourceClass resourceClass) implements ClientboundMessage {
     }
 
     record PresignedUpload(
             UUID uploadId,
             UUID jobId,
+            String name,
             String objectKey,
             String url,
             String method,

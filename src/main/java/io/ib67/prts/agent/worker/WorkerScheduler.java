@@ -1,6 +1,7 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.job.PendingJob;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
@@ -82,7 +83,7 @@ final class WorkerScheduler {
         }
         var pick = selected.get();
         try {
-            pick.registeredWorker().getRpc().createJob(spec);
+            pick.registeredWorker().getRpc().createJob(spec, required);
             return true;
         } catch (RuntimeException e) {
             unlock(pick.id());

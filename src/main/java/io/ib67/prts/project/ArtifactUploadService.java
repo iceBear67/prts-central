@@ -59,7 +59,7 @@ public class ArtifactUploadService {
     }
 
     public ClientboundMessage.PresignedUpload begin(
-            UUID workerId, UUID jobId, String suggestedFileName, long sizeBytes) {
+            UUID workerId, UUID jobId, String name, long sizeBytes) {
         if (sizeBytes < 0) {
             throw new IllegalArgumentException("artifact size must be >= 0");
         }
@@ -69,10 +69,11 @@ public class ArtifactUploadService {
         }
         reserveSlot();
         var uploadId = UUID.randomUUID();
-        var fileName = sanitizeFileName(suggestedFileName);
+        var artifactName = artifactName(name);
+        var fileName = sanitizeFileName(artifactName);
         var objectKey = destKey(jobId, uploadId, fileName);
         var expiresAt = Instant.now().plus(storageConfig.presignDuration());
-        var session = new PendingUpload(uploadId, jobId, workerId, objectKey, sizeBytes, expiresAt);
+        var session = new PendingUpload(uploadId, jobId, workerId, artifactName, objectKey, sizeBytes, expiresAt);
         var stored = false;
         try {
             jobService.assertCanStoreArtifact(
@@ -87,6 +88,7 @@ public class ArtifactUploadService {
             return new ClientboundMessage.PresignedUpload(
                     uploadId,
                     jobId,
+                    artifactName,
                     objectKey,
                     put.url(),
                     put.method(),
@@ -147,7 +149,8 @@ public class ArtifactUploadService {
             return;
         }
         try {
-            jobService.addArtifact(session.jobId(), session.workerId(), session.objectKey(), session.sizeBytes());
+            jobService.addArtifact(
+                    session.jobId(), session.workerId(), session.name(), session.objectKey(), session.sizeBytes());
             pending.asMap().remove(session.uploadId());
         } catch (NoSuchElementException | IllegalStateException e) {
             LOG.infof("dropping pending artifact upload %s: %s", session.uploadId(), e.getMessage());
@@ -161,7 +164,8 @@ public class ArtifactUploadService {
         try {
             var size = storageService.findObjectSize(session.objectKey());
             if (size.isPresent() && size.getAsLong() == session.sizeBytes()) {
-                jobService.addArtifact(session.jobId(), session.workerId(), session.objectKey(), session.sizeBytes());
+                jobService.addArtifact(
+                        session.jobId(), session.workerId(), session.name(), session.objectKey(), session.sizeBytes());
                 return;
             }
         } catch (NoSuchElementException | IllegalStateException e) {
@@ -189,6 +193,24 @@ public class ArtifactUploadService {
         return "jobs/" + jobId + "/" + uploadId + "/" + fileName;
     }
 
+    static String artifactName(String suggested) {
+        if (suggested == null || suggested.isBlank()) {
+            return "artifact.bin";
+        }
+        var name = suggested.replace('\\', '/');
+        var slash = name.lastIndexOf('/');
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        if (name.isBlank() || ".".equals(name) || "..".equals(name)) {
+            return "artifact.bin";
+        }
+        if (name.length() > 255) {
+            name = name.substring(0, 255);
+        }
+        return name;
+    }
+
     static String sanitizeFileName(String suggested) {
         if (suggested == null || suggested.isBlank()) {
             return "artifact.bin";
@@ -212,6 +234,7 @@ public class ArtifactUploadService {
             UUID uploadId,
             UUID jobId,
             UUID workerId,
+            String name,
             String objectKey,
             long sizeBytes,
             Instant expiresAt

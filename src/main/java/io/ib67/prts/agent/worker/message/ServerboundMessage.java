@@ -36,6 +36,6 @@ public sealed interface ServerboundMessage {
     record JobStateUpdate(UUID jobId, JobState state) implements ServerboundMessage {
     }
 
-    record UploadArtifactRequest(UUID jobId, String suggestedFileName, long sizeBytes) implements ServerboundMessage {
+    record UploadArtifactRequest(UUID jobId, String name, long sizeBytes) implements ServerboundMessage {
     }
 }

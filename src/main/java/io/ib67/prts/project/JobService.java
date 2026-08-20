@@ -72,6 +72,16 @@ public class JobService {
         return JobLog.listByJob(jobId);
     }
 
+    public List<JobLog> listLogs(UUID jobId, int page, int size) {
+        require(jobId);
+        return JobLog.listByJob(jobId, page, size);
+    }
+
+    public long countLogs(UUID jobId) {
+        require(jobId);
+        return JobLog.countByJob(jobId);
+    }
+
     @Transactional
     public JobLog appendLog(UUID jobId, String topic, String message, Boolean error) {
         return persistLog(requireOpen(jobId), topic, message, error);
@@ -118,7 +128,7 @@ public class JobService {
     }
 
     @Transactional
-    public Artifact addArtifact(UUID jobId, UUID workerId, String objectKey, long sizeBytes) {
+    public Artifact addArtifact(UUID jobId, UUID workerId, String name, String objectKey, long sizeBytes) {
         var job = lockAssignedOpen(jobId, workerId);
         var existing = Artifact.<Artifact>find("objectKey", objectKey).firstResult();
         if (existing != null) {
@@ -126,6 +136,7 @@ public class JobService {
         }
         var artifact = Artifact.builder()
                 .job(job)
+                .name(name)
                 .objectKey(objectKey)
                 .sizeBytes(sizeBytes)
                 .build();

@@ -39,6 +39,9 @@ public class Artifact extends PanacheEntityBase {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "name", nullable = false, columnDefinition = "varchar")
+    private String name;
+
     @Column(name = "object_key", nullable = false, columnDefinition = "text")
     private String objectKey;
 

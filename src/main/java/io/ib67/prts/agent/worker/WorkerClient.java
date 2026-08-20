@@ -41,12 +41,12 @@ public final class WorkerClient {
     /**
      * Asks the worker to create a job and blocks until it reports the new {@code jobId}.
      */
-    public UUID createJob(JobSpec spec) {
+    public UUID createJob(JobSpec spec, ResourceClass resourceClass) {
         var requestId = UUID.randomUUID();
         var future = new CompletableFuture<UUID>();
         outstanding.put(requestId, future);
         try {
-            conn.sendText(new ClientboundMessage.CreateJob(requestId, spec))
+            conn.sendText(new ClientboundMessage.CreateJob(requestId, spec, resourceClass))
                     .await().atMost(SEND_TIMEOUT);
             return future.get(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {

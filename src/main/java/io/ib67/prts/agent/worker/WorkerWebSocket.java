@@ -90,7 +90,7 @@ public class WorkerWebSocket {
 
     private ClientboundMessage handleUploadArtifactRequest(ServerboundMessage.UploadArtifactRequest r) {
         try {
-            return artifactUploadService.begin(workerId(), r.jobId(), r.suggestedFileName(), r.sizeBytes());
+            return artifactUploadService.begin(workerId(), r.jobId(), r.name(), r.sizeBytes());
         } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
             LOG.errorf("cannot begin artifact upload for job %s: %s", r.jobId(), e.getMessage());
             return new ClientboundMessage.Response(false, e.getMessage());

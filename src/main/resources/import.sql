@@ -34,10 +34,11 @@
 --
 -- CREATE TABLE "artifact"
 -- (
---     id         uuid   NOT NULL PRIMARY KEY, -- auto generated uuid v7
---     object_key text   NOT NULL,
---     size_bytes bigint NOT NULL,
---     job_id     uuid   NOT NULL,
+--     id         uuid    NOT NULL PRIMARY KEY, -- auto generated uuid v7
+--     name       varchar NOT NULL,
+--     object_key text    NOT NULL,
+--     size_bytes bigint  NOT NULL,
+--     job_id     uuid    NOT NULL,
 --     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
 -- );
 --
