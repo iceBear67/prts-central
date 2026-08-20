@@ -121,10 +121,13 @@
 --     name       varchar     NOT NULL,
 --     created_at timestamptz NOT NULL,
 --     worker_id  uuid        NOT NULL,
+--     project_id uuid        NOT NULL,
 --     length     bigint      NOT NULL,
 --     used       bigint      NOT NULL,
 --     FOREIGN KEY (worker_id) REFERENCES registeredWorker (id),
+--     FOREIGN KEY (project_id) REFERENCES project (id),
 --     CHECK (length >= 0 AND used >= 0 AND used <= length)
 -- );
 --
 -- CREATE INDEX idx_worker_volume_worker_id ON worker_volume (worker_id);
+-- CREATE INDEX idx_worker_volume_project_id ON worker_volume (project_id);

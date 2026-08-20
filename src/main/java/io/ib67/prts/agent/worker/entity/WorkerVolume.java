@@ -1,5 +1,6 @@
 package io.ib67.prts.agent.worker.entity;
 
+import io.ib67.prts.project.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
@@ -30,7 +31,10 @@ import java.util.UUID;
 @Entity
 @Table(
         name = "worker_volume",
-        indexes = @Index(name = "idx_worker_volume_worker_id", columnList = "worker_id"),
+        indexes = {
+                @Index(name = "idx_worker_volume_worker_id", columnList = "worker_id"),
+                @Index(name = "idx_worker_volume_project_id", columnList = "project_id")
+        },
         check = @CheckConstraint(
                 name = "worker_volume_usage",
                 constraint = "length >= 0 AND used >= 0 AND used <= length"
@@ -60,6 +64,11 @@ public class WorkerVolume extends PanacheEntityBase {
     @JoinColumn(name = "worker_id", nullable = false)
     @ToString.Exclude
     private Worker worker;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "project_id", nullable = false, updatable = false)
+    @ToString.Exclude
+    private Project project;
 
     @Column(name = "length", nullable = false)
     private long length;
