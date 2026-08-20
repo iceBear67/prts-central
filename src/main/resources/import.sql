@@ -19,6 +19,7 @@
 --     created_at   timestamptz NOT NULL,
 --     completed_at timestamptz,
 --     state        varchar     NOT NULL DEFAULT 'PENDING',
+--     spec         jsonb,
 --     FOREIGN KEY (project_id)
 --         REFERENCES project (id)
 --         ON DELETE CASCADE,

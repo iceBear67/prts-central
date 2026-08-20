@@ -1,5 +1,6 @@
 package io.ib67.prts.dto;
 
+import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.project.Artifact;
 import io.ib67.prts.project.Job;
 import io.ib67.prts.project.JobState;
@@ -7,6 +8,7 @@ import jakarta.annotation.Nullable;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public record JobView(
@@ -16,11 +18,35 @@ public record JobView(
         @Nullable Instant completedAt,
         JobState state,
         @Nullable UUID worker,
+        @Nullable SpecView spec,
         List<ArtifactView> artifacts
 ) {
     public record ArtifactView(UUID id, String name) {
         public static ArtifactView of(Artifact artifact) {
             return new ArtifactView(artifact.getId(), artifact.getName());
+        }
+    }
+
+    /** {@link JobSpec} without {@link JobSpec#secrets()}. */
+    public record SpecView(
+            String image,
+            Map<String, String> environment,
+            Map<String, String> labels,
+            List<String> command,
+            Map<UUID, JobSpec.VolumeSpec> volumes,
+            long timeout
+    ) {
+        public static SpecView of(JobSpec spec) {
+            if (spec == null) {
+                return null;
+            }
+            return new SpecView(
+                    spec.image(),
+                    spec.environment(),
+                    spec.labels(),
+                    spec.command(),
+                    spec.volumes(),
+                    spec.timeout());
         }
     }
 
@@ -32,6 +58,7 @@ public record JobView(
                 job.getCompletedAt(),
                 job.getState(),
                 job.getWorker(),
+                SpecView.of(job.getSpec()),
                 artifacts.stream().map(ArtifactView::of).toList());
     }
 }

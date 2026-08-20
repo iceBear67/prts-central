@@ -84,6 +84,6 @@ public class WorkerVolume extends PanacheEntityBase {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return find("from WorkerVolume v join fetch v.worker where v.id in ?1", ids).list();
+        return find("from WorkerVolume v join fetch v.worker join fetch v.project where v.id in ?1", ids).list();
     }
 }

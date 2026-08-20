@@ -1,5 +1,6 @@
 package io.ib67.prts.project;
 
+import io.ib67.prts.agent.job.JobSpec;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
@@ -19,9 +20,11 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -80,6 +83,11 @@ public class Job extends PanacheEntityBase {
     private JobState state = JobState.PENDING;
 
     private UUID worker;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "spec", columnDefinition = "jsonb")
+    @ToString.Exclude
+    private JobSpec spec;
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check
