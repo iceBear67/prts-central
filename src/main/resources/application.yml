@@ -1,4 +1,8 @@
 quarkus:
+  hibernate-orm:
+    mapping:
+      format:
+        global: ignore
   rest:
     path: /api
   cache:
@@ -11,6 +15,11 @@ quarkus:
     # No jdbc.url in dev/test on purpose: Dev Services starts a throwaway PostgreSQL container.
     jdbc:
       url: "jdbc:postgresql://localhost:5432/?user=postgres&password=12345aa"
+  s3:
+    # Dev Services starts LocalStack unless endpoint-override is set; create the default work bucket.
+    devservices:
+      buckets:
+        - prts-artifacts
   http:
     auth:
       permission:
@@ -50,7 +59,7 @@ quarkus:
         restore-path-after-redirect: true
     hibernate-orm:
       schema-management:
-        strategy: drop-and-create
+        strategy: update
 
 "%prod":
   quarkus:
@@ -59,3 +68,11 @@ quarkus:
       password: ${DB_PASSWORD}
       jdbc:
         url: ${DB_URL}
+worker:
+  secret: "allo"
+
+storage:
+  presign-duration: PT15M
+  bucket: prts-artifacts
+  max-file-size: 512M
+  max-job-size: 4G

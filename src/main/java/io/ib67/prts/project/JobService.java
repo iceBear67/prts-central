@@ -2,9 +2,11 @@ package io.ib67.prts.project;
 
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 
 import java.util.*;
+import java.util.function.LongSupplier;
 
 @ApplicationScoped
 public class JobService {
@@ -96,9 +98,34 @@ public class JobService {
     }
 
     @Transactional
-    public Artifact addArtifact(UUID jobId, String objectKey, long sizeBytes) {
+    public void assertCanStoreArtifact(
+            UUID jobId,
+            UUID workerId,
+            long additionalBytes,
+            LongSupplier reservedBytes,
+            long maxJobSize,
+            Runnable reserve) {
+        lockAssignedOpen(jobId, workerId);
+        var used = Artifact.listByJob(jobId).stream().mapToLong(Artifact::getSizeBytes).sum();
+        var reserved = reservedBytes.getAsLong();
+        if (used > maxJobSize
+                || reserved > maxJobSize - used
+                || additionalBytes > maxJobSize - used - reserved) {
+            throw new IllegalStateException(
+                    "job artifact quota exceeded: " + (used + reserved + additionalBytes) + " > " + maxJobSize);
+        }
+        reserve.run();
+    }
+
+    @Transactional
+    public Artifact addArtifact(UUID jobId, UUID workerId, String objectKey, long sizeBytes) {
+        var job = lockAssignedOpen(jobId, workerId);
+        var existing = Artifact.<Artifact>find("objectKey", objectKey).firstResult();
+        if (existing != null) {
+            return existing;
+        }
         var artifact = Artifact.builder()
-                .job(require(jobId))
+                .job(job)
                 .objectKey(objectKey)
                 .sizeBytes(sizeBytes)
                 .build();
@@ -111,10 +138,24 @@ public class JobService {
         return Artifact.deleteById(artifactId);
     }
 
-    private Job requireOpen(UUID jobId) {
+    public Job requireOpen(UUID jobId) {
         var job = require(jobId);
         if (job.isCompleted()) {
             throw new IllegalStateException("job already completed: " + jobId);
+        }
+        return job;
+    }
+
+    private Job lockAssignedOpen(UUID jobId, UUID workerId) {
+        var job = Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE);
+        if (job == null) {
+            throw new NoSuchElementException("no such job: " + jobId);
+        }
+        if (job.isCompleted()) {
+            throw new IllegalStateException("job already completed: " + jobId);
+        }
+        if (!workerId.equals(job.getWorker())) {
+            throw new IllegalStateException("job not assigned to this worker: " + jobId);
         }
         return job;
     }

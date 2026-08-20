@@ -1,7 +1,7 @@
-package io.ib67.prts.agent.runner.resource;
+package io.ib67.prts.agent.worker.resource;
 
-import io.ib67.prts.agent.runner.RunnerService;
-import io.ib67.prts.dto.RunnerView;
+import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.dto.WorkerView;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -13,24 +13,24 @@ import jakarta.ws.rs.core.MediaType;
 import java.util.List;
 import java.util.UUID;
 
-@Path("/runner")
+@Path("/worker")
 @Produces(MediaType.APPLICATION_JSON)
-public class RunnerResource {
+public class WorkerResource {
     @Inject
-    RunnerService runnerService;
+    WorkerService workerService;
 
     @GET
-    public List<RunnerView> listRunners() {
-        return runnerService.getActiveRunners().entrySet().stream()
-                .map(entry -> RunnerView.of(entry.getKey(), entry.getValue()))
+    public List<WorkerView> listWorkers() {
+        return workerService.getActiveWorkers().entrySet().stream()
+                .map(entry -> WorkerView.of(entry.getKey(), entry.getValue()))
                 .toList();
     }
 
     @GET
     @Path("/{id}")
-    public RunnerView getRunner(@PathParam("id") UUID id) {
-        return runnerService.getRunner(id)
-                .map(runner -> RunnerView.of(id, runner))
+    public WorkerView getWorker(@PathParam("id") UUID id) {
+        return workerService.getWorker(id)
+                .map(worker -> WorkerView.of(id, worker))
                 .orElseThrow(NotFoundException::new);
     }
 }

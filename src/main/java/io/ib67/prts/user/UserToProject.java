@@ -15,13 +15,7 @@ import java.util.UUID;
  * Membership of a user in a project, carrying the permission that user holds there.
  */
 @Entity
-@Table(
-        name = "user_to_project",
-        check = @CheckConstraint(
-                name = "user_to_project_permission_range",
-                constraint = "permission > -1 AND permission < 4"
-        )
-)
+@Table(name = "user_to_project")
 @Getter
 @Setter
 @NoArgsConstructor

@@ -3,17 +3,20 @@ package io.ib67.prts.agent.worker;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
+import io.ib67.prts.project.ArtifactUploadService;
 import io.ib67.prts.project.JobService;
 import io.quarkus.websockets.next.*;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;
+import org.jboss.logging.Logger;
 
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
 @WebSocket(path = "/ws/worker") //todo custom auth
 public class WorkerWebSocket {
-    private static final UserData.TypedKey<String> INTERNAL_RUNNER_ID = UserData.TypedKey.forString("worker_id");
+    private static final Logger LOG = Logger.getLogger(WorkerWebSocket.class);
+    private static final UserData.TypedKey<String> INTERNAL_WORKER_ID = UserData.TypedKey.forString("worker_id");
     @Inject
     WebSocketConnection connection;
     @Inject
@@ -21,11 +24,13 @@ public class WorkerWebSocket {
     @Inject
     JobService jobService;
     @Inject
+    ArtifactUploadService artifactUploadService;
+    @Inject
     ObjectMapper mapper;
 
     @OnClose
     public void onClose() {
-        var idStr = connection.userData().get(INTERNAL_RUNNER_ID);
+        var idStr = connection.userData().get(INTERNAL_WORKER_ID);
         if (idStr == null) return;
         workerService.unregisterWorker(UUID.fromString(idStr));
     }
@@ -33,62 +38,69 @@ public class WorkerWebSocket {
     @OnTextMessage
     @Blocking
     public ClientboundMessage acceptMessage(ServerboundMessage message) {
+        if (!(message instanceof ServerboundMessage.Register)
+                && connection.userData().get(INTERNAL_WORKER_ID) == null) {
+            return new ClientboundMessage.Response(false, "not registered");
+        }
         return switch (message) {
             case ServerboundMessage.Register r -> handleWorkerRegister(r);
             case ServerboundMessage.UpdateJobLog u -> handleUpdateJobLog(u);
             case ServerboundMessage.UpdateResourceInfo u -> handleUpdateResourceInfo(u);
             case ServerboundMessage.JobCreated created -> handleJobCreated(created);
             case ServerboundMessage.JobStateUpdate u -> handleJobStateUpdate(u);
+            case ServerboundMessage.UploadArtifactRequest r -> handleUploadArtifactRequest(r);
         };
     }
 
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
-        if (connection.userData().get(INTERNAL_RUNNER_ID) != null)
+        if (connection.userData().get(INTERNAL_WORKER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
         var result = workerService.registerWorker(
                 r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection, mapper), r.info()));
         if (result) {
-            connection.userData().put(INTERNAL_RUNNER_ID, r.id().toString());
+            connection.userData().put(INTERNAL_WORKER_ID, r.id().toString());
         }
         return new ClientboundMessage.Response(result, "");
     }
 
     private ClientboundMessage handleUpdateJobLog(ServerboundMessage.UpdateJobLog u) {
-        if (connection.userData().get(INTERNAL_RUNNER_ID) == null) {
-            return new ClientboundMessage.Response(false, "not registered");
-        }
         try {
             jobService.appendLog(u.jobId(), u.topic(), u.message(), u.error());
             return new ClientboundMessage.Response(true, "");
         } catch (NoSuchElementException | IllegalStateException e) {
+            LOG.errorf("cannot update job log for job %s: %s", u.jobId(), e.getMessage());
             return new ClientboundMessage.Response(false, e.getMessage());
         }
     }
 
     private ClientboundMessage handleUpdateResourceInfo(ServerboundMessage.UpdateResourceInfo u) {
-        var idStr = connection.userData().get(INTERNAL_RUNNER_ID);
-        if (idStr == null) {
-            return new ClientboundMessage.Response(false, "not registered");
-        }
-        var updated = workerService.updateInfo(UUID.fromString(idStr), u.info());
+        var updated = workerService.updateInfo(workerId(), u.info());
         return new ClientboundMessage.Response(updated, updated ? "" : "not registered");
     }
 
     private ClientboundMessage handleJobCreated(ServerboundMessage.JobCreated created) {
-        var idStr = connection.userData().get(INTERNAL_RUNNER_ID);
-        if (idStr == null) {
-            return new ClientboundMessage.Response(false, "not registered");
-        }
-        var accepted = workerService.onJobCreated(UUID.fromString(idStr), created.requestId(), created.jobId());
+        var accepted = workerService.onJobCreated(workerId(), created.requestId(), created.jobId());
         return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
     }
 
     private ClientboundMessage handleJobStateUpdate(ServerboundMessage.JobStateUpdate u) {
-        var idStr = connection.userData().get(INTERNAL_RUNNER_ID);
-        if (idStr == null) {
-            return new ClientboundMessage.Response(false, "not registered");
-        }
         jobService.applyState(u.jobId(), u.state());
         return new ClientboundMessage.Response(true, "");
+    }
+
+    private ClientboundMessage handleUploadArtifactRequest(ServerboundMessage.UploadArtifactRequest r) {
+        try {
+            return artifactUploadService.begin(workerId(), r.jobId(), r.suggestedFileName(), r.sizeBytes());
+        } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
+            LOG.errorf("cannot begin artifact upload for job %s: %s", r.jobId(), e.getMessage());
+            return new ClientboundMessage.Response(false, e.getMessage());
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "cannot begin artifact upload for job %s", r.jobId());
+            return new ClientboundMessage.Response(false, e.getMessage() == null ? "upload failed" : e.getMessage());
+        }
+    }
+
+    private UUID workerId() {
+        return UUID.fromString(connection.userData().get(INTERNAL_WORKER_ID));
     }
 }

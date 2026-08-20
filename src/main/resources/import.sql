@@ -1,120 +1,120 @@
-CREATE TABLE "project"
-(
-    id   uuid    NOT NULL PRIMARY KEY, -- auto generated uuid v7
-    name varchar NOT NULL
-);
-
-CREATE TABLE prts_user
-(
-    id         uuid        NOT NULL PRIMARY KEY,
-    name       varchar     NOT NULL,
-    email      varchar     NOT NULL,
-    created_at timestamptz NOT NULL
-);
-
-CREATE TABLE "job"
-(
-    id           uuid        NOT NULL PRIMARY KEY, -- auto generated uuid v7
-    project_id   uuid        NOT NULL,
-    created_at   timestamptz NOT NULL,
-    completed_at timestamptz,
-    state        varchar     NOT NULL DEFAULT 'PENDING',
-    FOREIGN KEY (project_id)
-        REFERENCES project (id)
-        ON DELETE CASCADE,
-    CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS')),
-    CHECK (
-        ((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL)
-            OR
-        ((state = 'SUCCESS' OR state = 'FAILED') AND completed_at IS NOT NULL)
-        )
-);
-
-CREATE INDEX idx_job_project_id ON job (project_id);
-
-CREATE TABLE "artifact"
-(
-    id         uuid   NOT NULL PRIMARY KEY, -- auto generated uuid v7
-    object_key text   NOT NULL,
-    size_bytes bigint NOT NULL,
-    job_id     uuid   NOT NULL,
-    FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_artifact_job_id
-    ON artifact (job_id);
-
-CREATE TABLE "job_log"
-(
-    id         bigint      NOT NULL
-        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    job_id     uuid        NOT NULL,
-    created_at timestamptz NOT NULL,
-    topic      varchar,
-    message    text,
-    error      boolean,
-    FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_job_log
-    ON job_log (job_id, created_at);
-
-CREATE TABLE "user_to_project"
-(
-    user_id    uuid NOT NULL,
-    project_id uuid NOT NULL,
-    -- projectRole: OWNER, MEMBER, VIEWER, NONE
-    projectRole int  NOT NULL CHECK (projectRole > -1 AND projectRole < 4),
-    PRIMARY KEY (user_id, project_id),
-    FOREIGN KEY (user_id) REFERENCES prts_user (id) ON DELETE CASCADE,
-    FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE
-);
-
-CREATE TABLE "oauth_identity"
-(
-    issuer  varchar NOT NULL,
-    subject varchar NOT NULL,
-    user_id uuid    NOT NULL
-        REFERENCES prts_user (id)
-            ON DELETE CASCADE,
-    PRIMARY KEY (issuer, subject)
-);
-
-CREATE TABLE "resource_class"
-(
-    name         varchar NOT NULL PRIMARY KEY,
-    num_cpus     int     NOT NULL,
-    mem_count    int     NOT NULL,
-    disk_size    int     NOT NULL
-);
-
-CREATE TABLE "pending_job"
-(
-    id             uuid        NOT NULL PRIMARY KEY,
-    resource_class varchar     NOT NULL,
-    spec           jsonb       NOT NULL,
-    created_at     timestamptz NOT NULL,
-    FOREIGN KEY (resource_class) REFERENCES resource_class (name)
-);
-
-CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);
-
-CREATE TABLE "registeredWorker"
-(
-    id   uuid    NOT NULL PRIMARY KEY,
-    name varchar NOT NULL
-);
-
-CREATE TABLE "worker_volume"
-(
-    id         uuid        NOT NULL PRIMARY KEY,
-    name       varchar     NOT NULL,
-    created_at timestamptz NOT NULL,
-    worker_id  uuid        NOT NULL,
-    length     bigint      NOT NULL,
-    used       bigint      NOT NULL,
-    FOREIGN KEY (worker_id) REFERENCES registeredWorker (id),
-    CHECK (length >= 0 AND used >= 0 AND used <= length)
-);
-
-CREATE INDEX idx_worker_volume_worker_id ON worker_volume (worker_id);
+-- CREATE TABLE "project"
+-- (
+--     id   uuid    NOT NULL PRIMARY KEY, -- auto generated uuid v7
+--     name varchar NOT NULL
+-- );
+--
+-- CREATE TABLE prts_user
+-- (
+--     id         uuid        NOT NULL PRIMARY KEY,
+--     name       varchar     NOT NULL,
+--     email      varchar     NOT NULL,
+--     created_at timestamptz NOT NULL
+-- );
+--
+-- CREATE TABLE "job"
+-- (
+--     id           uuid        NOT NULL PRIMARY KEY, -- auto generated uuid v7
+--     project_id   uuid        NOT NULL,
+--     created_at   timestamptz NOT NULL,
+--     completed_at timestamptz,
+--     state        varchar     NOT NULL DEFAULT 'PENDING',
+--     FOREIGN KEY (project_id)
+--         REFERENCES project (id)
+--         ON DELETE CASCADE,
+--     CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS')),
+--     CHECK (
+--         ((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL)
+--             OR
+--         ((state = 'SUCCESS' OR state = 'FAILED') AND completed_at IS NOT NULL)
+--         )
+-- );
+--
+-- CREATE INDEX idx_job_project_id ON job (project_id);
+--
+-- CREATE TABLE "artifact"
+-- (
+--     id         uuid   NOT NULL PRIMARY KEY, -- auto generated uuid v7
+--     object_key text   NOT NULL,
+--     size_bytes bigint NOT NULL,
+--     job_id     uuid   NOT NULL,
+--     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
+-- );
+--
+-- CREATE INDEX idx_artifact_job_id
+--     ON artifact (job_id);
+--
+-- CREATE TABLE "job_log"
+-- (
+--     id         bigint      NOT NULL
+--         GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+--     job_id     uuid        NOT NULL,
+--     created_at timestamptz NOT NULL,
+--     topic      varchar,
+--     message    text,
+--     error      boolean,
+--     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
+-- );
+--
+-- CREATE INDEX idx_job_log
+--     ON job_log (job_id, created_at);
+--
+-- CREATE TABLE "user_to_project"
+-- (
+--     user_id    uuid NOT NULL,
+--     project_id uuid NOT NULL,
+--     -- projectRole: OWNER, MEMBER, VIEWER, NONE
+--     projectRole int  NOT NULL CHECK (projectRole > -1 AND projectRole < 4),
+--     PRIMARY KEY (user_id, project_id),
+--     FOREIGN KEY (user_id) REFERENCES prts_user (id) ON DELETE CASCADE,
+--     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE
+-- );
+--
+-- CREATE TABLE "oauth_identity"
+-- (
+--     issuer  varchar NOT NULL,
+--     subject varchar NOT NULL,
+--     user_id uuid    NOT NULL
+--         REFERENCES prts_user (id)
+--             ON DELETE CASCADE,
+--     PRIMARY KEY (issuer, subject)
+-- );
+--
+-- CREATE TABLE "resource_class"
+-- (
+--     name         varchar NOT NULL PRIMARY KEY,
+--     num_cpus     int     NOT NULL,
+--     mem_count    int     NOT NULL,
+--     disk_size    int     NOT NULL
+-- );
+--
+-- CREATE TABLE "pending_job"
+-- (
+--     id             uuid        NOT NULL PRIMARY KEY,
+--     resource_class varchar     NOT NULL,
+--     spec           jsonb       NOT NULL,
+--     created_at     timestamptz NOT NULL,
+--     FOREIGN KEY (resource_class) REFERENCES resource_class (name)
+-- );
+--
+-- CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);
+--
+-- CREATE TABLE "registeredWorker"
+-- (
+--     id   uuid    NOT NULL PRIMARY KEY,
+--     name varchar NOT NULL
+-- );
+--
+-- CREATE TABLE "worker_volume"
+-- (
+--     id         uuid        NOT NULL PRIMARY KEY,
+--     name       varchar     NOT NULL,
+--     created_at timestamptz NOT NULL,
+--     worker_id  uuid        NOT NULL,
+--     length     bigint      NOT NULL,
+--     used       bigint      NOT NULL,
+--     FOREIGN KEY (worker_id) REFERENCES registeredWorker (id),
+--     CHECK (length >= 0 AND used >= 0 AND used <= length)
+-- );
+--
+-- CREATE INDEX idx_worker_volume_worker_id ON worker_volume (worker_id);
