@@ -46,6 +46,11 @@ public class JobSpecOverridePermissions {
         return value;
     }
 
+    @RequirePermission(Perms.JOB_SPEC_LOCK)
+    public String lock(String value) {
+        return value;
+    }
+
     @RequirePermission(Perms.JOB_RESOURCE_CLASS)
     public String resourceClass(String name) {
         return name;

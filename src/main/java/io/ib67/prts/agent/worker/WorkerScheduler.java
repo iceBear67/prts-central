@@ -1,10 +1,13 @@
 package io.ib67.prts.agent.worker;
 
+import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.job.PendingJob;
+import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.project.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
+import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
 
 import java.util.Comparator;
@@ -46,7 +49,8 @@ final class WorkerScheduler {
                 var rows = PendingJob.listFifo();
                 rows.forEach(row -> {
                     var klass = row.getResourceClass();
-                    if (klass == null || klass.getName() == null || row.getSpec() == null) {
+                    if (klass == null || klass.getName() == null || row.getSpec() == null
+                            || row.getJob() == null) {
                         throw new IllegalStateException("pending job is incomplete: " + row.getId());
                     }
                 });
@@ -61,7 +65,7 @@ final class WorkerScheduler {
                 continue;
             }
             try {
-                if (schedule0(job.getResourceClass(), job.getSpec())) {
+                if (schedule0(job.getJob().getId(), job.getResourceClass(), job.getSpec())) {
                     QuarkusTransaction.requiringNew().run(() -> PendingJob.deleteById(job.getId()));
                 }
             } catch (RuntimeException e) {
@@ -73,21 +77,94 @@ final class WorkerScheduler {
     }
 
     /**
-     * Tries to place {@code spec} on a live worker. {@code false} means nobody eligible;
-     * the caller should enqueue. RPC failure after a lock is taken is thrown (and unlocked).
+     * Tries to place {@code jobId} on a live worker. {@code false} means it could not be placed
+     * right now — no eligible worker, or its {@link JobLock} is held — and the caller should keep it
+     * queued. {@code true} means the job needs no further dispatch, which also covers a job that
+     * went terminal in the meantime. RPC failure after a worker is locked is thrown (and unlocked).
      */
-    boolean schedule0(ResourceClass required, JobSpec spec) {
-        var selected = selectAndLock(required, spec);
-        if (selected.isEmpty()) {
+    boolean schedule0(UUID jobId, ResourceClass required, JobSpec spec) {
+        if (!isSchedulable(jobId)) {
+            return true;
+        }
+        var lockName = spec == null ? null : spec.normalizedLock();
+        if (lockName != null && !acquireLock(lockName, jobId)) {
             return false;
         }
-        var pick = selected.get();
+        var dispatched = false;
         try {
-            pick.registeredWorker().getRpc().createJob(spec, required);
+            var selected = selectAndLock(required, spec);
+            if (selected.isEmpty()) {
+                return false;
+            }
+            var pick = selected.get();
+            try {
+                pick.registeredWorker().getRpc().createJob(jobId, spec, required);
+            } catch (RuntimeException e) {
+                unlock(pick.id());
+                throw e;
+            }
+            if (!claimJob(jobId, pick.id())) {
+                // Cancelled while the worker was starting it: undo rather than leak the container.
+                cancelQuietly(pick, jobId);
+                return true;
+            }
+            dispatched = true;
             return true;
+        } finally {
+            if (!dispatched && lockName != null) {
+                releaseLock(jobId);
+            }
+        }
+    }
+
+    /** {@code false} once the job is gone or terminal, so there is nothing left to dispatch. */
+    private boolean isSchedulable(UUID jobId) {
+        return QuarkusTransaction.requiringNew().call(() -> Job.<Job>findByIdOptional(jobId)
+                .filter(job -> !job.isCompleted())
+                .isPresent());
+    }
+
+    /**
+     * Records the worker that took the job. {@code false} means the job went terminal (a cancel
+     * landed) while we were handing it over.
+     */
+    private boolean claimJob(UUID jobId, UUID workerId) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            var job = Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE);
+            if (job == null || job.isCompleted()) {
+                return false;
+            }
+            job.setWorker(workerId);
+            return true;
+        });
+    }
+
+    /**
+     * {@code false} means another live job holds the lock. A failed insert lost a race with a
+     * concurrent dispatch, which is also "busy": the caller stays queued and retries.
+     */
+    private boolean acquireLock(String lockName, UUID jobId) {
+        try {
+            return QuarkusTransaction.requiringNew().call(() -> JobLock.tryAcquire(lockName, jobId));
         } catch (RuntimeException e) {
-            unlock(pick.id());
-            throw e;
+            LOG.debugf(e, "could not take lock %s for job %s", lockName, jobId);
+            return false;
+        }
+    }
+
+    private void releaseLock(UUID jobId) {
+        try {
+            QuarkusTransaction.requiringNew().run(() -> JobLock.releaseBy(jobId));
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "failed to release the lock held by job %s", jobId);
+        }
+    }
+
+    private void cancelQuietly(Selection pick, UUID jobId) {
+        try {
+            pick.registeredWorker().getRpc().cancelJob(jobId);
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "job %s was cancelled but worker %s could not be told", jobId, pick.id());
         }
     }
 

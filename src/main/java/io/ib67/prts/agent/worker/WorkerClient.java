@@ -19,19 +19,16 @@ public final class WorkerClient {
 
     private final WebSocketConnection conn;
     private final ObjectMapper mapper;
-    private final Map<UUID, CompletableFuture<UUID>> outstanding = new ConcurrentHashMap<>();
+    /**
+     * Acks we are still waiting for, keyed by the id of the <em>attempt</em>. Not by job id: after a
+     * timeout the same job can be offered again, and a late ack for the abandoned attempt must not
+     * be mistaken for an ack of the new one.
+     */
+    private final Map<UUID, CompletableFuture<Void>> outstanding = new ConcurrentHashMap<>();
 
     public WorkerClient(WebSocketConnection conn, ObjectMapper mapper) {
         this.conn = conn;
         this.mapper = mapper;
-    }
-
-    public WebSocketConnection conn() {
-        return conn;
-    }
-
-    public ObjectMapper mapper() {
-        return mapper;
     }
 
     public Uni<Void> sendMessage(ClientboundMessage message) {
@@ -39,16 +36,16 @@ public final class WorkerClient {
     }
 
     /**
-     * Asks the worker to create a job and blocks until it reports the new {@code jobId}.
+     * Asks the worker to run {@code jobId} and blocks until it acknowledges.
      */
-    public UUID createJob(JobSpec spec, ResourceClass resourceClass) {
+    public void createJob(UUID jobId, JobSpec spec, ResourceClass resourceClass) {
         var requestId = UUID.randomUUID();
-        var future = new CompletableFuture<UUID>();
+        var future = new CompletableFuture<Void>();
         outstanding.put(requestId, future);
         try {
-            conn.sendText(new ClientboundMessage.CreateJob(requestId, spec, resourceClass))
+            conn.sendText(new ClientboundMessage.CreateJob(requestId, jobId, spec, resourceClass))
                     .await().atMost(SEND_TIMEOUT);
-            return future.get(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            future.get(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             future.completeExceptionally(e);
             throw new IllegalStateException("failed to create job on worker", e);
@@ -57,10 +54,23 @@ public final class WorkerClient {
         }
     }
 
-    void completeCreate(UUID requestId, UUID jobId) {
+    /**
+     * Tells the worker to stop {@code jobId}. Not acknowledged: the job is already terminal on our
+     * side, so there is nothing to wait for.
+     */
+    public void cancelJob(UUID jobId) {
+        try {
+            conn.sendText(new ClientboundMessage.CancelJob(jobId)).await().atMost(SEND_TIMEOUT);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("failed to cancel job on worker", e);
+        }
+    }
+
+    /** A late ack for an attempt we already gave up on finds nothing here, which is intended. */
+    void completeCreate(UUID requestId) {
         var future = outstanding.get(requestId);
         if (future != null) {
-            future.complete(jobId);
+            future.complete(null);
         }
     }
 

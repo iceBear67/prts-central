@@ -19,7 +19,8 @@ public record JobSpecOverride(
         @Nullable Map<String, String> labels,
         @Nullable List<String> command,
         @Nullable Map<UUID, JobSpec.VolumeSpec> volumes,
-        @Nullable Long timeout
+        @Nullable Long timeout,
+        @Nullable String lock
 ) {
     public JobSpec applyTo(JobSpec base, JobSpecOverridePermissions permissions) {
         Objects.requireNonNull(base, "spec");
@@ -31,7 +32,8 @@ public record JobSpecOverride(
                 apply(labels, permissions::labels, base.labels()),
                 apply(command, permissions::command, base.command()),
                 apply(volumes, permissions::volumes, base.volumes()),
-                timeout != null ? permissions.timeout(timeout) : base.timeout());
+                timeout != null ? permissions.timeout(timeout) : base.timeout(),
+                apply(lock, permissions::lock, base.lock()));
     }
 
     private static <T> T apply(T override, Function<T, T> gated, T fallback) {

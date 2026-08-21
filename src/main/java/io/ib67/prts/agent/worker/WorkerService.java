@@ -1,7 +1,9 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.job.PendingJob;
+import io.ib67.prts.agent.job.entity.JobLock;
+import io.ib67.prts.agent.job.entity.PendingJob;
+import io.ib67.prts.project.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.annotation.PostConstruct;
@@ -78,26 +80,40 @@ public class WorkerService {
         return true;
     }
 
-    boolean onJobCreated(UUID workerId, UUID requestId, UUID jobId) {
+    boolean onJobCreated(UUID workerId, UUID requestId) {
         var worker = activeWorkers.get(workerId);
         if (worker == null) {
             return false;
         }
         scheduler.onCreateAcknowledged(workerId);
-        worker.getRpc().completeCreate(requestId, jobId);
+        worker.getRpc().completeCreate(requestId);
         return true;
     }
 
     /**
-     * Places the job on a live worker, or queues it. Returns the pending-row id when queued,
-     * otherwise {@code null}.
+     * Places {@code jobId} on a live worker, or queues it. Returns the pending-row id when queued,
+     * otherwise {@code null}. A queued job is retried by {@link #startPendingDispatch()} until a
+     * worker is free and, when the spec names one, its {@link JobLock} is.
      */
-    public UUID schedule(ResourceClass resourceClass, JobSpec spec) {
+    public UUID schedule(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
         var required = requireResourceClass(resourceClass);
-        if (scheduler.schedule0(required, spec)) {
+        if (scheduler.schedule0(jobId, required, spec)) {
             return null;
         }
-        return enqueue(required, spec);
+        return enqueue(jobId, required, spec);
+    }
+
+    /**
+     * Asks the worker running {@code jobId} to stop it. {@code false} means that worker is not
+     * connected, so there was nobody to tell.
+     */
+    public boolean cancelJob(UUID workerId, UUID jobId) {
+        var worker = activeWorkers.get(workerId);
+        if (worker == null) {
+            return false;
+        }
+        worker.getRpc().cancelJob(jobId);
+        return true;
     }
 
     private ResourceClass requireResourceClass(ResourceClass resourceClass) {
@@ -113,12 +129,13 @@ public class WorkerService {
         });
     }
 
-    private UUID enqueue(ResourceClass resourceClass, JobSpec spec) {
+    private UUID enqueue(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
         return QuarkusTransaction.requiringNew().call(() -> {
-            var managed = ResourceClass.getEntityManager()
-                    .getReference(ResourceClass.class, resourceClass.getName());
+            var entityManager = ResourceClass.getEntityManager();
+            var managed = entityManager.getReference(ResourceClass.class, resourceClass.getName());
             var pending = PendingJob.builder()
                     .resourceClass(managed)
+                    .job(entityManager.getReference(Job.class, jobId))
                     .spec(spec)
                     .build();
             pending.persistAndFlush();

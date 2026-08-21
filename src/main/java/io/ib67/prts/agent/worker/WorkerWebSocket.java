@@ -79,7 +79,7 @@ public class WorkerWebSocket {
     }
 
     private ClientboundMessage handleJobCreated(ServerboundMessage.JobCreated created) {
-        var accepted = workerService.onJobCreated(workerId(), created.requestId(), created.jobId());
+        var accepted = workerService.onJobCreated(workerId(), created.requestId());
         return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
     }
 

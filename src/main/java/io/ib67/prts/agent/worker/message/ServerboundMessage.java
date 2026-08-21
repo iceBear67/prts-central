@@ -30,7 +30,11 @@ public sealed interface ServerboundMessage {
     record UpdateResourceInfo(RegisteredWorker.Info info) implements ServerboundMessage {
     }
 
-    record JobCreated(UUID requestId, UUID jobId) implements ServerboundMessage {
+    /**
+     * Acknowledges {@code ClientboundMessage.CreateJob}. Carries no job id: the job is identified by
+     * the one we sent, and {@code requestId} identifies which attempt is being acknowledged.
+     */
+    record JobCreated(UUID requestId) implements ServerboundMessage {
     }
 
     record JobStateUpdate(UUID jobId, JobState state) implements ServerboundMessage {

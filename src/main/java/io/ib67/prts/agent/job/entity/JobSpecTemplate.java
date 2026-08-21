@@ -1,13 +1,12 @@
-package io.ib67.prts.agent.job;
+package io.ib67.prts.agent.job.entity;
 
+import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.ResourceClass;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
-import io.quarkus.panache.common.Sort;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -17,51 +16,51 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
-import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
-import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A job that could not be dispatched because no worker was online. Rows are drained FIFO once a
- * suitable worker shows up or updates its remaining resources.
+ * A reusable {@link JobSpec} that can be looked up and scheduled later. The resource class is
+ * optional; when null, the caller chooses one at schedule time.
  */
 @Entity
-@Table(
-        name = "pending_job",
-        indexes = @Index(name = "idx_pending_job_created_at", columnList = "created_at")
-)
+@Table(name = "job_spec_template")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
 @ToString
-public class PendingJob extends PanacheEntityBase {
+public class JobSpecTemplate extends PanacheEntityBase {
 
     @Id
     @UuidGenerator(style = UuidGenerator.Style.VERSION_7)
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "resource_class", nullable = false)
-    @ToString.Exclude
-    private ResourceClass resourceClass;
+    @Column(name = "name", nullable = false, columnDefinition = "varchar")
+    private String name;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "spec", nullable = false, columnDefinition = "jsonb")
     private JobSpec spec;
 
-    @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private Instant createdAt;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "resource_class")
+    @ToString.Exclude
+    private ResourceClass resourceClass;
 
-    public static List<PendingJob> listFifo() {
-        return listAll(Sort.by("createdAt").and("id"));
+    public static List<JobSpecTemplate> listAllFetched() {
+        return find("from JobSpecTemplate t left join fetch t.resourceClass").list();
+    }
+
+    public static Optional<JobSpecTemplate> findByIdFetched(UUID id) {
+        return find("from JobSpecTemplate t left join fetch t.resourceClass where t.id = ?1", id)
+                .firstResultOptional();
     }
 }

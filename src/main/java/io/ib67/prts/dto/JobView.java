@@ -34,7 +34,8 @@ public record JobView(
             Map<String, String> labels,
             List<String> command,
             Map<UUID, JobSpec.VolumeSpec> volumes,
-            long timeout
+            long timeout,
+            @Nullable String lock
     ) {
         public static SpecView of(JobSpec spec) {
             if (spec == null) {
@@ -46,7 +47,8 @@ public record JobView(
                     spec.labels(),
                     spec.command(),
                     spec.volumes(),
-                    spec.timeout());
+                    spec.timeout(),
+                    spec.lock());
         }
     }
 

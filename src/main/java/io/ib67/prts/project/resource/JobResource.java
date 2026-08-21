@@ -1,6 +1,8 @@
 package io.ib67.prts.project.resource;
 
-import io.ib67.prts.agent.job.JobSpecTemplate;
+import io.ib67.prts.Perms;
+import io.ib67.prts.agent.job.entity.JobSpecTemplate;
+import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.JobLogPage;
 import io.ib67.prts.dto.JobSpecTemplateView;
 import io.ib67.prts.dto.JobView;
@@ -13,6 +15,7 @@ import jakarta.transaction.Transactional;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -56,6 +59,22 @@ public class JobResource {
     public JobView getJob(@PathParam("id") UUID id) {
         var job = jobService.findById(id).orElseThrow(NotFoundException::new);
         return JobView.of(job, jobService.listArtifacts(id));
+    }
+
+    /** Runs the spec this job was created with again, as a new job. */
+    @POST
+    @Path("/{id}/rerun")
+    @RequirePermission(value = Perms.JOB_CREATE, defaultValue = true)
+    public JobView rerunJob(@PathParam("id") UUID id) {
+        return jobService.rerun(id);
+    }
+
+    /** Stops the job on its worker and marks it cancelled. */
+    @POST
+    @Path("/{id}/cancel")
+    @RequirePermission(value = Perms.JOB_CANCEL, defaultValue = true)
+    public JobView cancelJob(@PathParam("id") UUID id) {
+        return jobService.cancel(id);
     }
 
     @GET

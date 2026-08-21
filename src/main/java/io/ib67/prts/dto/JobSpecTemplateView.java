@@ -1,7 +1,7 @@
 package io.ib67.prts.dto;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.job.JobSpecTemplate;
+import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import jakarta.annotation.Nullable;
 
 import java.util.UUID;

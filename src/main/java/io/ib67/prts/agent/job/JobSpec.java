@@ -2,6 +2,7 @@ package io.ib67.prts.agent.job;
 
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.quarkus.security.ForbiddenException;
+import jakarta.annotation.Nullable;
 import jakarta.ws.rs.BadRequestException;
 
 import java.util.HashMap;
@@ -10,6 +11,10 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 
+/**
+ * @param lock Two jobs naming the same lock never run at the same time. Scoped to the project the
+ *             job belongs to; {@code null} or blank means no mutual exclusion.
+ */
 public record JobSpec(
         String image,
         Map<String, String> environment,
@@ -17,7 +22,8 @@ public record JobSpec(
         Map<String, String> labels,
         List<String> command,
         Map<UUID, VolumeSpec> volumes,
-        long timeout
+        long timeout,
+        @Nullable String lock
 ) {
     public static final String PROMPT_ENV = "PRTS_PROMPT";
 
@@ -32,7 +38,13 @@ public record JobSpec(
         }
         var env = environment == null ? new HashMap<String, String>() : new HashMap<>(environment);
         env.put(PROMPT_ENV, prompt);
-        return new JobSpec(image, env, secrets, labels, command, volumes, timeout);
+        return new JobSpec(image, env, secrets, labels, command, volumes, timeout, lock);
+    }
+
+    /** The lock to contend for, or {@code null} when this spec is not mutually exclusive. */
+    @Nullable
+    public String normalizedLock() {
+        return lock == null || lock.isBlank() ? null : lock;
     }
 
     /**

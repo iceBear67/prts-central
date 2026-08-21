@@ -14,24 +14,40 @@
 --
 -- CREATE TABLE "job"
 -- (
---     id           uuid        NOT NULL PRIMARY KEY, -- auto generated uuid v7
---     project_id   uuid        NOT NULL,
---     created_at   timestamptz NOT NULL,
---     completed_at timestamptz,
---     state        varchar     NOT NULL DEFAULT 'PENDING',
---     spec         jsonb,
+--     id             uuid        NOT NULL PRIMARY KEY, -- auto generated uuid v7
+--     project_id     uuid        NOT NULL,
+--     created_at     timestamptz NOT NULL,
+--     completed_at   timestamptz,
+--     state          varchar     NOT NULL DEFAULT 'PENDING',
+--     worker         uuid,                             -- set once a worker takes the job
+--     spec           jsonb,
+--     resource_class varchar,                           -- what it was scheduled against; needed to rerun
 --     FOREIGN KEY (project_id)
 --         REFERENCES project (id)
 --         ON DELETE CASCADE,
---     CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS')),
+--     FOREIGN KEY (resource_class) REFERENCES resource_class (name),
+--     CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS', 'CANCELLED')),
 --     CHECK (
 --         ((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL)
 --             OR
---         ((state = 'SUCCESS' OR state = 'FAILED') AND completed_at IS NOT NULL)
+--         (state IN ('SUCCESS', 'FAILED', 'CANCELLED') AND completed_at IS NOT NULL)
 --         )
 -- );
 --
 -- CREATE INDEX idx_job_project_id ON job (project_id);
+--
+-- -- Holder of JobSpec.lock: two jobs naming the same lock never run at once. Scoped per project,
+-- -- held from dispatch until the job is terminal.
+-- CREATE TABLE "job_lock"
+-- (
+--     project_id  uuid        NOT NULL,
+--     name        varchar     NOT NULL,
+--     job_id      uuid        NOT NULL UNIQUE, -- a spec carries one lock, so one per job
+--     acquired_at timestamptz NOT NULL,
+--     PRIMARY KEY (project_id, name),
+--     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE,
+--     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
+-- );
 --
 -- CREATE TABLE "artifact"
 -- (
@@ -95,8 +111,10 @@
 --     id             uuid        NOT NULL PRIMARY KEY,
 --     resource_class varchar     NOT NULL,
 --     spec           jsonb       NOT NULL,
+--     job_id         uuid        UNIQUE, -- the queued job; a job is queued at most once
 --     created_at     timestamptz NOT NULL,
---     FOREIGN KEY (resource_class) REFERENCES resource_class (name)
+--     FOREIGN KEY (resource_class) REFERENCES resource_class (name),
+--     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
 -- );
 --
 -- CREATE INDEX idx_pending_job_created_at ON pending_job (created_at);

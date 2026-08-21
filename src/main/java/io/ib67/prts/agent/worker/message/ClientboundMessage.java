@@ -16,13 +16,23 @@ import java.util.UUID;
 @JsonSubTypes({
         @JsonSubTypes.Type(value = ClientboundMessage.Response.class, name = "result"),
         @JsonSubTypes.Type(value = ClientboundMessage.CreateJob.class, name = "createJob"),
+        @JsonSubTypes.Type(value = ClientboundMessage.CancelJob.class, name = "cancelJob"),
         @JsonSubTypes.Type(value = ClientboundMessage.PresignedUpload.class, name = "presignedUpload"),
 })
 public sealed interface ClientboundMessage {
     record Response(boolean ok, String message) implements ClientboundMessage {
     }
 
-    record CreateJob(UUID requestId, JobSpec spec, ResourceClass resourceClass) implements ClientboundMessage {
+    /**
+     * @param jobId the id the job is known by on both sides: the worker must quote it back in
+     *              {@code JobStateUpdate}, {@code UpdateJobLog} and {@code UploadArtifactRequest}.
+     */
+    record CreateJob(UUID requestId, UUID jobId, JobSpec spec, ResourceClass resourceClass)
+            implements ClientboundMessage {
+    }
+
+    /** Stop {@code jobId} and release its resources. The job is already terminal on our side. */
+    record CancelJob(UUID jobId) implements ClientboundMessage {
     }
 
     record PresignedUpload(

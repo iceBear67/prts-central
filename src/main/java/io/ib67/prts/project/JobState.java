@@ -11,9 +11,11 @@ public enum JobState {
     /** The job finished unsuccessfully. */
     FAILED,
     /** The job finished successfully. */
-    SUCCESS;
+    SUCCESS,
+    /** The job was cancelled before it could finish on its own. */
+    CANCELLED;
 
     public boolean isTerminal() {
-        return this == SUCCESS || this == FAILED;
+        return this == SUCCESS || this == FAILED || this == CANCELLED;
     }
 }
