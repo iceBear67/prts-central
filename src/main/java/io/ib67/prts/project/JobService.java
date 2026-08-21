@@ -6,7 +6,7 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.job.entity.PendingJob;
-import io.ib67.prts.agent.worker.ResourceClass;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.dto.CreateJobRequest;
 import io.ib67.prts.dto.JobView;
@@ -280,14 +280,9 @@ public class JobService {
         return JobLog.listByJob(jobId);
     }
 
-    public List<JobLog> listLogs(UUID jobId, int page, int size) {
+    public List<JobLog> listLogs(UUID jobId, int offset, int length) {
         require(jobId);
-        return JobLog.listByJob(jobId, page, size);
-    }
-
-    public long countLogs(UUID jobId) {
-        require(jobId);
-        return JobLog.countByJob(jobId);
+        return JobLog.listByJob(jobId, offset, length);
     }
 
     @Transactional
@@ -300,7 +295,7 @@ public class JobService {
                 .job(job)
                 .topic(topic)
                 .message(message)
-                .error(error)
+                .error(Boolean.TRUE.equals(error))
                 .build();
         log.persist();
         return log;

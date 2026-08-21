@@ -1,6 +1,5 @@
 package io.ib67.prts.agent.worker;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.project.ArtifactUploadService;
@@ -25,8 +24,6 @@ public class WorkerWebSocket {
     JobService jobService;
     @Inject
     ArtifactUploadService artifactUploadService;
-    @Inject
-    ObjectMapper mapper;
 
     @OnClose
     public void onClose() {
@@ -56,7 +53,7 @@ public class WorkerWebSocket {
         if (connection.userData().get(INTERNAL_WORKER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
         var result = workerService.registerWorker(
-                r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection, mapper), r.info()));
+                r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
         if (result) {
             connection.userData().put(INTERNAL_WORKER_ID, r.id().toString());
         }

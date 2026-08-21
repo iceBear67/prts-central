@@ -70,7 +70,7 @@
 --     created_at timestamptz NOT NULL,
 --     topic      varchar,
 --     message    text,
---     error      boolean,
+--     error      boolean     NOT NULL,
 --     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
 -- );
 --

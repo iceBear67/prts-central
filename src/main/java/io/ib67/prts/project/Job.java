@@ -1,7 +1,7 @@
 package io.ib67.prts.project;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.worker.ResourceClass;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;

@@ -1,7 +1,7 @@
 package io.ib67.prts.agent.worker;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.mutiny.Uni;
@@ -18,7 +18,6 @@ public final class WorkerClient {
     private static final long CREATE_TIMEOUT_SECONDS = 30;
 
     private final WebSocketConnection conn;
-    private final ObjectMapper mapper;
     /**
      * Acks we are still waiting for, keyed by the id of the <em>attempt</em>. Not by job id: after a
      * timeout the same job can be offered again, and a late ack for the abandoned attempt must not
@@ -26,9 +25,8 @@ public final class WorkerClient {
      */
     private final Map<UUID, CompletableFuture<Void>> outstanding = new ConcurrentHashMap<>();
 
-    public WorkerClient(WebSocketConnection conn, ObjectMapper mapper) {
+    public WorkerClient(WebSocketConnection conn) {
         this.conn = conn;
-        this.mapper = mapper;
     }
 
     public Uni<Void> sendMessage(ClientboundMessage message) {

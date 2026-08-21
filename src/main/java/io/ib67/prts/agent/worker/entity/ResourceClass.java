@@ -1,4 +1,4 @@
-package io.ib67.prts.agent.worker;
+package io.ib67.prts.agent.worker.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;

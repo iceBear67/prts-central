@@ -90,23 +90,19 @@ public class JobResource {
     @Transactional
     public JobLogPage getJobLogs(
             @PathParam("id") UUID id,
-            @QueryParam("page") @DefaultValue("0") int page,
-            @QueryParam("size") Integer size) {
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         jobService.findById(id).orElseThrow(NotFoundException::new);
-        var pageSize = clampPageSize(size);
-        var pageIndex = Math.max(page, 0);
-        return JobLogPage.of(
-                jobService.listLogs(id, pageIndex, pageSize),
-                pageIndex,
-                pageSize,
-                jobService.countLogs(id));
+        var start = Math.max(offset, 0);
+        var window = clampLength(length);
+        return JobLogPage.of(jobService.listLogs(id, start, window), start, window);
     }
 
-    private int clampPageSize(Integer size) {
+    private int clampLength(Integer length) {
         var max = jobConfig.log().maxPageSize();
-        if (size == null || size <= 0) {
+        if (length == null || length <= 0) {
             return max;
         }
-        return Math.min(size, max);
+        return Math.min(length, max);
     }
 }

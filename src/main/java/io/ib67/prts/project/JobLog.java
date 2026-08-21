@@ -66,7 +66,11 @@ public class JobLog extends PanacheEntityBase {
     @Column(name = "message", columnDefinition = "text")
     private String message;
 
-    @Column(name = "error")
+    /**
+     * Normalized on write, so nothing new lands here as null. Rows written before the column became
+     * {@code NOT NULL} may still hold null, which means "no error".
+     */
+    @Column(name = "error", nullable = false)
     private Boolean error;
 
     /** Ordered by creation time so the query is served straight out of {@code idx_job_log}. */
@@ -74,11 +78,8 @@ public class JobLog extends PanacheEntityBase {
         return list("job.id", Sort.by("createdAt"), jobId);
     }
 
-    public static List<JobLog> listByJob(UUID jobId, int page, int size) {
-        return find("job.id", Sort.by("createdAt"), jobId).page(page, size).list();
-    }
-
-    public static long countByJob(UUID jobId) {
-        return count("job.id", jobId);
+    /** {@code range} is inclusive on both ends, hence {@code offset + length - 1}. */
+    public static List<JobLog> listByJob(UUID jobId, int offset, int length) {
+        return find("job.id", Sort.by("createdAt"), jobId).range(offset, offset + length - 1).list();
     }
 }

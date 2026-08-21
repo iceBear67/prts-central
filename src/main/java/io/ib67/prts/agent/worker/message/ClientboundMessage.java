@@ -3,7 +3,7 @@ package io.ib67.prts.agent.worker.message;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.worker.ResourceClass;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 
 import java.time.Instant;
 import java.util.UUID;

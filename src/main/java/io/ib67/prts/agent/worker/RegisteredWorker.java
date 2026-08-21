@@ -1,5 +1,6 @@
 package io.ib67.prts.agent.worker;
 
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 import jakarta.annotation.Nullable;
 import lombok.*;
 
