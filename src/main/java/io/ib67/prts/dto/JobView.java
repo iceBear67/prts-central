@@ -52,6 +52,16 @@ public record JobView(
         }
     }
 
+    /** A job that has produced nothing yet — one just created, or just re-run. */
+    public static JobView of(Job job) {
+        return of(job, List.of());
+    }
+
+    /**
+     * Reads only what a detached job carries: the project is touched for its id alone, which a lazy
+     * proxy answers without loading. Keep it that way — callers map jobs after their transaction has
+     * closed.
+     */
     public static JobView of(Job job, List<Artifact> artifacts) {
         return new JobView(
                 job.getId(),

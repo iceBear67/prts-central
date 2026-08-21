@@ -1,6 +1,5 @@
 package io.ib67.prts.auth;
 
-import io.ib67.prts.Perms;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserService;
@@ -29,7 +28,7 @@ public class UserIdentityAugmenter implements SecurityIdentityAugmentor {
         if (issuer == null || subject == null) return Uni.createFrom().item(identity);
         return context.runBlocking(() -> userService.findByIssuerAndSubject(issuer, subject).map(user ->
                 (SecurityIdentity) QuarkusSecurityIdentity.builder(identity)
-                        .addRole(permissionService.has(user.getId(), Perms.ADMIN_OF_ALL) ? "admin" : "user")
+                        .addRole(permissionService.isAdmin(user.getId()) ? "admin" : "user")
                         .addAttribute(User.class.getName(), user)
                         .build()
         ).orElse(identity));
