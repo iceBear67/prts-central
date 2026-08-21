@@ -7,6 +7,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.ClientErrorException;
+import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -92,11 +94,23 @@ public class UserService {
                 .getResultList();
     }
 
+    /** Memberships rather than projects, so callers can show the role along with each project. */
+    public List<UserToProject> listMemberships(UUID userId) {
+        return UserToProject.listByUserFetched(userId);
+    }
+
+    public List<UserToProject> listMembers(UUID projectId) {
+        return UserToProject.listByProjectFetched(projectId);
+    }
+
     @Transactional
     public UserToProject grant(UUID userId, UUID projectId, ProjectRole projectRole) {
         var existing = UserToProject.findByUserAndProject(userId, projectId);
         if (existing.isPresent()) {
             var link = existing.get();
+            if (link.getProjectRole() == ProjectRole.OWNER && projectRole != ProjectRole.OWNER) {
+                requireAnotherOwner(userId, projectId);
+            }
             link.setProjectRole(projectRole);
             return link;
         }
@@ -107,7 +121,22 @@ public class UserService {
 
     @Transactional
     public boolean revoke(UUID userId, UUID projectId) {
+        UserToProject.findByUserAndProject(userId, projectId)
+                .filter(link -> link.getProjectRole() == ProjectRole.OWNER)
+                .ifPresent(link -> requireAnotherOwner(userId, projectId));
         return UserToProject.deleteById(new UserToProject.Id(userId, projectId));
+    }
+
+    /**
+     * A project whose last owner steps down can never be administered again — no one left could grant
+     * the role back — so both demotion and removal stop here.
+     */
+    private void requireAnotherOwner(UUID userId, UUID projectId) {
+        if (!UserToProject.hasOtherOwner(projectId, userId)) {
+            throw new ClientErrorException(
+                    "the last owner of project " + projectId + " cannot step down",
+                    Response.Status.CONFLICT);
+        }
     }
 
     private User requireUser(UUID id) {

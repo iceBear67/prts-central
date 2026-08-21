@@ -6,8 +6,7 @@ import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.io.Serial;
-import java.io.Serializable;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -57,6 +56,22 @@ public class UserToProject extends PanacheEntityBase {
 
     public static Optional<UserToProject> findByUserAndProject(UUID userId, UUID projectId) {
         return findByIdOptional(new Id(userId, projectId));
+    }
+
+    /** Memberships of a project, each with its user loaded for display. */
+    public static List<UserToProject> listByProjectFetched(UUID projectId) {
+        return find("from UserToProject l join fetch l.user where l.id.projectId = ?1", projectId).list();
+    }
+
+    /** Memberships of a user, each with its project loaded for display. */
+    public static List<UserToProject> listByUserFetched(UUID userId) {
+        return find("from UserToProject l join fetch l.project where l.id.userId = ?1", userId).list();
+    }
+
+    /** Whether the project is owned by anyone other than {@code excludedUserId}. */
+    public static boolean hasOtherOwner(UUID projectId, UUID excludedUserId) {
+        return count("id.projectId = ?1 and projectRole = ?2 and id.userId <> ?3",
+                projectId, ProjectRole.OWNER, excludedUserId) > 0;
     }
 
     @Embeddable

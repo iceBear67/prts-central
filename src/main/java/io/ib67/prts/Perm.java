@@ -11,6 +11,10 @@ package io.ib67.prts;
 public enum Perm {
     ADMIN_OF_ALL("admin:all", true),
 
+    PROJECT_READ("project:read", false),
+    PROJECT_UPDATE("project:update", false),
+    PROJECT_MEMBER_MANAGE("project:member:manage", false),
+
     JOB_READ("job:read", false),
     JOB_LOG_READ("job:log:read", false),
     JOB_ARTIFACT_READ("job:artifact:read", false),

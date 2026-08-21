@@ -81,8 +81,9 @@
 -- (
 --     user_id    uuid NOT NULL,
 --     project_id uuid NOT NULL,
---     -- projectRole: OWNER, MEMBER, VIEWER, NONE
---     projectRole int  NOT NULL CHECK (projectRole > -1 AND projectRole < 4),
+--     -- role: OWNER, MEMBER, VIEWER, NONE. Hibernate derives both the smallint and the CHECK from
+--     -- the ordinal enum, so this is what it emits rather than a hand-written constraint.
+--     role       smallint NOT NULL CHECK (role >= 0 AND role <= 3),
 --     PRIMARY KEY (user_id, project_id),
 --     FOREIGN KEY (user_id) REFERENCES prts_user (id) ON DELETE CASCADE,
 --     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE
