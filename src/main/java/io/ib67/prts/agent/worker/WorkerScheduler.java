@@ -46,17 +46,10 @@ final class WorkerScheduler {
     void dispatchPending() {
         List<PendingJob> pending;
         try {
-            pending = QuarkusTransaction.requiringNew().call(() -> {
-                var rows = PendingJob.listFifo();
-                rows.forEach(row -> {
-                    var klass = row.getResourceClass();
-                    if (klass == null || klass.getName() == null || row.getSpec() == null
-                            || row.getJob() == null) {
-                        throw new IllegalStateException("pending job is incomplete: " + row.getId());
-                    }
-                });
-                return List.copyOf(rows);
-            });
+            pending = QuarkusTransaction.requiringNew().call(() -> PendingJob.listFifo().stream()
+                    // Skipped, not thrown: one unusable row must not stop the queue from draining.
+                    .filter(WorkerScheduler::isComplete)
+                    .toList());
         } catch (RuntimeException e) {
             LOG.error("failed to load pending jobs", e);
             return;
@@ -75,6 +68,15 @@ final class WorkerScheduler {
                 inFlightPending.remove(job.getId());
             }
         }
+    }
+
+    private static boolean isComplete(PendingJob row) {
+        var klass = row.getResourceClass();
+        if (klass != null && klass.getName() != null && row.getSpec() != null && row.getJob() != null) {
+            return true;
+        }
+        LOG.errorf("skipping incomplete pending job %s", row.getId());
+        return false;
     }
 
     /**
@@ -102,6 +104,10 @@ final class WorkerScheduler {
                 pick.registeredWorker().getRpc().createJob(jobId, spec, required);
             } catch (RuntimeException e) {
                 unlock(pick.id());
+                // The offer timed out rather than being refused, so the worker may have started the
+                // job anyway. Tell it to stop before this job is queued again or failed, or it runs
+                // twice — with the lock this attempt is about to release.
+                cancelQuietly(pick, jobId);
                 throw e;
             }
             if (!claimJob(jobId, pick.id())) {

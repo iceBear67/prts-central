@@ -8,10 +8,7 @@ import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.user.UserContext;
-import io.ib67.prts.user.UserService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
-import io.quarkus.security.UnauthorizedException;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -32,10 +29,6 @@ public class JobService {
 
     @Inject
     ProjectService projectService;
-    @Inject
-    UserContext userContext;
-    @Inject
-    UserService userService;
     @Inject
     WorkerService workerService;
     @Inject
@@ -83,8 +76,8 @@ public class JobService {
 
     /**
      * Creates a job from a template, applying the override fields the caller is permitted to set,
-     * then schedules it. Reaching the project at all is the endpoint's business; what is enforced
-     * here is what the spec may reach — one permission per override field, plus volume access.
+     * then schedules it. Reaching the project is the endpoint's business; enforced here is what the
+     * spec may reach — one permission per override field, plus the volume rule.
      */
     public Job createFromTemplate(
             UUID projectId,
@@ -138,7 +131,7 @@ public class JobService {
                 ? template.getSpec()
                 : override.applyTo(template.getSpec(), overridePermissions))
                 .withPrompt(prompt);
-        requireVolumeAccess(spec);
+        spec.requireVolumesIn(projectId);
         var resourceClass = resolveResourceClass(
                 resourceClassName == null ? null : overridePermissions.resourceClass(resourceClassName),
                 template.getResourceClass());
@@ -147,18 +140,25 @@ public class JobService {
         return new PreparedJob(job, spec, resourceClass);
     }
 
+    /**
+     * Authorized as if the caller were writing the spec from scratch, so nobody re-runs what they
+     * could not have created. Stricter than create-from-template, whose own fields need no
+     * permission — a job does not record which template it came from.
+     */
     private PreparedJob prepareRerun(UUID projectId, UUID jobId) {
         var source = requireIn(projectId, jobId, Job.findByIdFetched(jobId).orElse(null));
         var project = source.getProject();
-        var spec = source.getSpec();
-        if (spec == null) {
+        if (source.getSpec() == null) {
             throw new BadRequestException("job has no spec to rerun");
         }
-        var resourceClass = source.getResourceClass();
-        if (resourceClass == null || resourceClass.getName() == null) {
+        var sourceClass = source.getResourceClass();
+        if (sourceClass == null || sourceClass.getName() == null) {
             throw new BadRequestException("job has no resource class to rerun with");
         }
-        requireVolumeAccess(spec);
+        var spec = JobSpecOverride.of(source.getSpec()).applyTo(JobSpec.EMPTY, overridePermissions);
+        var resourceClass = resolveResourceClass(
+                overridePermissions.resourceClass(sourceClass.getName()), sourceClass);
+        spec.requireVolumesIn(projectId);
         var job = Job.builder().project(project).spec(spec).resourceClass(resourceClass).build();
         job.persist();
         return new PreparedJob(job, spec, resourceClass);
@@ -211,20 +211,6 @@ public class JobService {
         }
     }
 
-    /**
-     * A spec may only mount volumes of projects the caller is a member of, wherever the spec came
-     * from. This one stays here because it is a rule about the spec, and the spec is only known once
-     * the template and the override have been merged.
-     */
-    private void requireVolumeAccess(JobSpec spec) {
-        var user = userContext.get();
-        if (user == null) {
-            throw new UnauthorizedException();
-        }
-        spec.requireVolumeAccess(volumeProject ->
-                userService.hasAtLeast(user.getId(), volumeProject, ProjectRole.MEMBER));
-    }
-
     private ResourceClass resolveResourceClass(String requestedName, ResourceClass templateClass) {
         if (requestedName != null) {
             var found = ResourceClass.<ResourceClass>findById(requestedName);
@@ -246,17 +232,11 @@ public class JobService {
     private record CancelledJob(Job job, @Nullable UUID worker) {
     }
 
-    @Transactional
-    public Job assignWorker(UUID jobId, UUID worker) {
-        var job = requireOpen(jobId);
-        job.setWorker(worker);
-        return job;
-    }
-
+    /** Locked like {@link #prepareCancel}: the terminal-state guard below is a check-then-write. */
     @Transactional
     public Optional<Job> applyState(UUID jobId, JobState state) {
         Objects.requireNonNull(state, "jobState");
-        var found = Job.<Job>findByIdOptional(jobId);
+        var found = Optional.ofNullable(Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE));
         if (found.isEmpty()) {
             return Optional.empty();
         }

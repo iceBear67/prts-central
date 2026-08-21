@@ -83,10 +83,11 @@ public class ProjectResource {
     @Path("/{projectId}/member")
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
+    /**
+     * A project nobody can see and a project that does not exist are the same answer here: the
+     * permission check runs first and cannot tell them apart, so there is no 404 to be had.
+     */
     public List<ProjectMemberView> listMembers(@ProjectId @PathParam("projectId") UUID projectId) {
-        // Not just for the 404: without it a project that does not exist would answer with an empty
-        // roster, which reads as "nobody is on it".
-        projectService.require(projectId);
         return userService.listMembers(projectId).stream()
                 .map(ProjectMemberView::of)
                 .toList();

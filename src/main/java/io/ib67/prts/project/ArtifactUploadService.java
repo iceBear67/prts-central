@@ -17,11 +17,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @ApplicationScoped
 public class ArtifactUploadService {
@@ -30,6 +34,8 @@ public class ArtifactUploadService {
 
     private Cache<UUID, PendingUpload> pending;
     private final AtomicInteger pendingCount = new AtomicInteger();
+    /** Uploads currently being promoted, so the sweeper and the removal listener never overlap. */
+    private final Set<UUID> promoting = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService sweeper = Executors.newSingleThreadScheduledExecutor(runnable -> {
         var thread = new Thread(runnable, "prts-artifact-upload-sweeper");
         thread.setDaemon(true);
@@ -74,7 +80,9 @@ public class ArtifactUploadService {
         var objectKey = destKey(jobId, uploadId, fileName);
         var expiresAt = Instant.now().plus(storageConfig.presignDuration());
         var session = new PendingUpload(uploadId, jobId, workerId, artifactName, objectKey, sizeBytes, expiresAt);
-        var stored = false;
+        // Flipped inside the callback, not after the call: a commit failure afterwards would otherwise
+        // have both this method and the removal listener decrement the slot count.
+        var stored = new AtomicBoolean();
         try {
             jobService.assertCanStoreArtifact(
                     jobId,
@@ -82,8 +90,10 @@ public class ArtifactUploadService {
                     sizeBytes,
                     () -> reservedBytes(jobId),
                     storageConfig.maxJobSize().asLongValue(),
-                    () -> pending.put(uploadId, session));
-            stored = true;
+                    () -> {
+                        pending.put(uploadId, session);
+                        stored.set(true);
+                    });
             var put = storageService.presignPut(objectKey, sizeBytes);
             return new ClientboundMessage.PresignedUpload(
                     uploadId,
@@ -95,7 +105,7 @@ public class ArtifactUploadService {
                     put.expiresAt(),
                     sizeBytes);
         } catch (RuntimeException e) {
-            if (stored) {
+            if (stored.get()) {
                 pending.invalidate(uploadId);
             } else {
                 pendingCount.decrementAndGet();
@@ -130,10 +140,26 @@ public class ArtifactUploadService {
     private void sweep() {
         try {
             for (var session : List.copyOf(pending.asMap().values())) {
-                tryPromote(session);
+                claimed(session, this::tryPromote);
             }
         } catch (RuntimeException e) {
             LOG.error("artifact upload sweeper failed", e);
+        }
+    }
+
+    /**
+     * Runs {@code work} only if nothing else is on this upload. The sweeper and the removal listener
+     * (on the common pool) both HEAD-then-insert, and could otherwise promote it twice — or delete
+     * the object after the other thread persisted it.
+     */
+    private void claimed(PendingUpload session, Consumer<PendingUpload> work) {
+        if (!promoting.add(session.uploadId())) {
+            return;
+        }
+        try {
+            work.accept(session);
+        } finally {
+            promoting.remove(session.uploadId());
         }
     }
 
@@ -185,7 +211,7 @@ public class ArtifactUploadService {
         pendingCount.decrementAndGet();
         if (session != null && cause.wasEvicted()) {
             LOG.infof("pending artifact upload %s expired (%s)", uploadId, cause);
-            tryPromoteOrDelete(session);
+            claimed(session, this::tryPromoteOrDelete);
         }
     }
 

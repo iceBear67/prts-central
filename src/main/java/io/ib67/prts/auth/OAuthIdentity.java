@@ -5,9 +5,9 @@ import io.ib67.prts.user.UserToProject;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
-import java.io.Serial;
-import java.io.Serializable;
 import java.util.Optional;
 
 /**
@@ -30,6 +30,7 @@ public class OAuthIdentity extends PanacheEntityBase {
      */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @ToString.Exclude
     private User user;
 
@@ -40,9 +41,15 @@ public class OAuthIdentity extends PanacheEntityBase {
         return identity;
     }
 
-    /** Lookup used when resolving an OIDC login to a local account. */
-    public static Optional<OAuthIdentity> findByIssuerAndSubject(String issuer, String subject) {
-        return findByIdOptional(new Id(issuer, subject));
+    /** Selects the user itself, so the caller can use it outside a session. */
+    public static Optional<User> findUser(String issuer, String subject) {
+        return getEntityManager().createQuery(
+                        "select i.user from OAuthIdentity i where i.id.issuer = ?1 and i.id.subject = ?2",
+                        User.class)
+                .setParameter(1, issuer)
+                .setParameter(2, subject)
+                .getResultStream()
+                .findFirst();
     }
 
     @Embeddable

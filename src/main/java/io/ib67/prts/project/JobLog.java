@@ -73,13 +73,16 @@ public class JobLog extends PanacheEntityBase {
     @Column(name = "error", nullable = false)
     private Boolean error;
 
-    /** Ordered by creation time so the query is served straight out of {@code idx_job_log}. */
-    public static List<JobLog> listByJob(UUID jobId) {
-        return list("job.id", Sort.by("createdAt"), jobId);
+    /**
+     * Served straight out of {@code idx_job_log}. The id breaks ties: lines written in one
+     * transaction share a timestamp, and a paged read needs a total order.
+     */
+    private static Sort chronological() {
+        return Sort.by("createdAt").and("id");
     }
 
     /** {@code range} is inclusive on both ends, hence {@code offset + length - 1}. */
     public static List<JobLog> listByJob(UUID jobId, int offset, int length) {
-        return find("job.id", Sort.by("createdAt"), jobId).range(offset, offset + length - 1).list();
+        return find("job.id", chronological(), jobId).range(offset, offset + length - 1).list();
     }
 }

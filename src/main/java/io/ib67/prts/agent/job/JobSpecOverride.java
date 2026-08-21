@@ -18,20 +18,35 @@ import java.util.function.Function;
 public record JobSpecOverride(
         @Nullable String image,
         @Nullable Map<String, String> environment,
-        @Nullable Map<String, String> secrets,
         @Nullable Map<String, String> labels,
         @Nullable List<String> command,
         @Nullable Map<UUID, JobSpec.VolumeSpec> volumes,
         @Nullable Long timeout,
         @Nullable String lock
 ) {
+    /**
+     * Every field of {@code spec} as an override. Applying this to {@link JobSpec#EMPTY} reproduces
+     * the spec while running each field's permission check — how a re-run re-authorizes a spec its
+     * caller did not author.
+     */
+    public static JobSpecOverride of(JobSpec spec) {
+        Objects.requireNonNull(spec, "spec");
+        return new JobSpecOverride(
+                spec.image(),
+                spec.environment(),
+                spec.labels(),
+                spec.command(),
+                spec.volumes(),
+                spec.timeout(),
+                spec.lock());
+    }
+
     public JobSpec applyTo(JobSpec base, JobSpecOverridePermissions permissions) {
         Objects.requireNonNull(base, "spec");
         Objects.requireNonNull(permissions, "permissions");
         return new JobSpec(
                 apply(image, permissions::image, base.image()),
                 mergeMap(environment, permissions::environment, base.environment()),
-                mergeMap(secrets, permissions::secrets, base.secrets()),
                 mergeMap(labels, permissions::labels, base.labels()),
                 mergeList(command, permissions::command, base.command()),
                 mergeMap(volumes, permissions::volumes, base.volumes()),

@@ -9,16 +9,17 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.function.Predicate;
 
 /**
+ * What a job runs. Carries <em>no secrets</em>: this is persisted as {@code jsonb} and published in
+ * views, so secrets are to be injected per project at dispatch time instead.
+ *
  * @param lock Two jobs naming the same lock never run at the same time. Scoped to the project the
  *             job belongs to; {@code null} or blank means no mutual exclusion.
  */
 public record JobSpec(
         String image,
         Map<String, String> environment,
-        Map<String, String> secrets,
         Map<String, String> labels,
         List<String> command,
         Map<UUID, VolumeSpec> volumes,
@@ -26,6 +27,9 @@ public record JobSpec(
         @Nullable String lock
 ) {
     public static final String PROMPT_ENV = "PRTS_PROMPT";
+
+    /** The base a whole spec is merged onto when it is re-authorized field by field. */
+    public static final JobSpec EMPTY = new JobSpec(null, null, null, null, null, 0, null);
 
     public record VolumeSpec(
             String mountPoint,
@@ -38,7 +42,7 @@ public record JobSpec(
         }
         var env = environment == null ? new HashMap<String, String>() : new HashMap<>(environment);
         env.put(PROMPT_ENV, prompt);
-        return new JobSpec(image, env, secrets, labels, command, volumes, timeout, lock);
+        return new JobSpec(image, env, labels, command, volumes, timeout, lock);
     }
 
     /** The lock to contend for, or {@code null} when this spec is not mutually exclusive. */
@@ -48,9 +52,10 @@ public record JobSpec(
     }
 
     /**
-     * Each volume must exist, and {@code allowedProject} must accept its project.
+     * Every volume must exist and belong to {@code projectId} — not merely to a project the caller is
+     * in: this job's logs and artifacts are readable by everyone who can view <em>its</em> project.
      */
-    public void requireVolumeAccess(Predicate<UUID> allowedProject) {
+    public void requireVolumesIn(UUID projectId) {
         if (volumes == null || volumes.isEmpty()) {
             return;
         }
@@ -62,8 +67,8 @@ public record JobSpec(
             throw new BadRequestException("unknown volume in job spec");
         }
         for (var row : rows) {
-            if (!allowedProject.test(row.getProject().getId())) {
-                throw new ForbiddenException("missing project permission");
+            if (!row.getProject().getId().equals(projectId)) {
+                throw new ForbiddenException("volume " + row.getId() + " belongs to another project");
             }
         }
     }

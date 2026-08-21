@@ -2,7 +2,6 @@ package io.ib67.prts.user;
 
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 
 @ApplicationScoped

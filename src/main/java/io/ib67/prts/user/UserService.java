@@ -4,8 +4,7 @@ import io.ib67.prts.project.ProjectRole;
 import io.ib67.prts.project.Project;
 import io.ib67.prts.auth.OAuthIdentity;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.core.Response;
@@ -18,9 +17,6 @@ import java.util.UUID;
 @ApplicationScoped
 public class UserService {
 
-    @Inject
-    EntityManager entityManager;
-
     public Optional<User> findById(UUID id) {
         return User.findByIdOptional(id);
     }
@@ -30,13 +26,7 @@ public class UserService {
     }
 
     public Optional<User> findByIssuerAndSubject(String issuer, String subject) {
-        return entityManager.createQuery(
-                        "select i.user from OAuthIdentity i where i.id.issuer = ?1 and i.id.subject = ?2",
-                        User.class)
-                .setParameter(1, issuer)
-                .setParameter(2, subject)
-                .getResultStream()
-                .findFirst();
+        return OAuthIdentity.findUser(issuer, subject);
     }
 
     @Transactional
@@ -87,17 +77,12 @@ public class UserService {
         return permissionOf(userId, projectId).ordinal() <= required.ordinal();
     }
 
-    public List<Project> listProjects(UUID userId) {
-        return entityManager.createQuery(
-                        "select l.project from UserToProject l where l.id.userId = ?1", Project.class)
-                .setParameter(1, userId)
-                .getResultList();
-    }
-
     /** Memberships rather than projects, so callers can show the role along with each project. */
     public List<UserToProject> listMemberships(UUID userId) {
         return UserToProject.listByUserFetched(userId);
     }
+
+
 
     public List<UserToProject> listMembers(UUID projectId) {
         return UserToProject.listByProjectFetched(projectId);
@@ -105,6 +90,7 @@ public class UserService {
 
     @Transactional
     public UserToProject grant(UUID userId, UUID projectId, ProjectRole projectRole) {
+        lockRoster(projectId);
         var existing = UserToProject.findByUserAndProject(userId, projectId);
         if (existing.isPresent()) {
             var link = existing.get();
@@ -121,10 +107,22 @@ public class UserService {
 
     @Transactional
     public boolean revoke(UUID userId, UUID projectId) {
+        lockRoster(projectId);
         UserToProject.findByUserAndProject(userId, projectId)
                 .filter(link -> link.getProjectRole() == ProjectRole.OWNER)
                 .ifPresent(link -> requireAnotherOwner(userId, projectId));
         return UserToProject.deleteById(new UserToProject.Id(userId, projectId));
+    }
+
+    /**
+     * Serializes roster changes on one project. {@link #requireAnotherOwner} counts owners and then
+     * mutates, so without this two owners leaving at the same moment would each see the other and both
+     * succeed, emptying the project of owners.
+     */
+    private void lockRoster(UUID projectId) {
+        if (Project.findById(projectId, LockModeType.PESSIMISTIC_WRITE) == null) {
+            throw new NoSuchElementException("no such project: " + projectId);
+        }
     }
 
     /**

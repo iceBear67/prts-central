@@ -29,8 +29,9 @@ public final class WorkerClient {
         this.conn = conn;
     }
 
-    public Uni<Void> sendMessage(ClientboundMessage message) {
-        return conn.sendText(message);
+    /** Whether this handle speaks over {@code connection} — how a closing socket proves it owns a session. */
+    boolean isFor(WebSocketConnection connection) {
+        return conn.equals(connection);
     }
 
     /**

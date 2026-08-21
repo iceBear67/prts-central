@@ -60,6 +60,10 @@ quarkus:
     hibernate-orm:
       schema-management:
         strategy: update
+  # Dev only, deliberately: outside %dev the property has no default, so a deployment that forgets to
+  # set worker.secret fails to start rather than accepting a token from the repository.
+  worker:
+    secret: "allo"
 
 "%prod":
   quarkus:
@@ -68,9 +72,6 @@ quarkus:
       password: ${DB_PASSWORD}
       jdbc:
         url: ${DB_URL}
-worker:
-  secret: "allo"
-
 storage:
   presign-duration: PT15M
   bucket: prts-artifacts

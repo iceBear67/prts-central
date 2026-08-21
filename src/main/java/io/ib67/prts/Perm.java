@@ -23,7 +23,6 @@ public enum Perm {
     JOB_CANCEL("job:cancel", false),
     JOB_SPEC_IMAGE("job:spec:image", false),
     JOB_SPEC_ENVIRONMENT("job:spec:environment", false),
-    JOB_SPEC_SECRETS("job:spec:secrets", false),
     JOB_SPEC_LABELS("job:spec:labels", false),
     JOB_SPEC_COMMAND("job:spec:command", false),
     JOB_SPEC_VOLUMES("job:spec:volumes", false),

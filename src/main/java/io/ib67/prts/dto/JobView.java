@@ -27,7 +27,10 @@ public record JobView(
         }
     }
 
-    /** {@link JobSpec} without {@link JobSpec#secrets()}. */
+    /**
+     * The one place that decides what of a spec a client may see; {@link JobSpecTemplateView} goes
+     * through it too, so a new {@link JobSpec} field is not published by default.
+     */
     public record SpecView(
             String image,
             Map<String, String> environment,
@@ -58,9 +61,8 @@ public record JobView(
     }
 
     /**
-     * Reads only what a detached job carries: the project is touched for its id alone, which a lazy
-     * proxy answers without loading. Keep it that way — callers map jobs after their transaction has
-     * closed.
+     * Reads only what a detached job carries — the project for its id alone, which a lazy proxy
+     * answers without loading. Keep it that way: callers map jobs after the transaction closed.
      */
     public static JobView of(Job job, List<Artifact> artifacts) {
         return new JobView(

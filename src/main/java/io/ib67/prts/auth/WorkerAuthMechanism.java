@@ -4,7 +4,6 @@ import io.agroal.api.security.NamePrincipal;
 import io.ib67.prts.agent.worker.WorkerConfig;
 import io.quarkus.security.identity.IdentityProviderManager;
 import io.quarkus.security.identity.SecurityIdentity;
-import io.quarkus.security.identity.request.AuthenticationRequest;
 import io.quarkus.security.runtime.QuarkusSecurityIdentity;
 import io.quarkus.vertx.http.runtime.security.ChallengeData;
 import io.quarkus.vertx.http.runtime.security.HttpAuthenticationMechanism;
@@ -13,8 +12,6 @@ import io.smallrye.mutiny.Uni;
 import io.vertx.ext.web.RoutingContext;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
-
-import java.util.Map;
 
 @ApplicationScoped
 public class WorkerAuthMechanism implements HttpAuthenticationMechanism {

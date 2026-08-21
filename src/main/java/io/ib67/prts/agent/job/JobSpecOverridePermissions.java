@@ -27,11 +27,6 @@ public class JobSpecOverridePermissions {
         return value;
     }
 
-    @RequirePermission(Perm.JOB_SPEC_SECRETS)
-    public Map<String, String> secrets(Map<String, String> value) {
-        return value;
-    }
-
     @RequirePermission(Perm.JOB_SPEC_LABELS)
     public Map<String, String> labels(Map<String, String> value) {
         return value;

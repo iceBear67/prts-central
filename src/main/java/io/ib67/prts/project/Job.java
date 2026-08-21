@@ -21,6 +21,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
@@ -52,6 +53,8 @@ import java.util.UUID;
                 )
         }
 )
+// @DynamicUpdate: writers touching different columns must not revert each other's field.
+@DynamicUpdate
 @Getter
 @Setter
 @NoArgsConstructor
@@ -93,7 +96,7 @@ public class Job extends PanacheEntityBase {
 
     /**
      * What the job was scheduled against. Nullable because rows created before this column existed
-     * have none; {@link io.ib67.prts.project.JobService#rerun(UUID)} needs it to schedule again.
+     * have none; {@link io.ib67.prts.project.JobService#rerun(UUID, UUID)} needs it to schedule again.
      */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "resource_class")
@@ -115,6 +118,11 @@ public class Job extends PanacheEntityBase {
 
     public static List<Job> listByProject(UUID projectId) {
         return list("project.id", projectId);
+    }
+
+    /** Jobs a worker still owes us an outcome for; used to fail them when it disconnects. */
+    public static List<Job> listOpenByWorker(UUID workerId) {
+        return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
     }
 
     /**

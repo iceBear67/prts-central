@@ -5,11 +5,15 @@ import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.project.Job;
+import io.ib67.prts.project.JobService;
+import io.ib67.prts.project.JobState;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.annotation.Nullable;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.util.Collections;
@@ -26,6 +30,9 @@ import java.util.concurrent.TimeUnit;
 public class WorkerService {
     private static final Logger LOG = Logger.getLogger(WorkerService.class);
 
+    @Inject
+    JobService jobService;
+
     private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
     private final ScheduledExecutorService pendingTick = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -37,9 +44,10 @@ public class WorkerService {
     @PostConstruct
     void startPendingDispatch() {
         pendingTick.scheduleWithFixedDelay(() -> {
+            // Throwable: anything escaping here cancels the schedule and ends dispatch for good.
             try {
                 scheduler.dispatchPending();
-            } catch (RuntimeException e) {
+            } catch (Throwable e) {
                 LOG.error("pending dispatch failed", e);
             }
         }, 1, 1, TimeUnit.SECONDS);
@@ -58,17 +66,39 @@ public class WorkerService {
         return Optional.ofNullable(activeWorkers.get(id));
     }
 
-    boolean registerWorker(UUID id, RegisteredWorker registeredWorker) {
+    /** Newest connection wins: a half-open socket must not lock out the reconnect that replaces it. */
+    void registerWorker(UUID id, RegisteredWorker registeredWorker) {
         QuarkusTransaction.requiringNew().run(() ->
                 io.ib67.prts.agent.worker.entity.Worker.upsert(id, registeredWorker.getName()));
-        return activeWorkers.putIfAbsent(id, registeredWorker) == null;
+        var displaced = activeWorkers.put(id, registeredWorker);
+        if (displaced != null) {
+            scheduler.onWorkerRemoved(id);
+            displaced.getRpc().failAll(new IllegalStateException("worker re-registered on a new connection"));
+        }
     }
 
-    void unregisterWorker(UUID id) {
+    /** Only the connection that owns the session may end it, or a superseded socket's close wins. */
+    void unregisterWorker(UUID id, WebSocketConnection connection) {
+        var worker = activeWorkers.get(id);
+        if (worker == null || !worker.getRpc().isFor(connection) || !activeWorkers.remove(id, worker)) {
+            return;
+        }
         scheduler.onWorkerRemoved(id);
-        var worker = activeWorkers.remove(id);
-        if (worker != null) {
-            worker.getRpc().failAll(new IllegalStateException("worker disconnected"));
+        worker.getRpc().failAll(new IllegalStateException("worker disconnected"));
+        failJobsOf(id);
+    }
+
+    /** Nobody will report on these now, and a non-terminal job holds its {@link JobLock} forever. */
+    private void failJobsOf(UUID workerId) {
+        try {
+            var open = QuarkusTransaction.requiringNew()
+                    .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
+            for (var jobId : open) {
+                QuarkusTransaction.requiringNew().run(() -> PendingJob.deleteByJob(jobId));
+                jobService.applyState(jobId, JobState.FAILED);
+            }
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "cannot fail the jobs of disconnected worker %s", workerId);
         }
     }
 

@@ -25,11 +25,13 @@ public class WorkerWebSocket {
     @Inject
     ArtifactUploadService artifactUploadService;
 
+    /** Blocking: unregistering fails the jobs this worker owed us an outcome for, which touches the DB. */
     @OnClose
+    @Blocking
     public void onClose() {
         var idStr = connection.userData().get(INTERNAL_WORKER_ID);
         if (idStr == null) return;
-        workerService.unregisterWorker(UUID.fromString(idStr));
+        workerService.unregisterWorker(UUID.fromString(idStr), connection);
     }
 
     @OnTextMessage
@@ -52,12 +54,10 @@ public class WorkerWebSocket {
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
         if (connection.userData().get(INTERNAL_WORKER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
-        var result = workerService.registerWorker(
+        workerService.registerWorker(
                 r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
-        if (result) {
-            connection.userData().put(INTERNAL_WORKER_ID, r.id().toString());
-        }
-        return new ClientboundMessage.Response(result, "");
+        connection.userData().put(INTERNAL_WORKER_ID, r.id().toString());
+        return new ClientboundMessage.Response(true, "");
     }
 
     private ClientboundMessage handleUpdateJobLog(ServerboundMessage.UpdateJobLog u) {
