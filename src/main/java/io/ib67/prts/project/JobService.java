@@ -90,14 +90,6 @@ public class JobService {
     }
 
     /**
-     * Runs the spec a job was created with again, as a new job in the same project. The caller needs
-     * the same volume access as an original create.
-     */
-    public Job rerun(UUID projectId, UUID jobId) {
-        return dispatch(QuarkusTransaction.requiringNew().call(() -> prepareRerun(projectId, jobId)));
-    }
-
-    /**
      * Hands a prepared job to the scheduler. A job that cannot be scheduled at all is failed —
      * being merely unplaceable for now is not an error, the scheduler queues it.
      */
@@ -135,31 +127,15 @@ public class JobService {
         var resourceClass = resolveResourceClass(
                 resourceClassName == null ? null : overridePermissions.resourceClass(resourceClassName),
                 template.getResourceClass());
-        var job = Job.builder().project(project).spec(spec).resourceClass(resourceClass).build();
-        job.persist();
-        return new PreparedJob(job, spec, resourceClass);
-    }
-
-    /**
-     * Authorized as if the caller were writing the spec from scratch, so nobody re-runs what they
-     * could not have created. Stricter than create-from-template, whose own fields need no
-     * permission — a job does not record which template it came from.
-     */
-    private PreparedJob prepareRerun(UUID projectId, UUID jobId) {
-        var source = requireIn(projectId, jobId, Job.findByIdFetched(jobId).orElse(null));
-        var project = source.getProject();
-        if (source.getSpec() == null) {
-            throw new BadRequestException("job has no spec to rerun");
-        }
-        var sourceClass = source.getResourceClass();
-        if (sourceClass == null || sourceClass.getName() == null) {
-            throw new BadRequestException("job has no resource class to rerun with");
-        }
-        var spec = JobSpecOverride.of(source.getSpec()).applyTo(JobSpec.EMPTY, overridePermissions);
-        var resourceClass = resolveResourceClass(
-                overridePermissions.resourceClass(sourceClass.getName()), sourceClass);
-        spec.requireVolumesIn(projectId);
-        var job = Job.builder().project(project).spec(spec).resourceClass(resourceClass).build();
+        var job = Job.builder()
+                .project(project)
+                .spec(spec)
+                .resourceClass(resourceClass)
+                .templateId(templateId)
+                .createOverride(override)
+                .createResourceClass(resourceClassName)
+                .createPrompt(prompt)
+                .build();
         job.persist();
         return new PreparedJob(job, spec, resourceClass);
     }
@@ -253,6 +229,7 @@ public class JobService {
         return found;
     }
 
+    /** No caller yet, on purpose: a real delete releases the job's logs, artifacts and their S3 objects in code. */
     @Transactional
     public boolean delete(UUID jobId) {
         return Job.deleteById(jobId);

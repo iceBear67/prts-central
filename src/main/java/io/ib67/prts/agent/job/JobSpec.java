@@ -28,9 +28,6 @@ public record JobSpec(
 ) {
     public static final String PROMPT_ENV = "PRTS_PROMPT";
 
-    /** The base a whole spec is merged onto when it is re-authorized field by field. */
-    public static final JobSpec EMPTY = new JobSpec(null, null, null, null, null, 0, null);
-
     public record VolumeSpec(
             String mountPoint,
             long sizeLimit

@@ -21,7 +21,11 @@
 --     state          varchar     NOT NULL DEFAULT 'PENDING',
 --     worker         uuid,                             -- set once a worker takes the job
 --     spec           jsonb,
---     resource_class varchar,                           -- what it was scheduled against; needed to rerun
+--     resource_class varchar,                           -- what it was scheduled against
+--     template_id    uuid,                              -- the create request, verbatim; a rerun replays it
+--     create_override jsonb,
+--     create_prompt  varchar,
+--     create_resource_class varchar,
 --     FOREIGN KEY (project_id)
 --         REFERENCES project (id)
 --         ON DELETE CASCADE,

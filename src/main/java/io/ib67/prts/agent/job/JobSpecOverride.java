@@ -24,23 +24,6 @@ public record JobSpecOverride(
         @Nullable Long timeout,
         @Nullable String lock
 ) {
-    /**
-     * Every field of {@code spec} as an override. Applying this to {@link JobSpec#EMPTY} reproduces
-     * the spec while running each field's permission check — how a re-run re-authorizes a spec its
-     * caller did not author.
-     */
-    public static JobSpecOverride of(JobSpec spec) {
-        Objects.requireNonNull(spec, "spec");
-        return new JobSpecOverride(
-                spec.image(),
-                spec.environment(),
-                spec.labels(),
-                spec.command(),
-                spec.volumes(),
-                spec.timeout(),
-                spec.lock());
-    }
-
     public JobSpec applyTo(JobSpec base, JobSpecOverridePermissions permissions) {
         Objects.requireNonNull(base, "spec");
         Objects.requireNonNull(permissions, "permissions");

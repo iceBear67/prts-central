@@ -1,6 +1,7 @@
 package io.ib67.prts.project;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.CheckConstraint;
@@ -31,7 +32,6 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -94,14 +94,31 @@ public class Job extends PanacheEntityBase {
     @ToString.Exclude
     private JobSpec spec;
 
-    /**
-     * What the job was scheduled against. Nullable because rows created before this column existed
-     * have none; {@link io.ib67.prts.project.JobService#rerun(UUID, UUID)} needs it to schedule again.
-     */
+    /** What the job was scheduled against. Null when the job never went through scheduling. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "resource_class")
     @ToString.Exclude
     private ResourceClass resourceClass;
+
+    /**
+     * The create request this job was made from, verbatim, for the client to fetch back and re-post
+     * to {@code /create} — how a re-run goes through the same gates as the original create. A null
+     * {@code templateId} means some other path made the job and there is nothing to replay.
+     */
+    @Column(name = "template_id", updatable = false)
+    private UUID templateId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "create_override", updatable = false, columnDefinition = "jsonb")
+    @ToString.Exclude
+    private JobSpecOverride createOverride;
+
+    @Column(name = "create_prompt", updatable = false, columnDefinition = "varchar")
+    @ToString.Exclude
+    private String createPrompt;
+
+    @Column(name = "create_resource_class", updatable = false, columnDefinition = "varchar")
+    private String createResourceClass;
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check
@@ -123,14 +140,5 @@ public class Job extends PanacheEntityBase {
     /** Jobs a worker still owes us an outcome for; used to fail them when it disconnects. */
     public static List<Job> listOpenByWorker(UUID workerId) {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
-    }
-
-    /**
-     * Loads the job together with the associations a re-schedule needs, so callers can read them
-     * after the loading transaction has closed.
-     */
-    public static Optional<Job> findByIdFetched(UUID id) {
-        return find("from Job j left join fetch j.resourceClass left join fetch j.project where j.id = ?1", id)
-                .firstResultOptional();
     }
 }

@@ -82,8 +82,6 @@ public class UserService {
         return UserToProject.listByUserFetched(userId);
     }
 
-
-
     public List<UserToProject> listMembers(UUID projectId) {
         return UserToProject.listByProjectFetched(projectId);
     }

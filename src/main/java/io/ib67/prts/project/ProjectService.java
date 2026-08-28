@@ -38,6 +38,7 @@ public class ProjectService {
         return project;
     }
 
+    /** No caller yet, on purpose: a real delete cascades over the project's jobs and roster in code. */
     @Transactional
     public boolean delete(UUID id) {
         return Project.deleteById(id);

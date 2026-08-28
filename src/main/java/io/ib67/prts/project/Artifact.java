@@ -15,8 +15,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
-import org.hibernate.annotations.OnDelete;
-import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.util.List;
@@ -44,8 +42,7 @@ public class Artifact extends PanacheEntityBase {
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
 
-    /** Unique: promotion is a find-then-insert reachable from two threads. */
-    @Column(name = "object_key", nullable = false, unique = true, columnDefinition = "text")
+    @Column(name = "object_key", nullable = false, columnDefinition = "text")
     private String objectKey;
 
     @Column(name = "size_bytes", nullable = false)
@@ -53,7 +50,6 @@ public class Artifact extends PanacheEntityBase {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "job_id", nullable = false, updatable = false)
-    @OnDelete(action = OnDeleteAction.CASCADE)
     @ToString.Exclude
     private Job job;
 

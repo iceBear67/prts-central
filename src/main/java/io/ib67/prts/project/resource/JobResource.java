@@ -81,13 +81,22 @@ public class JobResource {
                 request.prompt()));
     }
 
-    /** Runs the spec this job was created with again, as a new job. */
-    @POST
-    @Path("/{jobId}/rerun")
+    /**
+     * The stored create request, shaped to be posted back to {@code /create}: re-running is the
+     * client replaying it, so fetching one takes the same permission as using it.
+     */
+    @GET
+    @Path("/{jobId}/request")
+    @Transactional
     @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
-    public JobView rerunJob(
+    public CreateJobRequest getCreateRequest(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
-        return JobView.of(jobService.rerun(projectId, jobId));
+        var job = jobService.requireInProject(projectId, jobId);
+        if (job.getTemplateId() == null) {
+            throw new NotFoundException("job records no create request: " + jobId);
+        }
+        return new CreateJobRequest(
+                job.getTemplateId(), job.getCreateOverride(), job.getCreateResourceClass(), job.getCreatePrompt());
     }
 
     /** Stops the job on its worker and marks it cancelled. */
