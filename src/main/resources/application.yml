@@ -66,10 +66,13 @@ quarkus:
   # set worker.secret fails to start rather than accepting a token from the repository.
   worker:
     secret: "allo"
-  # Same reason, and additionally: every project_secret row is sealed under this key, so replacing it
-  # makes them all undecryptable. `openssl rand -base64 32`.
+  # Same reason. Rotating means adding a key here (`python scripts/secrets.py genkey`), pointing
+  # active-key at it and running `python scripts/secrets.py rotate` offline; the old key may only be
+  # dropped once that reports nothing left, since each row names the key it is sealed under.
   secret:
-    key: "pyyrg0gJ06CIW+ryutiDTJCNStt4b/kg/mKLkRnsb/o="
+    active-key: v1
+    keys:
+      v1: "pyyrg0gJ06CIW+ryutiDTJCNStt4b/kg/mKLkRnsb/o="
 
 "%prod":
   quarkus:

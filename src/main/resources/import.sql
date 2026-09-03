@@ -172,8 +172,10 @@
 -- (
 --     project_id  uuid        NOT NULL,
 --     name        varchar     NOT NULL,              -- unique per project, and the only handle
---     -- AES-GCM under secret.key: base64 of iv || ciphertext || tag, bound to (project_id, name)
---     -- as additional authenticated data, so a row cannot be moved to another project or name.
+--     description varchar,                           -- what the name is for; never the value
+--     -- AES-GCM under one of secret.keys: '<format>:<keyId>:<base64 of iv || ciphertext || tag>'.
+--     -- The key id is in the row so a key can be rotated without a schema change; format and id are
+--     -- authenticated along with (project_id, name), so a row cannot be moved or relabelled.
 --     cipher_text varchar     NOT NULL,
 --     created_at  timestamptz NOT NULL,
 --     PRIMARY KEY (project_id, name),
