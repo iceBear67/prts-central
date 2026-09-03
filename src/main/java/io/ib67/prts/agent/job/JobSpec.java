@@ -3,21 +3,21 @@ package io.ib67.prts.agent.job;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.quarkus.security.ForbiddenException;
-import jakarta.annotation.Nullable;
 import jakarta.ws.rs.BadRequestException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
  * What a job runs. Everything but {@link #secret} is persisted as {@code jsonb} and published in
  * views.
  *
- * @param lock   Two jobs naming the same lock never run at the same time. Scoped to the project the
- *               job belongs to; {@code null} or blank means no mutual exclusion.
+ * @param lock   The lock two jobs must never hold at once, scoped to the project the job belongs to;
+ *               empty means no mutual exclusion.
  * @param secret The project's secrets in the clear, attached by {@code JobService} to the copy of
- *               the spec that goes to the scheduler and to no other.
+ *               the spec that goes to the scheduler and to no other; empty on every other copy.
  *               {@code @JsonIgnore} is what keeps them out of the {@code jsonb} column and out of
  *               every view, so a spec that carries them still cannot leak them. It also keeps them
  *               out of the spec the worker receives, which is why
@@ -31,9 +31,23 @@ public record JobSpec(
         List<String> command,
         Map<UUID, VolumeSpec> volumes,
         long timeout,
-        @Nullable String lock,
-        @JsonIgnore @Nullable Map<String, String> secret
+        String lock,
+        @JsonIgnore Map<String, String> secret
 ) {
+    /**
+     * Nothing here is nullable. A field that a stored row, a template or an override leaves out
+     * arrives as {@code null} and is normalized to its empty value, so no reader has to tell absent
+     * from empty — and a blank lock is the one way to say "not exclusive".
+     */
+    public JobSpec {
+        environment = Objects.requireNonNullElse(environment, Map.of());
+        labels = Objects.requireNonNullElse(labels, Map.of());
+        command = Objects.requireNonNullElse(command, List.of());
+        volumes = Objects.requireNonNullElse(volumes, Map.of());
+        secret = Objects.requireNonNullElse(secret, Map.of());
+        lock = lock == null || lock.isBlank() ? "" : lock;
+    }
+
     public record VolumeSpec(
             String mountPoint,
             long sizeLimit
@@ -43,7 +57,7 @@ public record JobSpec(
      * This spec plus {@code secret}. Nothing overrides that field, so attaching the project's
      * secrets to a spec on its way to a worker is the only way one is ever set.
      */
-    public JobSpec withSecret(@Nullable Map<String, String> secret) {
+    public JobSpec withSecret(Map<String, String> secret) {
         return new JobSpec(image, environment, labels, command, volumes, timeout, lock, secret);
     }
 
@@ -52,14 +66,7 @@ public record JobSpec(
     public String toString() {
         return "JobSpec[image=" + image + ", environment=" + environment + ", labels=" + labels
                 + ", command=" + command + ", volumes=" + volumes + ", timeout=" + timeout
-                + ", lock=" + lock
-                + ", secret=" + (secret == null ? "null" : secret.size() + " entries") + "]";
-    }
-
-    /** The lock to contend for, or {@code null} when this spec is not mutually exclusive. */
-    @Nullable
-    public String normalizedLock() {
-        return lock == null || lock.isBlank() ? null : lock;
+                + ", lock=" + lock + ", secret=" + secret.size() + " entries]";
     }
 
     /**
@@ -67,7 +74,7 @@ public record JobSpec(
      * in: this job's logs and artifacts are readable by everyone who can view <em>its</em> project.
      */
     public void requireVolumesIn(UUID projectId) {
-        if (volumes == null || volumes.isEmpty()) {
+        if (volumes.isEmpty()) {
             return;
         }
         if (volumes.containsKey(null)) {

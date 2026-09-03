@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
-import jakarta.annotation.Nullable;
 
 import java.time.Instant;
 import java.util.Map;
@@ -33,14 +32,14 @@ public sealed interface ClientboundMessage {
      *                out of the {@code jsonb} column and out of every view but also drops them from
      *                the serialized spec — so the sender lifts them onto this field by hand. This
      *                message is therefore the only place a secret is serialized, and it is never
-     *                persisted.
+     *                persisted. Empty when the project keeps none.
      */
     record CreateJob(
             UUID requestId,
             UUID jobId,
             JobSpec spec,
             ResourceClass resourceClass,
-            @Nullable Map<String, String> secrets
+            Map<String, String> secrets
     ) implements ClientboundMessage {
     }
 

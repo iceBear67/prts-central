@@ -48,7 +48,7 @@ public record JobView(
             List<String> command,
             Map<UUID, JobSpec.VolumeSpec> volumes,
             long timeout,
-            @Nullable String lock
+            String lock
     ) {
         public static SpecView of(JobSpec spec) {
             if (spec == null) {

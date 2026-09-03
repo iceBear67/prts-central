@@ -13,7 +13,9 @@ import java.util.function.Function;
 /**
  * Present fields override the template {@link JobSpec}; {@code null} means keep the template value.
  * Scalars replace, containers merge: map entries win per key, list entries are appended after the
- * template's. An empty container therefore changes nothing.
+ * template's. An empty container therefore changes nothing — and that is why absent is {@code null}
+ * here rather than empty, unlike in {@link JobSpec}: only a field the caller actually supplied is
+ * gated, so a no-op override must not cost a permission.
  */
 public record JobSpecOverride(
         @Nullable String image,
@@ -45,21 +47,21 @@ public record JobSpecOverride(
     // The gated call happens before merging so the permission interceptor still sees exactly what
     // the caller supplied. Insertion-ordered copies keep the jsonb representation stable.
     private static <K, V> Map<K, V> mergeMap(
-            @Nullable Map<K, V> override, Function<Map<K, V>, Map<K, V>> gated, @Nullable Map<K, V> base) {
+            @Nullable Map<K, V> override, Function<Map<K, V>, Map<K, V>> gated, Map<K, V> base) {
         if (override == null) {
             return base;
         }
-        var merged = base == null ? new LinkedHashMap<K, V>() : new LinkedHashMap<>(base);
+        var merged = new LinkedHashMap<>(base);
         merged.putAll(gated.apply(override));
         return merged;
     }
 
     private static <E> List<E> mergeList(
-            @Nullable List<E> override, Function<List<E>, List<E>> gated, @Nullable List<E> base) {
+            @Nullable List<E> override, Function<List<E>, List<E>> gated, List<E> base) {
         if (override == null) {
             return base;
         }
-        var merged = base == null ? new ArrayList<E>() : new ArrayList<>(base);
+        var merged = new ArrayList<>(base);
         merged.addAll(gated.apply(override));
         return merged;
     }

@@ -42,11 +42,11 @@ public final class WorkerClient {
         var future = new CompletableFuture<Void>();
         outstanding.put(requestId, future);
         try {
-            // Lifted out of the spec by hand: JobSpec#secret() is @JsonIgnore'd, so the spec on the
-            // wire carries none and this field is the only copy the worker gets.
-            var secrets = spec == null ? null : spec.secret();
-            conn.sendText(new ClientboundMessage.CreateJob(requestId, jobId, spec, resourceClass, secrets))
-                    .await().atMost(SEND_TIMEOUT);
+            // Secrets are lifted out of the spec by hand: JobSpec#secret() is @JsonIgnore'd, so the
+            // spec on the wire carries none and that field is the only copy the worker gets.
+            var message = new ClientboundMessage.CreateJob(
+                    requestId, jobId, spec, resourceClass, spec.secret());
+            conn.sendText(message).await().atMost(SEND_TIMEOUT);
             future.get(CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
         } catch (Exception e) {
             future.completeExceptionally(e);

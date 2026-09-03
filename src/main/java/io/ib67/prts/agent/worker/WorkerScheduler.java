@@ -51,8 +51,8 @@ final class WorkerScheduler {
         if (!isSchedulable(jobId)) {
             return null;
         }
-        var lockName = spec == null ? null : spec.normalizedLock();
-        if (lockName != null && !acquireLock(lockName, jobId)) {
+        var lockName = spec.lock();
+        if (!lockName.isEmpty() && !acquireLock(lockName, jobId)) {
             return "another job holds the lock " + lockName;
         }
         var dispatched = false;
@@ -80,7 +80,7 @@ final class WorkerScheduler {
             dispatched = true;
             return null;
         } finally {
-            if (!dispatched && lockName != null) {
+            if (!dispatched && !lockName.isEmpty()) {
                 releaseLock(jobId);
             }
         }
@@ -139,7 +139,7 @@ final class WorkerScheduler {
 
     private Optional<Selection> selectAndLock(ResourceClass required, JobSpec spec) {
         var allowed = workersForVolumes(spec);
-        if (allowed != null && allowed.isEmpty()) {
+        if (allowed.isEmpty()) {
             return Optional.empty();
         }
         synchronized (lock) {
@@ -153,9 +153,9 @@ final class WorkerScheduler {
         locked.remove(workerId);
     }
 
-    private Optional<Selection> select(ResourceClass required, @Nullable Set<UUID> allowed) {
+    private Optional<Selection> select(ResourceClass required, Set<UUID> allowed) {
         return workers.entrySet().stream()
-                .filter(entry -> allowed == null || allowed.contains(entry.getKey()))
+                .filter(entry -> allowed.contains(entry.getKey()))
                 .filter(entry -> !locked.contains(entry.getKey()))
                 .filter(entry -> capacityFits(entry.getValue().getInfo(), required))
                 .min(Comparator
@@ -165,13 +165,14 @@ final class WorkerScheduler {
     }
 
     /**
-     * {@code null} means any live worker. An empty set means the volume set cannot be placed.
+     * The workers that could hold the spec's volumes — every live one when it mounts none. An empty
+     * set means the volumes cannot be placed, which is why "no constraint" is the full set and not
+     * an empty one.
      */
-    @Nullable
     private Set<UUID> workersForVolumes(JobSpec spec) {
-        var volumes = spec == null ? null : spec.volumes();
-        if (volumes == null || volumes.isEmpty()) {
-            return null;
+        var volumes = spec.volumes();
+        if (volumes.isEmpty()) {
+            return workers.keySet();
         }
         if (volumes.containsKey(null)) {
             return Set.of();
