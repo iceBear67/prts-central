@@ -69,9 +69,9 @@ public class SecretService {
     }
 
     /**
-     * Every secret of the project in the clear. No caller yet: this is the dispatch-time injection
-     * point, and the result must not be put on a {@link io.ib67.prts.agent.job.JobSpec}, which is
-     * persisted as jsonb and published in views.
+     * Every secret of the project in the clear. The one caller is {@code JobService}, which attaches
+     * the result to the copy of the spec it hands the scheduler — never to the one it persists — so
+     * the plaintext lives only as long as the dispatch does.
      */
     @Transactional
     public Map<String, String> resolve(UUID projectId) {

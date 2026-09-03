@@ -34,7 +34,8 @@ public record JobSpecOverride(
                 mergeList(command, permissions::command, base.command()),
                 mergeMap(volumes, permissions::volumes, base.volumes()),
                 timeout != null ? permissions.timeout(timeout) : base.timeout(),
-                apply(lock, permissions::lock, base.lock()));
+                apply(lock, permissions::lock, base.lock()), base.secret());
+        // Not overridable: secrets are the project's, injected at dispatch, never requested.
     }
 
     private static <T> T apply(T override, Function<T, T> gated, T fallback) {

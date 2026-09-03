@@ -30,8 +30,7 @@ import java.util.UUID;
 /**
  * The holder of a {@link JobSpec#lock()}, so that two jobs naming the same lock never run at once.
  * Held from the moment a job is handed to a worker until it reaches a terminal
- * {@link io.ib67.prts.project.JobState}; a job that cannot take the lock stays queued as a
- * {@link PendingJob} and is retried.
+ * {@link io.ib67.prts.project.JobState}; a job that cannot take the lock is refused, not queued.
  *
  * <p>Locks are scoped to a project: the same name in two projects is two independent locks.
  */
@@ -65,7 +64,7 @@ public class JobLock extends PanacheEntityBase {
 
     /**
      * Takes {@code name} for {@code jobId} within that job's project. {@code false} means another
-     * live job holds it and the caller should stay queued.
+     * live job holds it, so the caller has to refuse this one.
      *
      * <p>A row whose holder is already terminal (or gone) is taken over, so a lock cannot be
      * orphaned by a crash between dispatch and completion. Must run inside a transaction; the

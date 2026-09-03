@@ -2,7 +2,6 @@ package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.project.Job;
@@ -12,7 +11,6 @@ import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
 
 import java.util.Comparator;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -20,15 +18,14 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Scheduling overlay on {@link WorkerService}'s worker map: exclusive create-locks and
- * draining of queued {@link PendingJob} rows. The map itself stays on the service.
+ * Scheduling overlay on {@link WorkerService}'s worker map: worker selection and exclusive
+ * create-locks. The map itself stays on the service.
  */
 final class WorkerScheduler {
     private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
 
     private final Map<UUID, RegisteredWorker> workers;
     private final Set<UUID> locked = ConcurrentHashMap.newKeySet();
-    private final Set<UUID> inFlightPending = ConcurrentHashMap.newKeySet();
     private final Object lock = new Object();
 
     WorkerScheduler(Map<UUID, RegisteredWorker> workers) {
@@ -43,61 +40,26 @@ final class WorkerScheduler {
         unlock(workerId);
     }
 
-    void dispatchPending() {
-        List<PendingJob> pending;
-        try {
-            pending = QuarkusTransaction.requiringNew().call(() -> PendingJob.listFifo().stream()
-                    // Skipped, not thrown: one unusable row must not stop the queue from draining.
-                    .filter(WorkerScheduler::isComplete)
-                    .toList());
-        } catch (RuntimeException e) {
-            LOG.error("failed to load pending jobs", e);
-            return;
-        }
-        for (var job : pending) {
-            if (!inFlightPending.add(job.getId())) {
-                continue;
-            }
-            try {
-                if (schedule0(job.getJob().getId(), job.getResourceClass(), job.getSpec())) {
-                    QuarkusTransaction.requiringNew().run(() -> PendingJob.deleteById(job.getId()));
-                }
-            } catch (RuntimeException e) {
-                LOG.errorf(e, "failed to dispatch pending job %s", job.getId());
-            } finally {
-                inFlightPending.remove(job.getId());
-            }
-        }
-    }
-
-    private static boolean isComplete(PendingJob row) {
-        var klass = row.getResourceClass();
-        if (klass != null && klass.getName() != null && row.getSpec() != null && row.getJob() != null) {
-            return true;
-        }
-        LOG.errorf("skipping incomplete pending job %s", row.getId());
-        return false;
-    }
-
     /**
-     * Tries to place {@code jobId} on a live worker. {@code false} means it could not be placed
-     * right now — no eligible worker, or its {@link JobLock} is held — and the caller should keep it
-     * queued. {@code true} means the job needs no further dispatch, which also covers a job that
-     * went terminal in the meantime. RPC failure after a worker is locked is thrown (and unlocked).
+     * Tries to place {@code jobId} on a live worker. Returns why it could not be placed — no
+     * eligible worker, or its {@link JobLock} is held — for the caller to refuse the job with; there
+     * is no queue. {@code null} means nothing more is needed, which also covers a job that went
+     * terminal in the meantime. RPC failure after a worker is locked is thrown (and unlocked).
      */
-    boolean schedule0(UUID jobId, ResourceClass required, JobSpec spec) {
+    @Nullable
+    String schedule0(UUID jobId, ResourceClass required, JobSpec spec) {
         if (!isSchedulable(jobId)) {
-            return true;
+            return null;
         }
         var lockName = spec == null ? null : spec.normalizedLock();
         if (lockName != null && !acquireLock(lockName, jobId)) {
-            return false;
+            return "another job holds the lock " + lockName;
         }
         var dispatched = false;
         try {
             var selected = selectAndLock(required, spec);
             if (selected.isEmpty()) {
-                return false;
+                return "no available worker can run this job";
             }
             var pick = selected.get();
             try {
@@ -105,18 +67,18 @@ final class WorkerScheduler {
             } catch (RuntimeException e) {
                 unlock(pick.id());
                 // The offer timed out rather than being refused, so the worker may have started the
-                // job anyway. Tell it to stop before this job is queued again or failed, or it runs
-                // twice — with the lock this attempt is about to release.
+                // job anyway. Tell it to stop before this job is failed, or it runs on past the lock
+                // this attempt is about to release.
                 cancelQuietly(pick, jobId);
                 throw e;
             }
             if (!claimJob(jobId, pick.id())) {
                 // Cancelled while the worker was starting it: undo rather than leak the container.
                 cancelQuietly(pick, jobId);
-                return true;
+                return null;
             }
             dispatched = true;
-            return true;
+            return null;
         } finally {
             if (!dispatched && lockName != null) {
                 releaseLock(jobId);
@@ -148,7 +110,7 @@ final class WorkerScheduler {
 
     /**
      * {@code false} means another live job holds the lock. A failed insert lost a race with a
-     * concurrent dispatch, which is also "busy": the caller stays queued and retries.
+     * concurrent dispatch, which is also "busy": either way the job is refused.
      */
     private boolean acquireLock(String lockName, UUID jobId) {
         try {

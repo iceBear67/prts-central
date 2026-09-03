@@ -5,9 +5,9 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
-import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.secret.SecretService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -33,6 +33,8 @@ public class JobService {
     WorkerService workerService;
     @Inject
     JobSpecOverridePermissions overridePermissions;
+    @Inject
+    SecretService secretService;
 
     public Job require(UUID id) {
         return Job.<Job>findByIdOptional(id)
@@ -70,7 +72,7 @@ public class JobService {
      * spec may reach — one permission per override field, the template's own project, and the
      * volume rule.
      */
-    public Job createFromTemplate(
+    public CreatedJob createFromTemplate(
             UUID projectId,
             UUID templateId,
             @Nullable JobSpecOverride override,
@@ -80,21 +82,38 @@ public class JobService {
     }
 
     /**
-     * Hands a prepared job to the scheduler. A job that cannot be scheduled at all is failed —
-     * being merely unplaceable for now is not an error, the scheduler queues it.
+     * @param scheduled {@code false} when no worker could take the job. There is no queue, so the
+     *                  row is already {@link JobState#FAILED}; saying so is the endpoint's job.
      */
-    private Job dispatch(PreparedJob prepared) {
+    public record CreatedJob(Job job, boolean scheduled) {
+    }
+
+    /**
+     * Hands a prepared job to the scheduler and fails it if that does not work out. Being
+     * unplaceable is one such failure — there is no queue to fall back to — but not an error here:
+     * it is reported, not thrown.
+     */
+    private CreatedJob dispatch(PreparedJob prepared) {
         var jobId = prepared.job().getId();
+        boolean scheduled;
         try {
-            workerService.schedule(jobId, prepared.resourceClass(), prepared.spec());
+            scheduled = workerService.schedule(jobId, prepared.resourceClass(), prepared.spec());
         } catch (RuntimeException e) {
-            QuarkusTransaction.requiringNew().run(() -> {
-                Job.<Job>findByIdOptional(jobId).ifPresent(job -> job.transitionTo(JobState.FAILED));
-                JobLock.releaseBy(jobId);
-            });
+            failAndRelease(jobId);
             throw e;
         }
-        return prepared.job();
+        if (!scheduled) {
+            failAndRelease(jobId);
+        }
+        return new CreatedJob(prepared.job(), scheduled);
+    }
+
+    /** The job never ran, so nothing will report on it and its {@link JobLock} would be held forever. */
+    private void failAndRelease(UUID jobId) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            Job.<Job>findByIdOptional(jobId).ifPresent(job -> job.transitionTo(JobState.FAILED));
+            JobLock.releaseBy(jobId);
+        });
     }
 
     private PreparedJob prepareFromTemplate(
@@ -122,7 +141,10 @@ public class JobService {
                 .createOverride(override)
                 .build();
         job.persist();
-        return new PreparedJob(job, spec, resourceClass);
+        // Only the copy handed to the scheduler carries the secrets: the entity keeps the spec
+        // without them, so neither the row nor a view read back off it can hold plaintext even if
+        // the @JsonIgnore that already drops them were to go.
+        return new PreparedJob(job, spec.withSecret(secretService.resolve(projectId)), resourceClass);
     }
 
     /**
@@ -156,8 +178,6 @@ public class JobService {
         var previous = job.getState();
         job.transitionTo(JobState.CANCELLED);
         JobLock.releaseBy(jobId);
-        // Drops it from the queue when it was never handed to a worker.
-        PendingJob.deleteByJob(jobId);
         persistLog(job, "state", previous + " -> " + JobState.CANCELLED, false);
         return new CancelledJob(job, job.getWorker());
     }
@@ -207,6 +227,7 @@ public class JobService {
                 "template names a resource class of another project: " + klass.getName());
     }
 
+    /** @param spec the merged spec <em>with</em> the project's secrets — never the persisted one. */
     private record PreparedJob(Job job, JobSpec spec, ResourceClass resourceClass) {
     }
 

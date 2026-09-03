@@ -2,7 +2,6 @@ package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobLock;
-import io.ib67.prts.agent.job.entity.PendingJob;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.project.Job;
 import io.ib67.prts.project.JobService;
@@ -10,8 +9,6 @@ import io.ib67.prts.project.JobState;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.annotation.Nullable;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
@@ -22,9 +19,6 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 
 @ApplicationScoped
 public class WorkerService {
@@ -35,28 +29,6 @@ public class WorkerService {
 
     private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
-    private final ScheduledExecutorService pendingTick = Executors.newSingleThreadScheduledExecutor(runnable -> {
-        var thread = new Thread(runnable, "prts-pending-dispatch");
-        thread.setDaemon(true);
-        return thread;
-    });
-
-    @PostConstruct
-    void startPendingDispatch() {
-        pendingTick.scheduleWithFixedDelay(() -> {
-            // Throwable: anything escaping here cancels the schedule and ends dispatch for good.
-            try {
-                scheduler.dispatchPending();
-            } catch (Throwable e) {
-                LOG.error("pending dispatch failed", e);
-            }
-        }, 1, 1, TimeUnit.SECONDS);
-    }
-
-    @PreDestroy
-    void stopPendingDispatch() {
-        pendingTick.shutdownNow();
-    }
 
     public Map<UUID, RegisteredWorker> getActiveWorkers() {
         return Collections.unmodifiableMap(activeWorkers);
@@ -94,7 +66,6 @@ public class WorkerService {
             var open = QuarkusTransaction.requiringNew()
                     .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
             for (var jobId : open) {
-                QuarkusTransaction.requiringNew().run(() -> PendingJob.deleteByJob(jobId));
                 jobService.applyState(jobId, JobState.FAILED);
             }
         } catch (RuntimeException e) {
@@ -122,16 +93,19 @@ public class WorkerService {
     }
 
     /**
-     * Places {@code jobId} on a live worker, or queues it. Returns the pending-row id when queued,
-     * otherwise {@code null}. A queued job is retried by {@link #startPendingDispatch()} until a
-     * worker is free and, when the spec names one, its {@link JobLock} is.
+     * Places {@code jobId} on a live worker. {@code false} means it cannot be placed right now — no
+     * eligible worker, or its {@link JobLock} is held — and nothing is queued, so it is on the
+     * caller to dispose of the job and answer for it. Which of the two reasons it was only reaches
+     * the log: it is not a distinction the requester can act on.
      */
-    public UUID schedule(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
+    public boolean schedule(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
         var required = requireResourceClass(resourceClass);
-        if (scheduler.schedule0(jobId, required, spec)) {
-            return null;
+        var refused = scheduler.schedule0(jobId, required, spec);
+        if (refused == null) {
+            return true;
         }
-        return enqueue(jobId, required, spec);
+        LOG.infof("job %s was not placed: %s", jobId, refused);
+        return false;
     }
 
     /**
@@ -158,20 +132,6 @@ public class WorkerService {
                 throw new NoSuchElementException("no such resource class: " + resourceClass.getName());
             }
             return found;
-        });
-    }
-
-    private UUID enqueue(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
-        return QuarkusTransaction.requiringNew().call(() -> {
-            var entityManager = ResourceClass.getEntityManager();
-            var managed = entityManager.getReference(ResourceClass.class, resourceClass.key());
-            var pending = PendingJob.builder()
-                    .resourceClass(managed)
-                    .job(entityManager.getReference(Job.class, jobId))
-                    .spec(spec)
-                    .build();
-            pending.persistAndFlush();
-            return pending.getId();
         });
     }
 }

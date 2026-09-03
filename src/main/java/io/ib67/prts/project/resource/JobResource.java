@@ -15,6 +15,7 @@ import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 
 import java.util.List;
 import java.util.UUID;
@@ -97,11 +98,19 @@ public class JobResource {
         if (request == null || request.templateId() == null) {
             throw new BadRequestException("templateId is required");
         }
-        return JobView.of(jobService.createFromTemplate(
+        var created = jobService.createFromTemplate(
                 projectId,
                 request.templateId(),
                 request.override(),
-                request.resourceClass()));
+                request.resourceClass());
+        if (!created.scheduled()) {
+            // 409 rather than 503: nothing is queued, so the job is already failed and retrying is
+            // the caller's business — and ClientErrorMapper only carries a message on a 4xx.
+            throw new ClientErrorException(
+                    "could not schedule the job right now: " + created.job().getId(),
+                    Response.Status.CONFLICT);
+        }
+        return JobView.of(created.job());
     }
 
     /** Stops the job on its worker and marks it cancelled. */
@@ -136,7 +145,7 @@ public class JobResource {
             @QueryParam("length") Integer length) {
         var window = clampLength(length);
         // Capped so the inclusive upper bound cannot overflow negative.
-        var start = Math.min(Math.max(offset, 0), Integer.MAX_VALUE - window);
+        var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
         return JobLogPage.of(jobService.listLogs(projectId, jobId, start, window), start, window);
     }
 
