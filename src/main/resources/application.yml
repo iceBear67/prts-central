@@ -5,6 +5,8 @@ quarkus:
         global: ignore
   rest:
     path: /api
+  smallrye-openapi:
+    store-schema-directory: build/openapi
   cache:
     caffeine:
       user-permissions:
