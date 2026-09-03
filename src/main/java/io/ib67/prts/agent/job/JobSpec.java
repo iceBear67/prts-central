@@ -5,7 +5,6 @@ import io.quarkus.security.ForbiddenException;
 import jakarta.annotation.Nullable;
 import jakarta.ws.rs.BadRequestException;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -26,21 +25,10 @@ public record JobSpec(
         long timeout,
         @Nullable String lock
 ) {
-    public static final String PROMPT_ENV = "PRTS_PROMPT";
-
     public record VolumeSpec(
             String mountPoint,
             long sizeLimit
     ){ }
-
-    public JobSpec withPrompt(String prompt) {
-        if (prompt == null) {
-            return this;
-        }
-        var env = environment == null ? new HashMap<String, String>() : new HashMap<>(environment);
-        env.put(PROMPT_ENV, prompt);
-        return new JobSpec(image, env, labels, command, volumes, timeout, lock);
-    }
 
     /** The lock to contend for, or {@code null} when this spec is not mutually exclusive. */
     @Nullable

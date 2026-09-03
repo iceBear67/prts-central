@@ -23,9 +23,8 @@
 --     spec           jsonb,
 --     resource_class varchar     NOT NULL,              -- resolved at create time; a rerun names this one
 --     resource_class_project uuid NOT NULL,
---     template_id    uuid,                              -- with the create_ columns, what a rerun replays
+--     template_id    uuid,                              -- with create_override, what a rerun replays
 --     create_override jsonb,
---     create_prompt  varchar,
 --     FOREIGN KEY (project_id)
 --         REFERENCES project (id)
 --         ON DELETE CASCADE,
@@ -168,3 +167,15 @@
 --
 -- CREATE INDEX idx_worker_volume_worker_id ON worker_volume (worker_id);
 -- CREATE INDEX idx_worker_volume_project_id ON worker_volume (project_id);
+--
+-- CREATE TABLE "project_secret"
+-- (
+--     project_id  uuid        NOT NULL,
+--     name        varchar     NOT NULL,              -- unique per project, and the only handle
+--     -- AES-GCM under secret.key: base64 of iv || ciphertext || tag, bound to (project_id, name)
+--     -- as additional authenticated data, so a row cannot be moved to another project or name.
+--     cipher_text varchar     NOT NULL,
+--     created_at  timestamptz NOT NULL,
+--     PRIMARY KEY (project_id, name),
+--     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE
+-- );

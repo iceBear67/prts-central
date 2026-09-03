@@ -110,10 +110,9 @@ public class Job extends PanacheEntityBase {
     private ResourceClass resourceClass;
 
     /**
-     * The template the job was made from, with {@link #createOverride} and {@link #createPrompt} the
-     * part of the create request that is not recoverable from the job itself — a re-run is the client
-     * posting those back with {@link #resourceClass}. Null means some other path made the job and
-     * there is nothing to replay.
+     * The template the job was made from, with {@link #createOverride} the part of the create request
+     * that is not recoverable from the job itself — a re-run is the client posting those back with
+     * {@link #resourceClass}. Null means some other path made the job and there is nothing to replay.
      */
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
@@ -122,10 +121,6 @@ public class Job extends PanacheEntityBase {
     @Column(name = "create_override", updatable = false, columnDefinition = "jsonb")
     @ToString.Exclude
     private JobSpecOverride createOverride;
-
-    @Column(name = "create_prompt", updatable = false, columnDefinition = "varchar")
-    @ToString.Exclude
-    private String createPrompt;
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check

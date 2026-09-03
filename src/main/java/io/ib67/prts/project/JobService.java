@@ -74,10 +74,9 @@ public class JobService {
             UUID projectId,
             UUID templateId,
             @Nullable JobSpecOverride override,
-            @Nullable String resourceClass,
-            @Nullable String prompt) {
+            @Nullable String resourceClass) {
         return dispatch(QuarkusTransaction.requiringNew()
-                .call(() -> prepareFromTemplate(projectId, templateId, override, resourceClass, prompt)));
+                .call(() -> prepareFromTemplate(projectId, templateId, override, resourceClass)));
     }
 
     /**
@@ -102,8 +101,7 @@ public class JobService {
             UUID projectId,
             UUID templateId,
             @Nullable JobSpecOverride override,
-            @Nullable String resourceClassName,
-            @Nullable String prompt) {
+            @Nullable String resourceClassName) {
         var project = projectService.findById(projectId).orElseThrow(NotFoundException::new);
         // Scoped, not merely fetched: a template of another project must not be reachable from here.
         var template = JobSpecTemplate.findVisibleFetched(projectId, templateId)
@@ -111,10 +109,9 @@ public class JobService {
         if (template.getSpec() == null) {
             throw new BadRequestException("template has no job spec");
         }
-        var spec = (override == null
+        var spec = override == null
                 ? template.getSpec()
-                : override.applyTo(template.getSpec(), overridePermissions))
-                .withPrompt(prompt);
+                : override.applyTo(template.getSpec(), overridePermissions);
         spec.requireVolumesIn(projectId);
         var resourceClass = resolveResourceClass(projectId, resourceClassName, template.getResourceClass());
         var job = Job.builder()
@@ -123,7 +120,6 @@ public class JobService {
                 .resourceClass(resourceClass)
                 .templateId(templateId)
                 .createOverride(override)
-                .createPrompt(prompt)
                 .build();
         job.persist();
         return new PreparedJob(job, spec, resourceClass);

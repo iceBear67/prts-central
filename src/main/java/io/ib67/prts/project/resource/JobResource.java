@@ -101,8 +101,7 @@ public class JobResource {
                 projectId,
                 request.templateId(),
                 request.override(),
-                request.resourceClass(),
-                request.prompt()));
+                request.resourceClass()));
     }
 
     /** Stops the job on its worker and marks it cancelled. */

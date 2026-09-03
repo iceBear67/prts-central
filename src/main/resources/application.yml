@@ -66,6 +66,10 @@ quarkus:
   # set worker.secret fails to start rather than accepting a token from the repository.
   worker:
     secret: "allo"
+  # Same reason, and additionally: every project_secret row is sealed under this key, so replacing it
+  # makes them all undecryptable. `openssl rand -base64 32`.
+  secret:
+    key: "pyyrg0gJ06CIW+ryutiDTJCNStt4b/kg/mKLkRnsb/o="
 
 "%prod":
   quarkus:

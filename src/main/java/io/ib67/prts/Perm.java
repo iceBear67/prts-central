@@ -14,6 +14,9 @@ public enum Perm {
     PROJECT_READ("project:read", false),
     PROJECT_UPDATE("project:update", false),
     PROJECT_MEMBER_MANAGE("project:member:manage", false),
+    /** Which secrets a project has, by name — never a value. */
+    PROJECT_SECRET_READ("project:secret:read", false),
+    PROJECT_SECRET_MANAGE("project:secret:manage", false),
 
     JOB_READ("job:read", false),
     JOB_LOG_READ("job:log:read", false),

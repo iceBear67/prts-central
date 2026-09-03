@@ -9,8 +9,7 @@ import java.util.UUID;
 public record CreateJobRequest(
         UUID templateId,
         @Nullable JobSpecOverride override,
-        @Nullable String resourceClass,
-        @Nullable String prompt
+        @Nullable String resourceClass
         //todo link outer resources
 ) {
     /**
@@ -30,7 +29,6 @@ public record CreateJobRequest(
         return new CreateJobRequest(
                 job.getTemplateId(),
                 job.getCreateOverride(),
-                job.getResourceClass().getName(),
-                job.getCreatePrompt());
+                job.getResourceClass().getName());
     }
 }
