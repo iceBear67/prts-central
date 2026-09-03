@@ -21,15 +21,16 @@
 --     state          varchar     NOT NULL DEFAULT 'PENDING',
 --     worker         uuid,                             -- set once a worker takes the job
 --     spec           jsonb,
---     resource_class varchar,                           -- what it was scheduled against
---     template_id    uuid,                              -- the create request, verbatim; a rerun replays it
+--     resource_class varchar     NOT NULL,              -- resolved at create time; a rerun names this one
+--     resource_class_project uuid NOT NULL,
+--     template_id    uuid,                              -- with the create_ columns, what a rerun replays
 --     create_override jsonb,
 --     create_prompt  varchar,
---     create_resource_class varchar,
 --     FOREIGN KEY (project_id)
 --         REFERENCES project (id)
 --         ON DELETE CASCADE,
---     FOREIGN KEY (resource_class) REFERENCES resource_class (name),
+--     FOREIGN KEY (resource_class, resource_class_project)
+--         REFERENCES resource_class (name, project_id),
 --     CHECK (state IN ('PENDING', 'RUNNING', 'FAILED', 'SUCCESS', 'CANCELLED')),
 --     CHECK (
 --         ((state = 'PENDING' OR state = 'RUNNING') AND completed_at IS NULL)
@@ -105,20 +106,26 @@
 --
 -- CREATE TABLE "resource_class"
 -- (
---     name         varchar NOT NULL PRIMARY KEY,
+--     name         varchar NOT NULL,
+--     -- The project that defines it. Part of the key, so "global" is the reserved all-zero id
+--     -- rather than null; a project's own row shadows a global one of the same name.
+--     project_id   uuid    NOT NULL,
 --     num_cpus     int     NOT NULL,
 --     mem_count    int     NOT NULL,
---     disk_size    int     NOT NULL
+--     disk_size    int     NOT NULL,
+--     PRIMARY KEY (name, project_id)
 -- );
 --
 -- CREATE TABLE "pending_job"
 -- (
 --     id             uuid        NOT NULL PRIMARY KEY,
 --     resource_class varchar     NOT NULL,
+--     resource_class_project uuid NOT NULL,
 --     spec           jsonb       NOT NULL,
 --     job_id         uuid        UNIQUE, -- the queued job; a job is queued at most once
 --     created_at     timestamptz NOT NULL,
---     FOREIGN KEY (resource_class) REFERENCES resource_class (name),
+--     FOREIGN KEY (resource_class, resource_class_project)
+--         REFERENCES resource_class (name, project_id),
 --     FOREIGN KEY (job_id) REFERENCES job (id) ON DELETE CASCADE
 -- );
 --
@@ -130,8 +137,14 @@
 --     name           varchar NOT NULL,
 --     spec           jsonb   NOT NULL,
 --     resource_class varchar,
---     FOREIGN KEY (resource_class) REFERENCES resource_class (name)
+--     resource_class_project uuid, -- must be the global scope when project_id is null
+--     project_id     uuid,   -- null: a global template every project may use
+--     FOREIGN KEY (resource_class, resource_class_project)
+--         REFERENCES resource_class (name, project_id),
+--     FOREIGN KEY (project_id) REFERENCES project (id)
 -- );
+--
+-- CREATE INDEX idx_job_spec_template_project_id ON job_spec_template (project_id);
 --
 -- CREATE TABLE "registeredWorker"
 -- (

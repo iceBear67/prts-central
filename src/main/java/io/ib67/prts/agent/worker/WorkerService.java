@@ -151,8 +151,9 @@ public class WorkerService {
         if (resourceClass == null || resourceClass.getName() == null) {
             throw new IllegalArgumentException("resource class name is required");
         }
+        var key = resourceClass.key();
         return QuarkusTransaction.requiringNew().call(() -> {
-            var found = ResourceClass.<ResourceClass>findById(resourceClass.getName());
+            var found = ResourceClass.<ResourceClass>findById(key);
             if (found == null) {
                 throw new NoSuchElementException("no such resource class: " + resourceClass.getName());
             }
@@ -163,7 +164,7 @@ public class WorkerService {
     private UUID enqueue(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
         return QuarkusTransaction.requiringNew().call(() -> {
             var entityManager = ResourceClass.getEntityManager();
-            var managed = entityManager.getReference(ResourceClass.class, resourceClass.getName());
+            var managed = entityManager.getReference(ResourceClass.class, resourceClass.key());
             var pending = PendingJob.builder()
                     .resourceClass(managed)
                     .job(entityManager.getReference(Job.class, jobId))

@@ -64,20 +64,11 @@ public class JobService {
         return Job.listByProject(projectId);
     }
 
-    @Transactional
-    public Job create(UUID projectId, UUID worker) {
-        var job = Job.builder()
-                .project(projectService.require(projectId))
-                .worker(worker)
-                .build();
-        job.persist();
-        return job;
-    }
-
     /**
      * Creates a job from a template, applying the override fields the caller is permitted to set,
      * then schedules it. Reaching the project is the endpoint's business; enforced here is what the
-     * spec may reach — one permission per override field, plus the volume rule.
+     * spec may reach — one permission per override field, the template's own project, and the
+     * volume rule.
      */
     public Job createFromTemplate(
             UUID projectId,
@@ -114,7 +105,8 @@ public class JobService {
             @Nullable String resourceClassName,
             @Nullable String prompt) {
         var project = projectService.findById(projectId).orElseThrow(NotFoundException::new);
-        var template = JobSpecTemplate.findByIdFetched(templateId)
+        // Scoped, not merely fetched: a template of another project must not be reachable from here.
+        var template = JobSpecTemplate.findVisibleFetched(projectId, templateId)
                 .orElseThrow(() -> new NotFoundException("no such template: " + templateId));
         if (template.getSpec() == null) {
             throw new BadRequestException("template has no job spec");
@@ -124,16 +116,13 @@ public class JobService {
                 : override.applyTo(template.getSpec(), overridePermissions))
                 .withPrompt(prompt);
         spec.requireVolumesIn(projectId);
-        var resourceClass = resolveResourceClass(
-                resourceClassName == null ? null : overridePermissions.resourceClass(resourceClassName),
-                template.getResourceClass());
+        var resourceClass = resolveResourceClass(projectId, resourceClassName, template.getResourceClass());
         var job = Job.builder()
                 .project(project)
                 .spec(spec)
                 .resourceClass(resourceClass)
                 .templateId(templateId)
                 .createOverride(override)
-                .createResourceClass(resourceClassName)
                 .createPrompt(prompt)
                 .build();
         job.persist();
@@ -187,18 +176,39 @@ public class JobService {
         }
     }
 
-    private ResourceClass resolveResourceClass(String requestedName, ResourceClass templateClass) {
-        if (requestedName != null) {
-            var found = ResourceClass.<ResourceClass>findById(requestedName);
-            if (found == null) {
-                throw new NotFoundException("no such resource class: " + requestedName);
+    /**
+     * The class the job runs under: what the caller asked for, else the template's. Only a request
+     * that actually deviates from the template is gated, so replaying a stored request takes no more
+     * permission than the create it replays.
+     */
+    private ResourceClass resolveResourceClass(
+            UUID projectId, @Nullable String requestedName, @Nullable ResourceClass templateClass) {
+        if (requestedName == null || requestedName.equals(nameOf(templateClass))) {
+            if (templateClass == null || templateClass.getName() == null) {
+                throw new BadRequestException("resource class is required");
             }
-            return found;
+            return requireVisible(projectId, templateClass);
         }
-        if (templateClass == null || templateClass.getName() == null) {
-            throw new BadRequestException("resource class is required");
+        overridePermissions.resourceClass(requestedName);
+        return ResourceClass.findVisible(projectId, requestedName)
+                .orElseThrow(() -> new NotFoundException("no such resource class: " + requestedName));
+    }
+
+    private static String nameOf(@Nullable ResourceClass klass) {
+        return klass == null ? null : klass.getName();
+    }
+
+    /**
+     * A template may name a class of its own project or a global one; anything else would run the
+     * spec under another project's definition. {@link ResourceClass#findVisible} already cannot
+     * return one, so this only guards what the template points at.
+     */
+    private static ResourceClass requireVisible(UUID projectId, ResourceClass klass) {
+        if (klass.isGlobal() || klass.getProjectId().equals(projectId)) {
+            return klass;
         }
-        return templateClass;
+        throw new BadRequestException(
+                "template names a resource class of another project: " + klass.getName());
     }
 
     private record PreparedJob(Job job, JobSpec spec, ResourceClass resourceClass) {

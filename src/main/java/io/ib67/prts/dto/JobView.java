@@ -11,6 +11,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+/**
+ * @param resourceClass  the class the job actually runs under, resolved at create time. Its project
+ *                       is not published: a name is all a client can act on.
+ * @param createRequest what to post back to re-run this job, or {@code null} when the caller may not
+ *                      re-run it or the job records no request. Detail varies with permission rather
+ *                      than living on a second endpoint, so the caller decides — see
+ *                      {@link #of(Job, List, CreateJobRequest)}.
+ */
 public record JobView(
         UUID id,
         UUID projectId,
@@ -18,8 +26,10 @@ public record JobView(
         @Nullable Instant completedAt,
         JobState state,
         @Nullable UUID worker,
+        String resourceClass,
         @Nullable SpecView spec,
-        List<ArtifactView> artifacts
+        List<ArtifactView> artifacts,
+        @Nullable CreateJobRequest createRequest
 ) {
     public record ArtifactView(UUID id, String name) {
         public static ArtifactView of(Artifact artifact) {
@@ -57,14 +67,21 @@ public record JobView(
 
     /** A job that has produced nothing yet — one just created, or just re-run. */
     public static JobView of(Job job) {
-        return of(job, List.of());
+        return of(job, List.of(), null);
+    }
+
+    public static JobView of(Job job, List<Artifact> artifacts) {
+        return of(job, artifacts, null);
     }
 
     /**
      * Reads only what a detached job carries — the project for its id alone, which a lazy proxy
-     * answers without loading. Keep it that way: callers map jobs after the transaction closed.
+     * answers without loading, and the resource class, which is fetched eagerly for this. Keep it
+     * that way: callers map jobs after the transaction closed. That is also why {@code createRequest}
+     * is passed in: whether the caller may see it is an authorization question, and those are
+     * answered at the endpoint.
      */
-    public static JobView of(Job job, List<Artifact> artifacts) {
+    public static JobView of(Job job, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
         return new JobView(
                 job.getId(),
                 job.getProject().getId(),
@@ -72,7 +89,9 @@ public record JobView(
                 job.getCompletedAt(),
                 job.getState(),
                 job.getWorker(),
+                job.getResourceClass().getName(),
                 SpecView.of(job.getSpec()),
-                artifacts.stream().map(ArtifactView::of).toList());
+                artifacts.stream().map(ArtifactView::of).toList(),
+                createRequest);
     }
 }

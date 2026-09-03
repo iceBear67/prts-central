@@ -1,6 +1,7 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.project.ProjectRole;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheName;
 import jakarta.annotation.Nullable;
@@ -28,6 +29,9 @@ public class PermissionService {
     @Inject
     TransactionSynchronizationRegistry transactionRegistry;
 
+    @Inject
+    UserService userService;
+
     @CacheName(CACHE_NAME)
     Cache cache;
 
@@ -52,6 +56,18 @@ public class PermissionService {
 
     public boolean isAdmin(UUID userId) {
         return has(userId, Perm.ADMIN_OF_ALL);
+    }
+
+    /**
+     * The decision {@code @RequirePermission(value = perm, defaultRole = defaultRole)} makes,
+     * answered instead of enforced — for a caller that varies what it returns rather than refusing.
+     * Kept in step with {@link io.ib67.prts.auth.RequirePermissionInterceptor} by hand; it stays a
+     * separate method because the interceptor must throw and this must not.
+     */
+    public boolean allows(UUID userId, Perm perm, @Nullable UUID projectId, ProjectRole defaultRole) {
+        return isAdmin(userId)
+                || has(userId, perm, projectId)
+                || (defaultRole != ProjectRole.NONE && userService.hasAtLeast(userId, projectId, defaultRole));
     }
 
     public boolean hasAny(UUID userId, Collection<Perm> perms, @Nullable UUID projectId) {

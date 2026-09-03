@@ -13,6 +13,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinColumns;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -94,16 +95,25 @@ public class Job extends PanacheEntityBase {
     @ToString.Exclude
     private JobSpec spec;
 
-    /** What the job was scheduled against. Null when the job never went through scheduling. */
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "resource_class")
+    /**
+     * What the job runs under, resolved at create time from the request or, failing that, the
+     * template. Eager because every view of a job publishes its name and callers map jobs after
+     * their transaction closed; the row is a tiny immutable lookup and the join is inner.
+     */
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
+    @JoinColumns({
+            @JoinColumn(name = "resource_class", referencedColumnName = "name", nullable = false),
+            @JoinColumn(name = "resource_class_project", referencedColumnName = "project_id",
+                    nullable = false)
+    })
     @ToString.Exclude
     private ResourceClass resourceClass;
 
     /**
-     * The create request this job was made from, verbatim, for the client to fetch back and re-post
-     * to {@code /create} — how a re-run goes through the same gates as the original create. A null
-     * {@code templateId} means some other path made the job and there is nothing to replay.
+     * The template the job was made from, with {@link #createOverride} and {@link #createPrompt} the
+     * part of the create request that is not recoverable from the job itself — a re-run is the client
+     * posting those back with {@link #resourceClass}. Null means some other path made the job and
+     * there is nothing to replay.
      */
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
@@ -116,9 +126,6 @@ public class Job extends PanacheEntityBase {
     @Column(name = "create_prompt", updatable = false, columnDefinition = "varchar")
     @ToString.Exclude
     private String createPrompt;
-
-    @Column(name = "create_resource_class", updatable = false, columnDefinition = "varchar")
-    private String createResourceClass;
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check

@@ -2,12 +2,16 @@ package io.ib67.prts.agent.job.entity;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.project.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinColumns;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -29,7 +33,9 @@ import java.util.UUID;
  * optional; when null, the caller chooses one at schedule time.
  */
 @Entity
-@Table(name = "job_spec_template")
+@Table(
+        name = "job_spec_template",
+        indexes = @Index(name = "idx_job_spec_template_project_id", columnList = "project_id"))
 @Getter
 @Setter
 @NoArgsConstructor
@@ -50,17 +56,36 @@ public class JobSpecTemplate extends PanacheEntityBase {
     @Column(name = "spec", nullable = false, columnDefinition = "jsonb")
     private JobSpec spec;
 
+    /** Must be global on a global template, or the spec would name another project's class. */
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "resource_class")
+    @JoinColumns({
+            @JoinColumn(name = "resource_class", referencedColumnName = "name"),
+            @JoinColumn(name = "resource_class_project", referencedColumnName = "project_id")
+    })
     @ToString.Exclude
     private ResourceClass resourceClass;
 
-    public static List<JobSpecTemplate> listAllFetched() {
-        return find("from JobSpecTemplate t left join fetch t.resourceClass").list();
+    /**
+     * The project that owns this template, or {@code null} for a global one every project may use.
+     * A template of another project is invisible, so a spec cannot be reached across projects.
+     */
+    @Nullable
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "project_id")
+    @ToString.Exclude
+    private Project project;
+
+    /** {@code ?1} is the project; append further conditions with the next index. */
+    private static final String VISIBLE_TO =
+            "from JobSpecTemplate t left join fetch t.resourceClass "
+                    + "where (t.project is null or t.project.id = ?1)";
+
+    /** The global templates plus the ones {@code projectId} owns. */
+    public static List<JobSpecTemplate> listVisibleFetched(UUID projectId) {
+        return find(VISIBLE_TO, projectId).list();
     }
 
-    public static Optional<JobSpecTemplate> findByIdFetched(UUID id) {
-        return find("from JobSpecTemplate t left join fetch t.resourceClass where t.id = ?1", id)
-                .firstResultOptional();
+    public static Optional<JobSpecTemplate> findVisibleFetched(UUID projectId, UUID id) {
+        return find(VISIBLE_TO + " and t.id = ?2", projectId, id).firstResultOptional();
     }
 }

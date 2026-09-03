@@ -9,6 +9,8 @@ import io.ib67.prts.project.JobConfig;
 import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.ProjectRole;
 import io.ib67.prts.storage.StorageService;
+import io.ib67.prts.user.PermissionService;
+import io.ib67.prts.user.UserContext;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
@@ -31,14 +33,18 @@ public class JobResource {
     StorageService storageService;
     @Inject
     JobConfig jobConfig;
+    @Inject
+    UserContext userContext;
+    @Inject
+    PermissionService permissionService;
 
-    /** Templates are global; the project in the path only gates who may browse them. */
+    /** The project's own templates plus the global ones; another project's are not listed. */
     @GET
     @Path("/template")
     @Transactional
     @RequirePermission(value = Perm.JOB_TEMPLATE_READ, defaultRole = ProjectRole.VIEWER)
-    public List<JobSpecTemplateView> listTemplates() {
-        return JobSpecTemplate.listAllFetched().stream()
+    public List<JobSpecTemplateView> listTemplates(@ProjectId @PathParam("projectId") UUID projectId) {
+        return JobSpecTemplate.listVisibleFetched(projectId).stream()
                 .map(JobSpecTemplateView::of)
                 .toList();
     }
@@ -47,13 +53,18 @@ public class JobResource {
     @Path("/template/{templateId}")
     @Transactional
     @RequirePermission(value = Perm.JOB_TEMPLATE_READ, defaultRole = ProjectRole.VIEWER)
-    public JobSpecTemplateView getTemplate(@PathParam("templateId") UUID templateId) {
-        return JobSpecTemplate.findByIdFetched(templateId)
+    public JobSpecTemplateView getTemplate(
+            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("templateId") UUID templateId) {
+        return JobSpecTemplate.findVisibleFetched(projectId, templateId)
                 .map(JobSpecTemplateView::of)
                 .orElseThrow(NotFoundException::new);
     }
 
-    /** Artifact names ride on {@code job:read}; the bytes need {@code job:artifact:read}. */
+    /**
+     * Artifact names ride on {@code job:read}; the bytes need {@code job:artifact:read}. The stored
+     * create request rides on {@code job:create}, so what a caller may do with the job decides how
+     * much of it they get back, rather than a second endpoint.
+     */
     @GET
     @Path("/{jobId}")
     @Transactional
@@ -61,7 +72,20 @@ public class JobResource {
     public JobView getJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
         var job = jobService.findInProject(projectId, jobId).orElseThrow(NotFoundException::new);
-        return JobView.of(job, jobService.listArtifacts(projectId, jobId));
+        return JobView.of(
+                job,
+                jobService.listArtifacts(projectId, jobId),
+                mayCreateJobs(projectId) ? CreateJobRequest.of(job) : null);
+    }
+
+    /**
+     * The same test {@link #createJob} is gated by — a re-run is the client posting the request
+     * back, so seeing one takes what using it takes.
+     */
+    private boolean mayCreateJobs(UUID projectId) {
+        var user = userContext.get();
+        return user != null
+                && permissionService.allows(user.getId(), Perm.JOB_CREATE, projectId, ProjectRole.MEMBER);
     }
 
     @POST
@@ -79,24 +103,6 @@ public class JobResource {
                 request.override(),
                 request.resourceClass(),
                 request.prompt()));
-    }
-
-    /**
-     * The stored create request, shaped to be posted back to {@code /create}: re-running is the
-     * client replaying it, so fetching one takes the same permission as using it.
-     */
-    @GET
-    @Path("/{jobId}/request")
-    @Transactional
-    @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
-    public CreateJobRequest getCreateRequest(
-            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
-        var job = jobService.requireInProject(projectId, jobId);
-        if (job.getTemplateId() == null) {
-            throw new NotFoundException("job records no create request: " + jobId);
-        }
-        return new CreateJobRequest(
-                job.getTemplateId(), job.getCreateOverride(), job.getCreateResourceClass(), job.getCreatePrompt());
     }
 
     /** Stops the job on its worker and marks it cancelled. */
