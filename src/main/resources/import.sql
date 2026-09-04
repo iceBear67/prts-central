@@ -166,3 +166,28 @@
 --     PRIMARY KEY (project_id, name),
 --     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE
 -- );
+--
+-- -- An authorized create request waiting for a worker that can take it. It stores the request, not a
+-- -- job and not a spec: the dispatcher replays it through the create path, so the merged spec and the
+-- -- project's secrets are produced per attempt and never land here.
+-- CREATE TABLE "pending_job"
+-- (
+--     id              uuid        NOT NULL PRIMARY KEY,
+--     project_id      uuid        NOT NULL,
+--     requested_by    uuid,                          -- whose authorization the entry holds; no FK
+--     template_id     uuid        NOT NULL,          -- with create_override, the request itself
+--     create_override jsonb,
+--     resource_class  varchar     NOT NULL,          -- by name: resolved again per attempt
+--     state           varchar     NOT NULL DEFAULT 'QUEUED',
+--     created_at      timestamptz NOT NULL,
+--     expires_at      timestamptz NOT NULL,          -- when the authorization stops counting
+--     next_attempt_at timestamptz,                   -- backoff, so an empty fleet costs one try
+--     attempts        int         NOT NULL DEFAULT 0,
+--     last_error      varchar,
+--     job_id          uuid,                          -- the job it became, once dispatched
+--     FOREIGN KEY (project_id) REFERENCES project (id) ON DELETE CASCADE,
+--     CHECK (state IN ('QUEUED', 'DISPATCHING', 'DISPATCHED', 'CANCELLED', 'EXPIRED', 'FAILED'))
+-- );
+--
+-- CREATE INDEX idx_pending_job_project_id ON pending_job (project_id);
+-- CREATE INDEX idx_pending_job_due ON pending_job (state, next_attempt_at);

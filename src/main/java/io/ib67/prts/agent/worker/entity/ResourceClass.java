@@ -42,6 +42,7 @@ public class ResourceClass extends PanacheEntityBase {
      * cannot key on null, so "no project" is this reserved all-zero id — same reason as
      * {@link io.ib67.prts.user.Permission#GLOBAL}.
      */
+    @JsonIgnore
     public static final UUID GLOBAL = new UUID(0, 0);
 
     @Id

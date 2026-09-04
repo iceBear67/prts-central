@@ -54,9 +54,11 @@ public class WorkerWebSocket {
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
         if (connection.userData().get(INTERNAL_WORKER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
+        // A worker still sending the field as "id" lands here: that name is the type property.
+        if (r.workerId() == null) return new ClientboundMessage.Response(false, "workerId is required");
         workerService.registerWorker(
-                r.id(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
-        connection.userData().put(INTERNAL_WORKER_ID, r.id().toString());
+                r.workerId(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
+        connection.userData().put(INTERNAL_WORKER_ID, r.workerId().toString());
         return new ClientboundMessage.Response(true, "");
     }
 

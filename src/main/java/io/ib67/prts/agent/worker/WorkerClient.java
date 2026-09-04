@@ -3,6 +3,7 @@ package io.ib67.prts.agent.worker;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.quarkus.arc.ClientProxy;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.smallrye.mutiny.Uni;
 
@@ -25,13 +26,21 @@ public final class WorkerClient {
      */
     private final Map<UUID, CompletableFuture<Void>> outstanding = new ConcurrentHashMap<>();
 
+    /**
+     * Unwrapped, not the injected proxy: that one resolves through the WebSocket session context,
+     * which is only active inside a callback for this connection — and every send below happens on a
+     * request or scheduler thread, where it would throw {@code ContextNotActiveException}.
+     */
     public WorkerClient(WebSocketConnection conn) {
-        this.conn = conn;
+        this.conn = ClientProxy.unwrap(conn);
     }
 
-    /** Whether this handle speaks over {@code connection} — how a closing socket proves it owns a session. */
+    /**
+     * Whether this handle speaks over {@code connection} — how a closing socket proves it owns a
+     * session. By id: the argument is the proxy and {@link #conn} is what it stands for.
+     */
     boolean isFor(WebSocketConnection connection) {
-        return conn.equals(connection);
+        return conn.id().equals(connection.id());
     }
 
     /**

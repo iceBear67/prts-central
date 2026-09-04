@@ -21,7 +21,12 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ServerboundMessage.UploadArtifactRequest.class, name = "uploadArtifactRequest"),
 })
 public sealed interface ServerboundMessage {
-    record Register(UUID id, String name, RegisteredWorker.Info info) implements ServerboundMessage {
+    /**
+     * @param workerId not {@code id}: that name is taken by the type property above, which Jackson
+     *                 consumes to pick the subtype and — {@code visible} being false — never binds,
+     *                 so a component of that name would arrive null on every register.
+     */
+    record Register(UUID workerId, String name, RegisteredWorker.Info info) implements ServerboundMessage {
     }
 
     record UpdateJobLog(UUID jobId, String topic, String message, Boolean error) implements ServerboundMessage {

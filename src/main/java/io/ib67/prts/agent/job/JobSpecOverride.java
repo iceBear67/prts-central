@@ -26,17 +26,17 @@ public record JobSpecOverride(
         @Nullable Long timeout,
         @Nullable String lock
 ) {
-    public JobSpec applyTo(JobSpec base, JobSpecOverridePermissions permissions) {
+    public JobSpec applyTo(JobSpec base, JobSpecOverrideAuthorizer authorizer) {
         Objects.requireNonNull(base, "spec");
-        Objects.requireNonNull(permissions, "permissions");
+        Objects.requireNonNull(authorizer, "authorizer");
         return new JobSpec(
-                apply(image, permissions::image, base.image()),
-                mergeMap(environment, permissions::environment, base.environment()),
-                mergeMap(labels, permissions::labels, base.labels()),
-                mergeList(command, permissions::command, base.command()),
-                mergeMap(volumes, permissions::volumes, base.volumes()),
-                timeout != null ? permissions.timeout(timeout) : base.timeout(),
-                apply(lock, permissions::lock, base.lock()), base.secret());
+                apply(image, authorizer::image, base.image()),
+                mergeMap(environment, authorizer::environment, base.environment()),
+                mergeMap(labels, authorizer::labels, base.labels()),
+                mergeList(command, authorizer::command, base.command()),
+                mergeMap(volumes, authorizer::volumes, base.volumes()),
+                timeout != null ? authorizer.timeout(timeout) : base.timeout(),
+                apply(lock, authorizer::lock, base.lock()), base.secret());
         // Not overridable: secrets are the project's, injected at dispatch, never requested.
     }
 

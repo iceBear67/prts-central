@@ -90,3 +90,11 @@ storage:
 job:
   log:
     max-page-size: 20
+  pending:
+    interval: PT1S
+    # How long an entry keeps the authorization it was accepted with.
+    ttl: PT1H
+    max-per-project: 100
+    backoff: PT2S
+    max-backoff: PT30S
+    batch: 20

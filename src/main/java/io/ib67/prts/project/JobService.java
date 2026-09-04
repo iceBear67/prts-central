@@ -3,6 +3,7 @@ package io.ib67.prts.project;
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
+import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
@@ -77,33 +78,96 @@ public class JobService {
             UUID templateId,
             @Nullable JobSpecOverride override,
             @Nullable String resourceClass) {
-        return dispatch(QuarkusTransaction.requiringNew()
-                .call(() -> prepareFromTemplate(projectId, templateId, override, resourceClass)));
+        return dispatch(
+                QuarkusTransaction.requiringNew().call(
+                        () -> prepare(projectId, templateId, override, resourceClass, overridePermissions)),
+                OnRefusal.FAIL);
     }
 
     /**
-     * @param scheduled {@code false} when no worker could take the job. There is no queue, so the
-     *                  row is already {@link JobState#FAILED}; saying so is the endpoint's job.
+     * Runs every check {@link #createFromTemplate} runs, persists nothing, and answers with the
+     * resource class the create resolves to. What lets a request be cleared while its requester is
+     * still on the line and submitted later — see {@link io.ib67.prts.pending.PendingJobService}.
+     */
+    public String authorizeCreate(
+            UUID projectId,
+            UUID templateId,
+            @Nullable JobSpecOverride override,
+            @Nullable String resourceClass) {
+        return QuarkusTransaction.requiringNew()
+                .call(() -> resolve(projectId, templateId, override, resourceClass, overridePermissions))
+                .resourceClass()
+                .getName();
+    }
+
+    /**
+     * Replays a request {@link #authorizeCreate} already cleared, from a thread that carries neither
+     * the requester nor their request. Only the per-field override rules are taken as settled;
+     * everything else — the template's project, the volume rule, the class the spec may name — is
+     * checked again against the state of now.
+     */
+    public CreatedJob createPreAuthorized(
+            UUID projectId,
+            UUID templateId,
+            @Nullable JobSpecOverride override,
+            @Nullable String resourceClass) {
+        return dispatch(
+                QuarkusTransaction.requiringNew().call(
+                        () -> prepare(projectId, templateId, override, resourceClass, PRE_AUTHORIZED)),
+                OnRefusal.DISCARD);
+    }
+
+    /**
+     * Clears every override field without asking. Sound only for a request already cleared by
+     * {@link #authorizeCreate}, which is why nothing outside this class can reach one.
+     */
+    private static final JobSpecOverrideAuthorizer PRE_AUTHORIZED = new JobSpecOverrideAuthorizer() {
+        @Override public String image(String value) { return value; }
+        @Override public Map<String, String> environment(Map<String, String> value) { return value; }
+        @Override public Map<String, String> labels(Map<String, String> value) { return value; }
+        @Override public List<String> command(List<String> value) { return value; }
+        @Override public Map<UUID, JobSpec.VolumeSpec> volumes(Map<UUID, JobSpec.VolumeSpec> value) { return value; }
+        @Override public long timeout(long value) { return value; }
+        @Override public String lock(String value) { return value; }
+        @Override public String resourceClass(String name) { return name; }
+    };
+
+    /**
+     * @param scheduled {@code false} when no worker could take the job. What the row looks like
+     *                  afterwards is {@link OnRefusal}'s business; saying so is the caller's.
      */
     public record CreatedJob(Job job, boolean scheduled) {
     }
 
+    /** What an unplaceable job leaves behind. */
+    private enum OnRefusal {
+        /** A {@link JobState#FAILED} row: the caller asked for this job and gets to see it refused. */
+        FAIL,
+        /** Nothing at all: the attempt is one of many, and each would otherwise leave a failure. */
+        DISCARD
+    }
+
     /**
-     * Hands a prepared job to the scheduler and fails it if that does not work out. Being
-     * unplaceable is one such failure — there is no queue to fall back to — but not an error here:
-     * it is reported, not thrown.
+     * Hands a prepared job to the scheduler and undoes it if that does not work out. Being
+     * unplaceable is one such failure but not an error here: it is reported, not thrown.
      */
-    private CreatedJob dispatch(PreparedJob prepared) {
+    private CreatedJob dispatch(PreparedJob prepared, OnRefusal onRefusal) {
         var jobId = prepared.job().getId();
         boolean scheduled;
         try {
             scheduled = workerService.schedule(jobId, prepared.resourceClass(), prepared.spec());
         } catch (RuntimeException e) {
+            // Failed rather than discarded whatever the policy: the offer may have reached a worker
+            // that started a container, and a job that may have run has to remain visible.
             failAndRelease(jobId);
             throw e;
         }
         if (!scheduled) {
-            failAndRelease(jobId);
+            if (onRefusal == OnRefusal.DISCARD) {
+                discard(jobId);
+            } else {
+                failAndRelease(jobId);
+            }
         }
         return new CreatedJob(prepared.job(), scheduled);
     }
@@ -116,11 +180,44 @@ public class JobService {
         });
     }
 
-    private PreparedJob prepareFromTemplate(
+    /** No worker ever saw it, so it has no logs, no artifacts and nothing worth keeping. */
+    private void discard(UUID jobId) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            JobLock.releaseBy(jobId);
+            Job.deleteById(jobId);
+        });
+    }
+
+    private PreparedJob prepare(
             UUID projectId,
             UUID templateId,
             @Nullable JobSpecOverride override,
-            @Nullable String resourceClassName) {
+            @Nullable String resourceClassName,
+            JobSpecOverrideAuthorizer authorizer) {
+        var resolved = resolve(projectId, templateId, override, resourceClassName, authorizer);
+        var job = Job.builder()
+                .project(resolved.project())
+                .spec(resolved.spec())
+                .resourceClass(resolved.resourceClass())
+                .templateId(templateId)
+                .createOverride(override)
+                .build();
+        job.persist();
+        // Only the copy handed to the scheduler carries the secrets: the entity keeps the spec
+        // without them, so neither the row nor a view read back off it can hold plaintext even if
+        // the @JsonIgnore that already drops them were to go. Resolved per attempt, so a replayed
+        // request picks up the project's secrets as they are now and never carries any itself.
+        return new PreparedJob(
+                job, resolved.spec().withSecret(secretService.resolve(projectId)), resolved.resourceClass());
+    }
+
+    /** Everything a create needs its caller cleared for, with nothing persisted yet. */
+    private ResolvedCreate resolve(
+            UUID projectId,
+            UUID templateId,
+            @Nullable JobSpecOverride override,
+            @Nullable String resourceClassName,
+            JobSpecOverrideAuthorizer authorizer) {
         var project = projectService.findById(projectId).orElseThrow(NotFoundException::new);
         // Scoped, not merely fetched: a template of another project must not be reachable from here.
         var template = JobSpecTemplate.findVisibleFetched(projectId, templateId)
@@ -130,21 +227,12 @@ public class JobService {
         }
         var spec = override == null
                 ? template.getSpec()
-                : override.applyTo(template.getSpec(), overridePermissions);
+                : override.applyTo(template.getSpec(), authorizer);
         spec.requireVolumesIn(projectId);
-        var resourceClass = resolveResourceClass(projectId, resourceClassName, template.getResourceClass());
-        var job = Job.builder()
-                .project(project)
-                .spec(spec)
-                .resourceClass(resourceClass)
-                .templateId(templateId)
-                .createOverride(override)
-                .build();
-        job.persist();
-        // Only the copy handed to the scheduler carries the secrets: the entity keeps the spec
-        // without them, so neither the row nor a view read back off it can hold plaintext even if
-        // the @JsonIgnore that already drops them were to go.
-        return new PreparedJob(job, spec.withSecret(secretService.resolve(projectId)), resourceClass);
+        return new ResolvedCreate(
+                project,
+                spec,
+                resolveResourceClass(projectId, resourceClassName, template.getResourceClass(), authorizer));
     }
 
     /**
@@ -198,14 +286,17 @@ public class JobService {
      * permission than the create it replays.
      */
     private ResourceClass resolveResourceClass(
-            UUID projectId, @Nullable String requestedName, @Nullable ResourceClass templateClass) {
+            UUID projectId,
+            @Nullable String requestedName,
+            @Nullable ResourceClass templateClass,
+            JobSpecOverrideAuthorizer authorizer) {
         if (requestedName == null || requestedName.equals(nameOf(templateClass))) {
             if (templateClass == null || templateClass.getName() == null) {
                 throw new BadRequestException("resource class is required");
             }
             return requireVisible(projectId, templateClass);
         }
-        overridePermissions.resourceClass(requestedName);
+        authorizer.resourceClass(requestedName);
         return ResourceClass.findVisible(projectId, requestedName)
                 .orElseThrow(() -> new NotFoundException("no such resource class: " + requestedName));
     }
@@ -229,6 +320,10 @@ public class JobService {
 
     /** @param spec the merged spec <em>with</em> the project's secrets — never the persisted one. */
     private record PreparedJob(Job job, JobSpec spec, ResourceClass resourceClass) {
+    }
+
+    /** @param spec the merged spec <em>without</em> secrets: nothing is running yet. */
+    private record ResolvedCreate(Project project, JobSpec spec, ResourceClass resourceClass) {
     }
 
     /** @param worker the worker that still has to be told, or {@code null} if never dispatched. */
