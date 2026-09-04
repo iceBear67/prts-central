@@ -56,8 +56,10 @@ public class JobLauncher {
      * Makes the job and hands it to the scheduler. Being unplaceable is reported, not thrown, and
      * leaves the job persisted and {@link JobState#PENDING} for the caller to {@link #discard}.
      */
-    public CreatedJob launch(UUID projectId, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
-        var prepared = QuarkusTransaction.requiringNew().call(() -> prepare(projectId, request, authorizer));
+    public CreatedJob launch(
+            UUID projectId, UUID requestedBy, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
+        var prepared = QuarkusTransaction.requiringNew()
+                .call(() -> prepare(projectId, requestedBy, request, authorizer));
         return dispatch(prepared);
     }
 
@@ -113,7 +115,8 @@ public class JobLauncher {
         });
     }
 
-    private PreparedJob prepare(UUID projectId, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
+    private PreparedJob prepare(
+            UUID projectId, UUID requestedBy, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
         var resolved = resolve(projectId, request, authorizer);
         var job = Job.builder()
                 .project(resolved.project())
@@ -121,6 +124,7 @@ public class JobLauncher {
                 .resourceClass(resolved.resourceClass())
                 .templateId(request.templateId())
                 .createOverride(request.override())
+                .requestedBy(requestedBy)
                 .build();
         job.persist();
         // Only the copy handed to the scheduler carries the secrets: the entity keeps the spec

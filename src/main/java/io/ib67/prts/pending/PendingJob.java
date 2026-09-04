@@ -27,7 +27,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
-import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.List;
@@ -70,9 +69,12 @@ public class PendingJob extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /** Whose authorization the entry is holding. Kept like {@code Job.worker}, by id and without a FK. */
-    @Column(name = "requested_by", updatable = false)
-    @Nullable
+    /**
+     * Whose authorization the entry is holding. Kept like {@code Job.worker}, by id and without a FK.
+     * Never absent: {@link PendingJobService#enqueue} refuses a caller it cannot name, so a future
+     * path that queues without a requester fails there rather than storing a blank one here.
+     */
+    @Column(name = "requested_by", nullable = false, updatable = false)
     private UUID requestedBy;
 
     /**

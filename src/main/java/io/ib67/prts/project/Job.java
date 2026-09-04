@@ -118,6 +118,15 @@ public class Job extends PanacheEntityBase {
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
 
+    /**
+     * Who asked for the job, carried over from the queue entry that produced it — the dispatcher
+     * thread has no requester of its own, so not passing it here loses it for good. Kept by id
+     * without a FK, like {@link #worker}. Deliberately not part of {@link JobRequest}: a re-run is
+     * requested by whoever posts it back, and putting this in the request would let them say otherwise.
+     */
+    @Column(name = "requested_by", nullable = false, updatable = false)
+    private UUID requestedBy;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "create_override", updatable = false, columnDefinition = "jsonb")
     @ToString.Exclude

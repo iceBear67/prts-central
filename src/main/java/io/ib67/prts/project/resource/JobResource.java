@@ -8,20 +8,27 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.*;
 import io.ib67.prts.pending.PendingJobService;
 import io.ib67.prts.project.Artifact;
+import io.ib67.prts.project.Job;
 import io.ib67.prts.project.JobConfig;
+import io.ib67.prts.project.JobCreateAccess;
 import io.ib67.prts.project.JobLauncher;
+import io.ib67.prts.project.JobRequest;
 import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.ProjectRole;
 import io.ib67.prts.storage.StorageService;
-import io.ib67.prts.user.PermissionService;
-import io.ib67.prts.user.UserContext;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
-import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.openapi.annotations.media.Content;
+import org.eclipse.microprofile.openapi.annotations.media.Schema;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
+import org.jboss.resteasy.reactive.ResponseStatus;
+import org.jboss.resteasy.reactive.RestResponse;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -45,9 +52,7 @@ public class JobResource {
     @Inject
     JobConfig jobConfig;
     @Inject
-    UserContext userContext;
-    @Inject
-    PermissionService permissionService;
+    JobCreateAccess jobCreateAccess;
 
     /** The project's own templates plus the global ones; another project's are not listed. */
     @GET
@@ -72,7 +77,11 @@ public class JobResource {
     }
 
     /**
-     * Artifact names ride on {@code job:read}; the bytes need {@code job:artifact:read}. The stored
+     * Takes either id the client may be holding: a job's, or that of the queue entry it came from,
+     * which is followed to the job once one exists. So the id handed out at create time keeps working
+     * for the life of the run, and {@code type} on the answer says which of the two it found.
+     *
+     * <p>Artifact names ride on {@code job:read}; the bytes need {@code job:artifact:read}. The stored
      * create request rides on {@code job:create}, so what a caller may do with the job decides how
      * much of it they get back, rather than a second endpoint.
      */
@@ -80,25 +89,36 @@ public class JobResource {
     @Path("/{jobId}")
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
-    public JobView getJob(
+    public JobStatusView getJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
-        var job = jobService.findInProject(projectId, jobId).orElseThrow(NotFoundException::new);
-        var request = job.toRequest();
-        return JobView.of(
-                job,
-                Artifact.listByJob(jobId),
-                //todo 这就是你说的按权限设置可见性？？？
-                request != null && mayCreateJobs(projectId) ? CreateJobRequest.of(request) : null);
+        var job = jobService.findInProject(projectId, jobId);
+        if (job.isPresent()) {
+            return viewOf(projectId, job.get());
+        }
+        var pending = pendingJobService.findInProject(projectId, jobId)
+                .orElseThrow(NotFoundException::new);
+        // Only ever set once an attempt was taken, so an entry still waiting reads as itself.
+        var dispatched = pending.getJobId() == null
+                ? Optional.<Job>empty()
+                : jobService.findInProject(projectId, pending.getJobId());
+        return dispatched
+                .map(it -> (JobStatusView) viewOf(projectId, it))
+                .orElseGet(() -> PendingJobView.of(pending, requestFor(projectId, pending.getRequest())));
+    }
+
+    private JobView viewOf(UUID projectId, Job job) {
+        return JobView.of(job, Artifact.listByJob(job.getId()), requestFor(projectId, job.toRequest()));
     }
 
     /**
-     * The same test {@link #createJob} is gated by — a re-run is the client posting the request
-     * back, so seeing one takes what using it takes.
+     * The stored request, but only for a caller who could post it back — a re-run is the client doing
+     * exactly that, so seeing one takes what using it takes.
      */
-    private boolean mayCreateJobs(UUID projectId) {
-        var user = userContext.get();
-        return user != null
-                && permissionService.allows(user.getId(), Perm.JOB_CREATE, projectId, ProjectRole.MEMBER);
+    @Nullable
+    private CreateJobRequest requestFor(UUID projectId, @Nullable JobRequest request) {
+        return request != null && jobCreateAccess.allowedIn(projectId)
+                ? CreateJobRequest.of(request)
+                : null;
     }
 
     /**
@@ -110,22 +130,30 @@ public class JobResource {
     @POST
     @Path("/create")
     @Consumes(MediaType.APPLICATION_JSON)
+    // 201 by annotation rather than by returning a Response, so the declared type stays JobStatusView
+    // — that is what puts the discriminator on the wire and a schema in the document.
+    @ResponseStatus(RestResponse.StatusCode.CREATED)
+    @APIResponse(
+            responseCode = "201",
+            description = "The queue entry the create became.",
+            content = @Content(schema = @Schema(implementation = JobStatusView.class)))
     @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
-    public Response createJob(
+    public JobStatusView createJob(
             @ProjectId @PathParam("projectId") UUID projectId, CreateJobRequest request) {
         if (request == null || request.templateId() == null) {
             throw new BadRequestException("templateId is required");
         }
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
-        return Response.status(Response.Status.CREATED).entity(PendingJobView.of(pending)).build();
+        // The creator holds job:create by definition — this endpoint is gated on it.
+        return PendingJobView.of(pending, CreateJobRequest.of(pending.getRequest()));
     }
 
     /** Stops the job on its worker and marks it cancelled. */
     @POST
     @Path("/{jobId}/cancel")
     @RequirePermission(value = Perm.JOB_CANCEL, defaultRole = ProjectRole.MEMBER)
-    public JobView cancelJob(
+    public JobStatusView cancelJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
         var job = jobService.cancel(projectId, jobId);
         return JobView.of(job, Artifact.listByJob(jobId));

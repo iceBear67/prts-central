@@ -18,6 +18,7 @@ import java.util.UUID;
  *                      re-run it or the job records no request. Detail varies with permission rather
  *                      than living on a second endpoint, so the caller decides — see
  *                      {@link #of(Job, List, CreateJobRequest)}.
+ * @param requestedBy   who asked for the job, carried over from the queue entry it came from.
  */
 public record JobView(
         UUID id,
@@ -26,11 +27,12 @@ public record JobView(
         @Nullable Instant completedAt,
         JobState state,
         @Nullable UUID worker,
+        UUID requestedBy,
         String resourceClass,
         @Nullable SpecView spec,
         List<ArtifactView> artifacts,
         @Nullable CreateJobRequest createRequest
-) {
+) implements JobStatusView {
     public record ArtifactView(UUID id, String name) {
         public static ArtifactView of(Artifact artifact) {
             return new ArtifactView(artifact.getId(), artifact.getName());
@@ -89,6 +91,7 @@ public record JobView(
                 job.getCompletedAt(),
                 job.getState(),
                 job.getWorker(),
+                job.getRequestedBy(),
                 job.getResourceClass().getName(),
                 SpecView.of(job.getSpec()),
                 artifacts.stream().map(ArtifactView::of).toList(),

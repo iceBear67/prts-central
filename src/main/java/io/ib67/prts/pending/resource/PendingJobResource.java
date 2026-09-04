@@ -3,8 +3,12 @@ package io.ib67.prts.pending.resource;
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.CreateJobRequest;
+import io.ib67.prts.dto.JobStatusView;
 import io.ib67.prts.dto.PendingJobView;
+import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
+import io.ib67.prts.project.JobCreateAccess;
 import io.ib67.prts.project.ProjectRole;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -31,13 +35,17 @@ import java.util.UUID;
 public class PendingJobResource {
     @Inject
     PendingJobService pendingJobService;
+    @Inject
+    JobCreateAccess jobCreateAccess;
 
     @GET
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
-    public List<PendingJobView> listPending(@ProjectId @PathParam("projectId") UUID projectId) {
+    public List<JobStatusView> listPending(@ProjectId @PathParam("projectId") UUID projectId) {
+        // One answer for the whole page: the permission is per project, not per entry.
+        var mayCreate = jobCreateAccess.allowedIn(projectId);
         return pendingJobService.listByProject(projectId).stream()
-                .map(PendingJobView::of)
+                .map(it -> (JobStatusView) viewOf(it, mayCreate))
                 .toList();
     }
 
@@ -45,10 +53,10 @@ public class PendingJobResource {
     @Path("/{pendingId}")
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
-    public PendingJobView getPending(
+    public JobStatusView getPending(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("pendingId") UUID pendingId) {
         return pendingJobService.findInProject(projectId, pendingId)
-                .map(PendingJobView::of)
+                .map(it -> viewOf(it, jobCreateAccess.allowedIn(projectId)))
                 .orElseThrow(NotFoundException::new);
     }
 
@@ -56,8 +64,17 @@ public class PendingJobResource {
     @POST
     @Path("/{pendingId}/cancel")
     @RequirePermission(value = Perm.JOB_CANCEL, defaultRole = ProjectRole.MEMBER)
-    public PendingJobView cancelPending(
+    public JobStatusView cancelPending(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("pendingId") UUID pendingId) {
-        return PendingJobView.of(pendingJobService.cancel(projectId, pendingId));
+        var cancelled = pendingJobService.cancel(projectId, pendingId);
+        return viewOf(cancelled, jobCreateAccess.allowedIn(projectId));
+    }
+
+    /**
+     * The stored request is shown only to a caller who could post it — an entry is a create that has
+     * not happened yet, so seeing one takes what making one takes, same as {@code JobView.createRequest}.
+     */
+    private PendingJobView viewOf(PendingJob pending, boolean mayCreate) {
+        return PendingJobView.of(pending, mayCreate ? CreateJobRequest.of(pending.getRequest()) : null);
     }
 }

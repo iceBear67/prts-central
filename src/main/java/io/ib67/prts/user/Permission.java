@@ -1,6 +1,7 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.Reserved;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.*;
@@ -18,9 +19,9 @@ public class Permission extends PanacheEntityBase {
 
     /**
      * Scope of a {@link Perm#global()} grant. The project is part of the primary key and Postgres
-     * cannot key on null, so "no project" is this reserved all-zero id rather than null.
+     * cannot key on null, so "no project" is {@link Reserved#ID} rather than null.
      */
-    public static final UUID GLOBAL = new UUID(0, 0);
+    public static final UUID GLOBAL = Reserved.ID;
 
     @EmbeddedId
     protected Id id;

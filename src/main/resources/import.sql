@@ -20,6 +20,7 @@
 --     completed_at   timestamptz,
 --     state          varchar     NOT NULL DEFAULT 'PENDING',
 --     worker         uuid,                             -- set once a worker takes the job
+--     requested_by   uuid        NOT NULL,              -- carried over from the queue entry; no FK
 --     spec           jsonb,
 --     resource_class varchar     NOT NULL,              -- resolved at create time; a rerun names this one
 --     resource_class_project uuid NOT NULL,
@@ -174,7 +175,7 @@
 -- (
 --     id              uuid        NOT NULL PRIMARY KEY,
 --     project_id      uuid        NOT NULL,
---     requested_by    uuid,                          -- whose authorization the entry holds; no FK
+--     requested_by    uuid        NOT NULL,          -- whose authorization the entry holds; no FK
 --     template_id     uuid        NOT NULL,          -- with create_override, the request itself
 --     create_override jsonb,
 --     resource_class  varchar     NOT NULL,          -- by name: resolved again per attempt

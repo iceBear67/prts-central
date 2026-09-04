@@ -82,7 +82,8 @@ public class PendingJobDispatcher {
     private void attempt(PendingJobService.Attempt attempt) {
         try {
             var created = jobLauncher.launch(
-                    attempt.projectId(), attempt.request(), JobLauncher.PRE_AUTHORIZED);
+                    attempt.projectId(), attempt.requestedBy(), attempt.request(),
+                    JobLauncher.PRE_AUTHORIZED);
             if (created.scheduled()) {
                 pendingJobService.markDispatched(attempt.id(), created.job().getId());
             } else {

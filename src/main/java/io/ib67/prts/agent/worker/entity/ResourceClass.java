@@ -1,6 +1,7 @@
 package io.ib67.prts.agent.worker.entity;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import io.ib67.prts.Reserved;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.Column;
@@ -39,11 +40,11 @@ public class ResourceClass extends PanacheEntityBase {
 
     /**
      * Scope of a class every project may use. The project is part of the primary key and Postgres
-     * cannot key on null, so "no project" is this reserved all-zero id — same reason as
-     * {@link io.ib67.prts.user.Permission#GLOBAL}.
+     * cannot key on null, so "no project" is {@link Reserved#ID} — same reason as
+     * {@link io.ib67.prts.user.Permission#GLOBAL}, and the same value.
      */
     @JsonIgnore
-    public static final UUID GLOBAL = new UUID(0, 0);
+    public static final UUID GLOBAL = Reserved.ID;
 
     @Id
     @Column(name = "name", nullable = false, updatable = false, columnDefinition = "varchar")

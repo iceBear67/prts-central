@@ -42,6 +42,12 @@ public class PendingJobService {
      */
     public PendingJob enqueue(UUID projectId, JobRequest authorized) {
         var user = userContext.get();
+        if (user == null) {
+            // Unreachable from the one caller today, which @RequirePermission has already refused an
+            // identity with no local user. Here so the first path that queues off a request without
+            // one fails at the seam instead of storing an entry nobody is holding.
+            throw new IllegalStateException("enqueue needs a requester; no user on this context");
+        }
         var config = jobConfig.pending();
         return QuarkusTransaction.requiringNew().call(() -> {
             var project = projectService.require(projectId);
@@ -54,7 +60,7 @@ public class PendingJobService {
             var now = Instant.now();
             var pending = PendingJob.builder()
                     .project(project)
-                    .requestedBy(user == null ? null : user.getId())
+                    .requestedBy(user.getId())
                     .request(authorized)
                     .state(PendingJobState.QUEUED)
                     .expiresAt(now.plus(config.ttl()))
@@ -105,13 +111,20 @@ public class PendingJobService {
         return PendingJob.listDue(Instant.now(), limit).stream()
                 .map(pending -> {
                     pending.setState(PendingJobState.DISPATCHING);
-                    return new Attempt(pending.getId(), pending.getProject().getId(), pending.getRequest());
+                    return new Attempt(
+                            pending.getId(),
+                            pending.getProject().getId(),
+                            pending.getRequestedBy(),
+                            pending.getRequest());
                 })
                 .toList();
     }
 
-    /** A claimed entry, detached: the request as it was authorized, and nothing else. */
-    public record Attempt(UUID id, UUID projectId, JobRequest request) {
+    /**
+     * A claimed entry, detached: the request as it was authorized, and who it was authorized for —
+     * the only place that survives, since the dispatcher runs on a thread with no requester of its own.
+     */
+    public record Attempt(UUID id, UUID projectId, UUID requestedBy, JobRequest request) {
     }
 
     @Transactional
