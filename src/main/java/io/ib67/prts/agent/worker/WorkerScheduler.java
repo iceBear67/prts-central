@@ -4,7 +4,7 @@ import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
-import io.ib67.prts.project.Job;
+import io.ib67.prts.project.entity.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.LockModeType;

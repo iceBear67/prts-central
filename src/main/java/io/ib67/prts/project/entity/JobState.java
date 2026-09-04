@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.project.entity;
 
 /**
  * Lifecycle of a job. Stored on {@link Job} and reported by workers.

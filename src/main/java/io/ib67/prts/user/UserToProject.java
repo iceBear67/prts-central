@@ -1,7 +1,7 @@
 package io.ib67.prts.user;
 
-import io.ib67.prts.project.ProjectRole;
-import io.ib67.prts.project.Project;
+import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.project.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.*;
 import lombok.*;

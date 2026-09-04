@@ -7,7 +7,7 @@ import io.ib67.prts.dto.ProjectMemberView;
 import io.ib67.prts.dto.ProjectView;
 import io.ib67.prts.dto.RenameProjectRequest;
 import io.ib67.prts.dto.SetMemberRoleRequest;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;

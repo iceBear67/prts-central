@@ -1,7 +1,7 @@
 package io.ib67.prts.pending;
 
 import io.ib67.prts.project.JobConfig;
-import io.ib67.prts.project.JobRequest;
+import io.ib67.prts.project.entity.JobRequest;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.UserContext;
 import io.quarkus.narayana.jta.QuarkusTransaction;

@@ -1,6 +1,7 @@
 package io.ib67.prts.project;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.UserContext;
 import jakarta.enterprise.context.ApplicationScoped;

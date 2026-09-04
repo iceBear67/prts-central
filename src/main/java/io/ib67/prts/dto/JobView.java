@@ -1,9 +1,9 @@
 package io.ib67.prts.dto;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.project.Artifact;
-import io.ib67.prts.project.Job;
-import io.ib67.prts.project.JobState;
+import io.ib67.prts.project.entity.Artifact;
+import io.ib67.prts.project.entity.Job;
+import io.ib67.prts.project.entity.JobState;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;

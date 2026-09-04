@@ -3,7 +3,7 @@ package io.ib67.prts.agent.worker.message;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import io.ib67.prts.agent.worker.RegisteredWorker;
-import io.ib67.prts.project.JobState;
+import io.ib67.prts.project.entity.JobState;
 import jakarta.annotation.Nullable;
 
 import java.util.Objects;

@@ -9,7 +9,7 @@ import io.ib67.prts.dto.PendingJobView;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
 import io.ib67.prts.project.JobCreateAccess;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.ProjectRole;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.GET;

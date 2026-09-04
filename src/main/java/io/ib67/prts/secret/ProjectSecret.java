@@ -1,6 +1,6 @@
 package io.ib67.prts.secret;
 
-import io.ib67.prts.project.Project;
+import io.ib67.prts.project.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.panache.common.Sort;
 import jakarta.persistence.Column;

@@ -6,7 +6,7 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.CreateSecretRequest;
 import io.ib67.prts.dto.SecretView;
 import io.ib67.prts.dto.UpdateSecretRequest;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.secret.SecretConfig;
 import io.ib67.prts.secret.SecretService;
 import jakarta.annotation.Nullable;

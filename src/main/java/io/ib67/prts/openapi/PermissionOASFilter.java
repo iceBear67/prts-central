@@ -2,7 +2,7 @@ package io.ib67.prts.openapi;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.RequirePermission;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.ProjectRole;
 import io.quarkus.smallrye.openapi.OpenApiFilter;
 import org.eclipse.microprofile.openapi.OASFactory;
 import org.eclipse.microprofile.openapi.OASFilter;

@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.project.entity;
 
 /**
  * Access level a user holds on a project.

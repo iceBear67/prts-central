@@ -1,7 +1,7 @@
 package io.ib67.prts.dto;
 
-import io.ib67.prts.project.Project;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.project.entity.ProjectRole;
 
 import java.util.Objects;
 import java.util.UUID;

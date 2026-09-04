@@ -5,6 +5,8 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.project.entity.Artifact;
+import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.storage.StorageConfig;
 import io.ib67.prts.storage.StorageService;
 import io.quarkus.narayana.jta.QuarkusTransaction;

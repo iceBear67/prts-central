@@ -1,8 +1,9 @@
 package io.ib67.prts.agent.job.entity;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.project.Job;
-import io.ib67.prts.project.Project;
+import io.ib67.prts.project.entity.Job;
+import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.project.entity.JobState;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
@@ -30,7 +31,7 @@ import java.util.UUID;
 /**
  * The holder of a {@link JobSpec#lock()}, so that two jobs naming the same lock never run at once.
  * Held from the moment a job is handed to a worker until it reaches a terminal
- * {@link io.ib67.prts.project.JobState}; a job that cannot take the lock is refused, not queued.
+ * {@link JobState}; a job that cannot take the lock is refused, not queued.
  *
  * <p>Locks are scoped to a project: the same name in two projects is two independent locks.
  */

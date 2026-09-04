@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.project.entity;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;

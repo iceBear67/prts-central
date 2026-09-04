@@ -1,7 +1,7 @@
 package io.ib67.prts.auth;
 
 import io.ib67.prts.Perm;
-import io.ib67.prts.project.ProjectRole;
+import io.ib67.prts.project.entity.ProjectRole;
 import jakarta.enterprise.util.Nonbinding;
 import jakarta.interceptor.InterceptorBinding;
 

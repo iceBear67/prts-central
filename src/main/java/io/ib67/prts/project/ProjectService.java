@@ -1,5 +1,6 @@
 package io.ib67.prts.project;
 
+import io.ib67.prts.project.entity.Project;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 

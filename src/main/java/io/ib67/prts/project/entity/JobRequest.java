@@ -1,6 +1,7 @@
-package io.ib67.prts.project;
+package io.ib67.prts.project.entity;
 
 import io.ib67.prts.agent.job.JobSpecOverride;
+import io.ib67.prts.project.JobLauncher;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;
