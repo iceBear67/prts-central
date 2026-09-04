@@ -3,6 +3,7 @@ package io.ib67.prts.pending;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.project.JobConfig;
 import io.ib67.prts.project.JobLauncher;
+import io.ib67.prts.project.JobService;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,6 +33,8 @@ public class PendingJobDispatcher {
     PendingJobService pendingJobService;
     @Inject
     JobLauncher jobLauncher;
+    @Inject
+    JobService jobService;
     @Inject
     WorkerService workerService;
     @Inject
@@ -89,7 +92,7 @@ public class PendingJobDispatcher {
             } else {
                 // The entry is the thing that waits, so the job it made has nothing to say and is
                 // undone; the next attempt makes another. See TODO.md on what a crash here leaves.
-                jobLauncher.discard(created.job().getId());
+                jobService.discard(created.job().getId());
                 pendingJobService.requeue(attempt.id(), "no worker could take the job yet");
             }
         } catch (RuntimeException e) {

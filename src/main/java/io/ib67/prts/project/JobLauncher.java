@@ -2,7 +2,6 @@ package io.ib67.prts.project;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
-import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
@@ -27,7 +26,7 @@ import java.util.UUID;
  * spec itself may reach: the template's own project, the volume rule, and the resource class.
  *
  * <p>What an unplaceable job leaves behind is the caller's business too. {@link #launch} reports it and
- * changes nothing; {@link #discard} is how to undo it.
+ * changes nothing; undoing it is {@link JobService#discard}, with the job's other endings.
  */
 @ApplicationScoped
 public class JobLauncher {
@@ -54,7 +53,8 @@ public class JobLauncher {
 
     /**
      * Makes the job and hands it to the scheduler. Being unplaceable is reported, not thrown, and
-     * leaves the job persisted and {@link JobState#PENDING} for the caller to {@link #discard}.
+     * leaves the job persisted and {@link JobState#PENDING} for the caller to
+     * {@link JobService#discard discard}.
      */
     public CreatedJob launch(
             UUID projectId, UUID requestedBy, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
@@ -101,18 +101,6 @@ public class JobLauncher {
             throw e;
         }
         return new CreatedJob(prepared.job(), scheduled);
-    }
-
-    /**
-     * Un-creates a job no worker took: it never ran, so it has no logs, no artifacts and nothing
-     * worth keeping. The lock is already released by the scheduler when it reports a job unplaceable;
-     * this covers the paths where it is not.
-     */
-    public void discard(UUID jobId) {
-        QuarkusTransaction.requiringNew().run(() -> {
-            JobLock.releaseBy(jobId);
-            Job.deleteById(jobId);
-        });
     }
 
     private PreparedJob prepare(

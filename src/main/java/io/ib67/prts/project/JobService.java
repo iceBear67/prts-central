@@ -136,6 +136,35 @@ public class JobService {
         return found;
     }
 
+    /**
+     * Deletes a job no worker took: it never ran, so it has no logs, no artifacts and nothing worth
+     * keeping. The lock is already released by the scheduler when it reports a job unplaceable; this
+     * covers the paths where it is not.
+     *
+     * <p>"No worker took it" is checked, not assumed: a job already gone is left alone, and one that
+     * reached a worker is refused. {@link JobState#PENDING} does not say so by itself — the scheduler
+     * sets {@code worker} on hand-over and the state only moves when the worker reports back, so a
+     * job with a worker may have a container starting behind it. Deleting that would strand the
+     * container, drop the row its reports land on, and free the lock for a job to run beside it.
+     */
+    public void discard(UUID jobId) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            var job = Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE);
+            if (job == null) {
+                return;
+            }
+            if (job.getState() != JobState.PENDING || job.getWorker() != null) {
+                // A wiring bug, not a race: today's only caller reaches this having been told the job
+                // was never offered to anyone. Loud, so the next caller that is wrong finds out here.
+                throw new IllegalStateException(
+                        "refusing to discard job " + jobId + ": " + job.getState()
+                                + ", worker " + job.getWorker());
+            }
+            JobLock.releaseBy(jobId);
+            job.delete();
+        });
+    }
+
     public List<JobLog> listLogs(UUID projectId, UUID jobId, int offset, int length) {
         requireInProject(projectId, jobId);
         return JobLog.listByJob(jobId, offset, length);
