@@ -132,24 +132,39 @@ public class ArtifactUploadService {
      */
     private void reserve(PendingUpload session) {
         lockAssignedOpen(session.jobId(), session.workerId());
-        var max = storageConfig.maxJobSize().asLongValue();
-        var used = Artifact.listByJob(session.jobId()).stream().mapToLong(Artifact::getSizeBytes).sum();
-        var reserved = reservedBytes(session.jobId());
-        if (used > max || reserved > max - used || session.sizeBytes() > max - used - reserved) {
+        var artifacts = Artifact.listByJob(session.jobId());
+        var reserved = reservedFor(session.jobId());
+
+        var maxCount = storageConfig.maxJobArtifacts();
+        var count = artifacts.size() + reserved.count();
+        if (count >= maxCount) {
             throw new IllegalStateException(
-                    "job artifact quota exceeded: " + (used + reserved + session.sizeBytes()) + " > " + max);
+                    "job artifact count exceeded: " + (count + 1) + " > " + maxCount);
+        }
+
+        var max = storageConfig.maxJobSize().asLongValue();
+        var used = artifacts.stream().mapToLong(Artifact::getSizeBytes).sum();
+        if (used > max || reserved.bytes() > max - used || session.sizeBytes() > max - used - reserved.bytes()) {
+            throw new IllegalStateException(
+                    "job artifact quota exceeded: " + (used + reserved.bytes() + session.sizeBytes()) + " > " + max);
         }
         pending.put(session.uploadId(), session);
     }
 
-    private long reservedBytes(UUID jobId) {
-        long reserved = 0;
+    private Reservations reservedFor(UUID jobId) {
+        var count = 0;
+        long bytes = 0;
         for (var session : pending.asMap().values()) {
             if (jobId.equals(session.jobId())) {
-                reserved += session.sizeBytes();
+                count++;
+                bytes += session.sizeBytes();
             }
         }
-        return reserved;
+        return new Reservations(count, bytes);
+    }
+
+    /** What the job's still-in-flight uploads already hold against its quota. */
+    private record Reservations(int count, long bytes) {
     }
 
     /** Idempotent on the object key: the sweeper and the removal listener may both see an upload land. */

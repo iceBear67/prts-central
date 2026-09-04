@@ -18,6 +18,9 @@ public interface StorageConfig {
     @WithDefault("5G")
     MemorySize maxJobSize();
 
+    @WithDefault("50")
+    int maxJobArtifacts();
+
     @WithDefault("256")
     int maxPendingUploads();
 }
