@@ -15,6 +15,7 @@ import jakarta.ws.rs.NotFoundException;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -68,6 +69,9 @@ public class JobLauncher {
      *                  way; what to do about it is the caller's call.
      */
     public record CreatedJob(Job job, boolean scheduled) {
+        public CreatedJob {
+            Objects.requireNonNull(job, "job");
+        }
     }
 
     /**
@@ -183,9 +187,19 @@ public class JobLauncher {
 
     /** @param spec the merged spec <em>with</em> the project's secrets — never the persisted one. */
     private record PreparedJob(Job job, JobSpec spec, ResourceClass resourceClass) {
+        public PreparedJob {
+            Objects.requireNonNull(job, "job");
+            Objects.requireNonNull(spec, "spec");
+            Objects.requireNonNull(resourceClass, "resourceClass");
+        }
     }
 
     /** @param spec the merged spec <em>without</em> secrets: nothing is running yet. */
     private record ResolvedCreate(Project project, JobSpec spec, ResourceClass resourceClass) {
+        public ResolvedCreate {
+            Objects.requireNonNull(project, "project");
+            Objects.requireNonNull(spec, "spec");
+            Objects.requireNonNull(resourceClass, "resourceClass");
+        }
     }
 }

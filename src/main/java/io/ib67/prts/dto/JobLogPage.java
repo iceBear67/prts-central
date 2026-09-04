@@ -5,6 +5,7 @@ import jakarta.annotation.Nullable;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A window of log lines. {@code length} echoes the requested window, so fewer {@code items} than
@@ -15,12 +16,20 @@ public record JobLogPage(
         int offset,
         int length
 ) {
+    public JobLogPage {
+        Objects.requireNonNull(items, "items");
+    }
+
     public record JobLogView(
             Instant createdAt,
             @Nullable String topic,
             @Nullable String message,
             boolean error
     ) {
+        public JobLogView {
+            Objects.requireNonNull(createdAt, "createdAt");
+        }
+
         public static JobLogView of(JobLog log) {
             return new JobLogView(
                     log.getCreatedAt(), log.getTopic(), log.getMessage(), Boolean.TRUE.equals(log.getError()));

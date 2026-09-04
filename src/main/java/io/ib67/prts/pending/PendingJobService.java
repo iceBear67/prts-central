@@ -16,6 +16,7 @@ import jakarta.ws.rs.core.Response;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -125,6 +126,12 @@ public class PendingJobService {
      * the only place that survives, since the dispatcher runs on a thread with no requester of its own.
      */
     public record Attempt(UUID id, UUID projectId, UUID requestedBy, JobRequest request) {
+        public Attempt {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(projectId, "projectId");
+            Objects.requireNonNull(requestedBy, "requestedBy");
+            Objects.requireNonNull(request, "request");
+        }
     }
 
     @Transactional

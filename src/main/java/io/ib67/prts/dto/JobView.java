@@ -9,6 +9,7 @@ import jakarta.annotation.Nullable;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -33,7 +34,22 @@ public record JobView(
         List<ArtifactView> artifacts,
         @Nullable CreateJobRequest createRequest
 ) implements JobStatusView {
+    public JobView {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(projectId, "projectId");
+        Objects.requireNonNull(createdAt, "createdAt");
+        Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(requestedBy, "requestedBy");
+        Objects.requireNonNull(resourceClass, "resourceClass");
+        Objects.requireNonNull(artifacts, "artifacts");
+    }
+
     public record ArtifactView(UUID id, String name) {
+        public ArtifactView {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(name, "name");
+        }
+
         public static ArtifactView of(Artifact artifact) {
             return new ArtifactView(artifact.getId(), artifact.getName());
         }
@@ -52,7 +68,18 @@ public record JobView(
             long timeout,
             String lock
     ) {
-        public static SpecView of(JobSpec spec) {
+        public SpecView {
+            Objects.requireNonNull(image, "image");
+            Objects.requireNonNull(environment, "environment");
+            Objects.requireNonNull(labels, "labels");
+            Objects.requireNonNull(command, "command");
+            Objects.requireNonNull(volumes, "volumes");
+            Objects.requireNonNull(lock, "lock");
+        }
+
+        /** {@code null} in, {@code null} out: a job may carry no spec at all. */
+        @Nullable
+        public static SpecView of(@Nullable JobSpec spec) {
             if (spec == null) {
                 return null;
             }

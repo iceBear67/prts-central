@@ -19,6 +19,7 @@ import org.jboss.jandex.MethodInfo;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * Publishes what {@link RequirePermission} enforces into the OpenAPI document: the permission an
@@ -239,5 +240,9 @@ public class PermissionOASFilter implements OASFilter {
     }
 
     private record Rule(Perm perm, boolean defaultValue, ProjectRole defaultRole, boolean allowAdmin) {
+        private Rule {
+            Objects.requireNonNull(perm, "perm");
+            Objects.requireNonNull(defaultRole, "defaultRole");
+        }
     }
 }

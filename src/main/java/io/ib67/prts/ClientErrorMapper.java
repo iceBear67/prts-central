@@ -6,6 +6,8 @@ import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
+import java.util.Objects;
+
 /**
  * Gives a 4xx the message it was thrown with. {@code WebApplicationException(String, Status)} builds
  * an entity-less response, so without this every {@code throw new BadRequestException("name is
@@ -19,6 +21,9 @@ import jakarta.ws.rs.ext.Provider;
 public class ClientErrorMapper implements ExceptionMapper<WebApplicationException> {
 
     public record ErrorView(String message) {
+        public ErrorView {
+            Objects.requireNonNull(message, "message");
+        }
     }
 
     @Override

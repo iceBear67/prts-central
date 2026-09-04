@@ -12,6 +12,7 @@ import org.jboss.logging.Logger;
 
 import java.util.Comparator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -210,5 +211,9 @@ final class WorkerScheduler {
     }
 
     record Selection(UUID id, RegisteredWorker registeredWorker) {
+        Selection {
+            Objects.requireNonNull(id, "id");
+            Objects.requireNonNull(registeredWorker, "registeredWorker");
+        }
     }
 }

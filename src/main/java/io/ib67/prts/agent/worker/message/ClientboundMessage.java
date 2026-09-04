@@ -7,6 +7,7 @@ import io.ib67.prts.agent.worker.entity.ResourceClass;
 
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 @JsonTypeInfo(
@@ -22,6 +23,9 @@ import java.util.UUID;
 })
 public sealed interface ClientboundMessage {
     record Response(boolean ok, String message) implements ClientboundMessage {
+        public Response {
+            Objects.requireNonNull(message, "message");
+        }
     }
 
     /**
@@ -41,10 +45,20 @@ public sealed interface ClientboundMessage {
             ResourceClass resourceClass,
             Map<String, String> secrets
     ) implements ClientboundMessage {
+        public CreateJob {
+            Objects.requireNonNull(requestId, "requestId");
+            Objects.requireNonNull(jobId, "jobId");
+            Objects.requireNonNull(spec, "spec");
+            Objects.requireNonNull(resourceClass, "resourceClass");
+            Objects.requireNonNull(secrets, "secrets");
+        }
     }
 
     /** Stop {@code jobId} and release its resources. The job is already terminal on our side. */
     record CancelJob(UUID jobId) implements ClientboundMessage {
+        public CancelJob {
+            Objects.requireNonNull(jobId, "jobId");
+        }
     }
 
     record PresignedUpload(
@@ -57,5 +71,14 @@ public sealed interface ClientboundMessage {
             Instant expiresAt,
             long contentLength
     ) implements ClientboundMessage {
+        public PresignedUpload {
+            Objects.requireNonNull(uploadId, "uploadId");
+            Objects.requireNonNull(jobId, "jobId");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(objectKey, "objectKey");
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(method, "method");
+            Objects.requireNonNull(expiresAt, "expiresAt");
+        }
     }
 }

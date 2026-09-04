@@ -3,6 +3,7 @@ package io.ib67.prts.dto;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import jakarta.annotation.Nullable;
 
+import java.util.Objects;
 import java.util.UUID;
 
 /** @param projectId the owning project, or {@code null} for a global template. */
@@ -13,6 +14,12 @@ public record JobSpecTemplateView(
         JobView.SpecView spec,
         @Nullable String resourceClass
 ) {
+    public JobSpecTemplateView {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(spec, "spec");
+    }
+
     public static JobSpecTemplateView of(JobSpecTemplate template) {
         var resourceClass = template.getResourceClass();
         var project = template.getProject();

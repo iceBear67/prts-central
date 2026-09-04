@@ -37,9 +37,11 @@ public record JobSpec(
     /**
      * Nothing here is nullable. A field that a stored row, a template or an override leaves out
      * arrives as {@code null} and is normalized to its empty value, so no reader has to tell absent
-     * from empty — and a blank lock is the one way to say "not exclusive".
+     * from empty — and a blank lock is the one way to say "not exclusive". The image has no empty
+     * value that means anything, so it is required outright.
      */
     public JobSpec {
+        Objects.requireNonNull(image, "image");
         environment = Objects.requireNonNullElse(environment, Map.of());
         labels = Objects.requireNonNullElse(labels, Map.of());
         command = Objects.requireNonNullElse(command, List.of());
@@ -51,7 +53,11 @@ public record JobSpec(
     public record VolumeSpec(
             String mountPoint,
             long sizeLimit
-    ){ }
+    ) {
+        public VolumeSpec {
+            Objects.requireNonNull(mountPoint, "mountPoint");
+        }
+    }
 
     /**
      * This spec plus {@code secret}. Nothing overrides that field, so attaching the project's

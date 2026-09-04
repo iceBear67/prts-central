@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -296,5 +297,13 @@ public class ArtifactUploadService {
             long sizeBytes,
             Instant expiresAt
     ) {
+        private PendingUpload {
+            Objects.requireNonNull(uploadId, "uploadId");
+            Objects.requireNonNull(jobId, "jobId");
+            Objects.requireNonNull(workerId, "workerId");
+            Objects.requireNonNull(name, "name");
+            Objects.requireNonNull(objectKey, "objectKey");
+            Objects.requireNonNull(expiresAt, "expiresAt");
+        }
     }
 }

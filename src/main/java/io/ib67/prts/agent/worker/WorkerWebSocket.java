@@ -51,11 +51,34 @@ public class WorkerWebSocket {
         };
     }
 
+    /**
+     * A message whose required fields are missing fails in the decoder, before any handler runs —
+     * without this the connection would simply be closed, and a worker still sending {@code workerId}
+     * as {@code "id"} would never learn why. Also catches whatever escapes a handler.
+     */
+    @OnError
+    public ClientboundMessage onError(Throwable error) {
+        LOG.errorf(error, "cannot handle a message from worker %s",
+                connection.userData().get(INTERNAL_WORKER_ID));
+        var cause = rootCause(error);
+        var message = cause instanceof NullPointerException
+                ? "missing field: " + cause.getMessage()
+                : cause.getMessage();
+        return new ClientboundMessage.Response(
+                false, message == null ? cause.getClass().getSimpleName() : message);
+    }
+
+    private static Throwable rootCause(Throwable error) {
+        var cause = error;
+        while (cause.getCause() != null && cause.getCause() != cause) {
+            cause = cause.getCause();
+        }
+        return cause;
+    }
+
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
         if (connection.userData().get(INTERNAL_WORKER_ID) != null)
             return new ClientboundMessage.Response(false, "already registered on this connection");
-        // A worker still sending the field as "id" lands here: that name is the type property.
-        if (r.workerId() == null) return new ClientboundMessage.Response(false, "workerId is required");
         workerService.registerWorker(
                 r.workerId(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
         connection.userData().put(INTERNAL_WORKER_ID, r.workerId().toString());

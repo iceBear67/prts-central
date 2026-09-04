@@ -5,6 +5,7 @@ import io.ib67.prts.pending.PendingJobState;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -29,6 +30,15 @@ public record PendingJobView(
         @Nullable UUID jobId,
         @Nullable CreateJobRequest request
 ) implements JobStatusView {
+    public PendingJobView {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(projectId, "projectId");
+        Objects.requireNonNull(state, "state");
+        Objects.requireNonNull(requestedBy, "requestedBy");
+        Objects.requireNonNull(createdAt, "createdAt");
+        Objects.requireNonNull(expiresAt, "expiresAt");
+    }
+
     /**
      * Reads only what a detached entry carries — the project for its id alone, like {@link JobView}.
      * {@code request} is passed in for the same reason {@code createRequest} is there: whether the

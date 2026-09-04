@@ -110,6 +110,9 @@ public class JobService {
 
     /** @param worker the worker that still has to be told, or {@code null} if never dispatched. */
     private record CancelledJob(Job job, @Nullable UUID worker) {
+        private CancelledJob {
+            Objects.requireNonNull(job, "job");
+        }
     }
 
     /**

@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -149,5 +150,10 @@ public class SecretCipher {
     }
 
     private record Envelope(String header, String keyId, byte[] payload) {
+        private Envelope {
+            Objects.requireNonNull(header, "header");
+            Objects.requireNonNull(keyId, "keyId");
+            Objects.requireNonNull(payload, "payload");
+        }
     }
 }

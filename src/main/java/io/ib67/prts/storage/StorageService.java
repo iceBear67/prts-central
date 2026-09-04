@@ -12,6 +12,7 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.OptionalLong;
 
 @ApplicationScoped
@@ -108,8 +109,20 @@ public class StorageService {
     }
 
     public record PresignedPut(String objectKey, String url, String method, Instant expiresAt) {
+        public PresignedPut {
+            Objects.requireNonNull(objectKey, "objectKey");
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(method, "method");
+            Objects.requireNonNull(expiresAt, "expiresAt");
+        }
     }
 
     public record PresignedGet(String objectKey, String url, String method, Instant expiresAt) {
+        public PresignedGet {
+            Objects.requireNonNull(objectKey, "objectKey");
+            Objects.requireNonNull(url, "url");
+            Objects.requireNonNull(method, "method");
+            Objects.requireNonNull(expiresAt, "expiresAt");
+        }
     }
 }
