@@ -4,6 +4,7 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -111,8 +112,8 @@ public class Job extends PanacheEntityBase {
 
     /**
      * The template the job was made from, with {@link #createOverride} the part of the create request
-     * that is not recoverable from the job itself — a re-run is the client posting those back with
-     * {@link #resourceClass}. Null means some other path made the job and there is nothing to replay.
+     * that is not recoverable from the job itself — see {@link #toRequest()}. Null means some other
+     * path made the job and there is nothing to replay.
      */
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
@@ -121,6 +122,17 @@ public class Job extends PanacheEntityBase {
     @Column(name = "create_override", updatable = false, columnDefinition = "jsonb")
     @ToString.Exclude
     private JobSpecOverride createOverride;
+
+    /**
+     * The request that reproduces this job, for the client to post back to {@code /create} — how a
+     * re-run goes through the same gates as the original. The resource class is the one that actually
+     * ran, not what the requester typed: naming it pins the re-run to it even if the template has moved
+     * on since. {@code null} when there is nothing to replay. Reads only what a detached job carries.
+     */
+    @Nullable
+    public JobRequest toRequest() {
+        return templateId == null ? null : new JobRequest(templateId, createOverride, resourceClass.getName());
+    }
 
     /**
      * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check

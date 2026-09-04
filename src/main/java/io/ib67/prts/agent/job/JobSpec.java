@@ -16,7 +16,7 @@ import java.util.UUID;
  *
  * @param lock   The lock two jobs must never hold at once, scoped to the project the job belongs to;
  *               empty means no mutual exclusion.
- * @param secret The project's secrets in the clear, attached by {@code JobService} to the copy of
+ * @param secret The project's secrets in the clear, attached by {@code JobLauncher} to the copy of
  *               the spec that goes to the scheduler and to no other; empty on every other copy.
  *               {@code @JsonIgnore} is what keeps them out of the {@code jsonb} column and out of
  *               every view, so a spec that carries them still cannot leak them. It also keeps them

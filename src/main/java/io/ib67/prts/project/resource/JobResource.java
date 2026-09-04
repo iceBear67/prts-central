@@ -1,11 +1,15 @@
 package io.ib67.prts.project.resource;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.*;
+import io.ib67.prts.pending.PendingJobService;
+import io.ib67.prts.project.Artifact;
 import io.ib67.prts.project.JobConfig;
+import io.ib67.prts.project.JobLauncher;
 import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.ProjectRole;
 import io.ib67.prts.storage.StorageService;
@@ -30,6 +34,12 @@ import java.util.UUID;
 public class JobResource {
     @Inject
     JobService jobService;
+    @Inject
+    JobLauncher jobLauncher;
+    @Inject
+    JobSpecOverridePermissions overridePermissions;
+    @Inject
+    PendingJobService pendingJobService;
     @Inject
     StorageService storageService;
     @Inject
@@ -73,10 +83,12 @@ public class JobResource {
     public JobView getJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
         var job = jobService.findInProject(projectId, jobId).orElseThrow(NotFoundException::new);
+        var request = job.toRequest();
         return JobView.of(
                 job,
-                jobService.listArtifacts(projectId, jobId),
-                mayCreateJobs(projectId) ? CreateJobRequest.of(job) : null);
+                Artifact.listByJob(jobId),
+                //todo 这就是你说的按权限设置可见性？？？
+                request != null && mayCreateJobs(projectId) ? CreateJobRequest.of(request) : null);
     }
 
     /**
@@ -89,28 +101,24 @@ public class JobResource {
                 && permissionService.allows(user.getId(), Perm.JOB_CREATE, projectId, ProjectRole.MEMBER);
     }
 
+    /**
+     * Queues the create rather than performing it, so the answer is the entry and not a job: the job
+     * appears on it, as {@code jobId}, once a worker has taken the request. Authorizing here is what
+     * makes that sound — the per-field override gates read the project off this request's path, and
+     * the dispatcher that submits it later runs on a thread with no request at all.
+     */
     @POST
     @Path("/create")
     @Consumes(MediaType.APPLICATION_JSON)
     @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
-    public JobView createJob(
+    public Response createJob(
             @ProjectId @PathParam("projectId") UUID projectId, CreateJobRequest request) {
         if (request == null || request.templateId() == null) {
             throw new BadRequestException("templateId is required");
         }
-        var created = jobService.createFromTemplate(
-                projectId,
-                request.templateId(),
-                request.override(),
-                request.resourceClass());
-        if (!created.scheduled()) {
-            // 409 rather than 503: nothing is queued, so the job is already failed and retrying is
-            // the caller's business — and ClientErrorMapper only carries a message on a 4xx.
-            throw new ClientErrorException(
-                    "could not schedule the job right now: " + created.job().getId(),
-                    Response.Status.CONFLICT);
-        }
-        return JobView.of(created.job());
+        var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
+        var pending = pendingJobService.enqueue(projectId, authorized);
+        return Response.status(Response.Status.CREATED).entity(PendingJobView.of(pending)).build();
     }
 
     /** Stops the job on its worker and marks it cancelled. */
@@ -120,7 +128,7 @@ public class JobResource {
     public JobView cancelJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
         var job = jobService.cancel(projectId, jobId);
-        return JobView.of(job, jobService.listArtifacts(projectId, jobId));
+        return JobView.of(job, Artifact.listByJob(jobId));
     }
 
     /** Handing out the presigned URL is the download. */
@@ -130,7 +138,7 @@ public class JobResource {
     @RequirePermission(value = Perm.JOB_ARTIFACT_READ, defaultRole = ProjectRole.VIEWER)
     public PresignedUrlView getArtifactUrl(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("artifactId") UUID artifactId) {
-        var artifact = jobService.findArtifact(projectId, artifactId).orElseThrow(NotFoundException::new);
+        var artifact = Artifact.findInProject(projectId, artifactId).orElseThrow(NotFoundException::new);
         return PresignedUrlView.of(storageService.presignGet(artifact.getObjectKey()));
     }
 

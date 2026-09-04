@@ -1,10 +1,12 @@
 package io.ib67.prts.pending;
 
-import io.ib67.prts.agent.job.JobSpecOverride;
+import io.ib67.prts.project.JobRequest;
 import io.ib67.prts.project.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -22,11 +24,10 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
-import org.hibernate.type.SqlTypes;
+import org.jspecify.annotations.Nullable;
 
 import java.time.Instant;
 import java.util.List;
@@ -71,23 +72,19 @@ public class PendingJob extends PanacheEntityBase {
 
     /** Whose authorization the entry is holding. Kept like {@code Job.worker}, by id and without a FK. */
     @Column(name = "requested_by", updatable = false)
+    @Nullable
     private UUID requestedBy;
 
-    @Column(name = "template_id", nullable = false, updatable = false)
-    private UUID templateId;
-
-    @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "create_override", updatable = false, columnDefinition = "jsonb")
-    @ToString.Exclude
-    private JobSpecOverride createOverride;
-
     /**
-     * The class the create resolved to when it was authorized, by name only: the two-column reference
-     * belongs on what actually runs, and replaying the name lets {@code ResourceClass.findVisible}
-     * apply its shadowing rule again.
+     * The request as {@link io.ib67.prts.project.JobLauncher#authorize} handed it back, its resource
+     * class pinned — by name only: the two-column reference belongs on what actually runs, and
+     * replaying the name lets {@code ResourceClass.findVisible} apply its shadowing rule again.
      */
-    @Column(name = "resource_class", nullable = false, updatable = false, columnDefinition = "varchar")
-    private String resourceClass;
+    @Embedded
+    @AttributeOverride(name = "resourceClass",
+            column = @Column(name = "resource_class", nullable = false, updatable = false, columnDefinition = "varchar"))
+    @ToString.Exclude
+    private JobRequest request;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)

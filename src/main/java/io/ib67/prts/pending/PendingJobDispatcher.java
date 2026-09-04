@@ -2,7 +2,7 @@ package io.ib67.prts.pending;
 
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.project.JobConfig;
-import io.ib67.prts.project.JobService;
+import io.ib67.prts.project.JobLauncher;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -15,8 +15,8 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Drains the queue by acting as a client of {@link JobService}: it holds no scheduling knowledge of
- * its own and learns that a job could not be placed the same way the endpoint does.
+ * Drains the queue by acting as a client of {@link JobLauncher}: it holds no scheduling knowledge of
+ * its own, and being the only caller that launches, it owns what an unplaceable job leaves behind.
  */
 @ApplicationScoped
 public class PendingJobDispatcher {
@@ -31,7 +31,7 @@ public class PendingJobDispatcher {
     @Inject
     PendingJobService pendingJobService;
     @Inject
-    JobService jobService;
+    JobLauncher jobLauncher;
     @Inject
     WorkerService workerService;
     @Inject
@@ -73,13 +73,22 @@ public class PendingJobDispatcher {
         }
     }
 
+    /**
+     * Replays a request {@link PendingJobService#enqueue} already had cleared, which is why the gate
+     * is {@link JobLauncher#PRE_AUTHORIZED}: only the per-field override rules are taken as settled,
+     * and this is where that is vouched for. Everything else — the template's project, the volume
+     * rule, the class the spec may name — the launcher checks again against the state of now.
+     */
     private void attempt(PendingJobService.Attempt attempt) {
         try {
-            var created = jobService.createPreAuthorized(
-                    attempt.projectId(), attempt.templateId(), attempt.override(), attempt.resourceClass());
+            var created = jobLauncher.launch(
+                    attempt.projectId(), attempt.request(), JobLauncher.PRE_AUTHORIZED);
             if (created.scheduled()) {
                 pendingJobService.markDispatched(attempt.id(), created.job().getId());
             } else {
+                // The entry is the thing that waits, so the job it made has nothing to say and is
+                // undone; the next attempt makes another. See TODO.md on what a crash here leaves.
+                jobLauncher.discard(created.job().getId());
                 pendingJobService.requeue(attempt.id(), "no worker could take the job yet");
             }
         } catch (RuntimeException e) {

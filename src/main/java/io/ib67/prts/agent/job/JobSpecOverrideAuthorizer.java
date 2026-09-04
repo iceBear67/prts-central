@@ -9,7 +9,7 @@ import java.util.UUID;
  * field by field. {@link JobSpecOverridePermissions} is the implementation that asks for a permission;
  * it is a parameter rather than a fixed dependency because a create may be authorized in the request
  * it arrived in and submitted later, off a thread where no such check could run — see
- * {@code JobService#authorizeCreate}.
+ * {@code JobLauncher#authorize}.
  */
 public interface JobSpecOverrideAuthorizer {
 

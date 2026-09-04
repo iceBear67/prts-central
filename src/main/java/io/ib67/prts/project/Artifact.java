@@ -18,6 +18,7 @@ import lombok.ToString;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -55,5 +56,10 @@ public class Artifact extends PanacheEntityBase {
 
     public static List<Artifact> listByJob(UUID jobId) {
         return list("job.id", jobId);
+    }
+
+    /** Same rule as {@code JobService.findInProject}: found by its own id, then kept only if it belongs to the project. */
+    public static Optional<Artifact> findInProject(UUID projectId, UUID artifactId) {
+        return find("id = ?1 and job.project.id = ?2", artifactId, projectId).firstResultOptional();
     }
 }

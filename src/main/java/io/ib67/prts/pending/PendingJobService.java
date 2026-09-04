@@ -1,12 +1,10 @@
 package io.ib67.prts.pending;
 
-import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.project.JobConfig;
-import io.ib67.prts.project.JobService;
+import io.ib67.prts.project.JobRequest;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.UserContext;
 import io.quarkus.narayana.jta.QuarkusTransaction;
-import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
@@ -22,15 +20,13 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The queue in front of {@link JobService}. Its whole point is where the authorization happens: a
- * request is cleared here, in the call the requester made, and replayed later by
+ * The queue in front of the job launcher. Its whole point is where the authorization happens: a
+ * request is cleared by the endpoint, in the call the requester made, and replayed later by
  * {@link PendingJobDispatcher} through the very path that cleared it.
  */
 @ApplicationScoped
 public class PendingJobService {
 
-    @Inject
-    JobService jobService;
     @Inject
     ProjectService projectService;
     @Inject
@@ -39,18 +35,13 @@ public class PendingJobService {
     JobConfig jobConfig;
 
     /**
-     * Authorizes the create now and keeps the request. Reaching the project is the endpoint's
-     * business; what the request may ask for is settled here, while the requester is still on the
-     * line — nothing the dispatcher does later could ask them.
+     * Keeps a request the caller has already had authorized, which is only sound from the request it
+     * arrived in — what it may ask for has to be settled while the requester is still on the line,
+     * since nothing the dispatcher does later could ask them. Taken on trust: the type cannot tell an
+     * authorized request from any other.
      */
-    public PendingJob enqueue(
-            UUID projectId,
-            UUID templateId,
-            @Nullable JobSpecOverride override,
-            @Nullable String resourceClass) {
+    public PendingJob enqueue(UUID projectId, JobRequest authorized) {
         var user = userContext.get();
-        // Runs every per-field override rule and resolves the class, without persisting a job.
-        var resolvedClass = jobService.authorizeCreate(projectId, templateId, override, resourceClass);
         var config = jobConfig.pending();
         return QuarkusTransaction.requiringNew().call(() -> {
             var project = projectService.require(projectId);
@@ -64,9 +55,7 @@ public class PendingJobService {
             var pending = PendingJob.builder()
                     .project(project)
                     .requestedBy(user == null ? null : user.getId())
-                    .templateId(templateId)
-                    .createOverride(override)
-                    .resourceClass(resolvedClass)
+                    .request(authorized)
                     .state(PendingJobState.QUEUED)
                     .expiresAt(now.plus(config.ttl()))
                     .nextAttemptAt(now)
@@ -116,24 +105,13 @@ public class PendingJobService {
         return PendingJob.listDue(Instant.now(), limit).stream()
                 .map(pending -> {
                     pending.setState(PendingJobState.DISPATCHING);
-                    return new Attempt(
-                            pending.getId(),
-                            pending.getProject().getId(),
-                            pending.getTemplateId(),
-                            pending.getCreateOverride(),
-                            pending.getResourceClass());
+                    return new Attempt(pending.getId(), pending.getProject().getId(), pending.getRequest());
                 })
                 .toList();
     }
 
     /** A claimed entry, detached: the request as it was authorized, and nothing else. */
-    public record Attempt(
-            UUID id,
-            UUID projectId,
-            UUID templateId,
-            @Nullable JobSpecOverride override,
-            String resourceClass
-    ) {
+    public record Attempt(UUID id, UUID projectId, JobRequest request) {
     }
 
     @Transactional

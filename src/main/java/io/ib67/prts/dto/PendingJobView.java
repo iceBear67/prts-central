@@ -41,7 +41,6 @@ public record PendingJobView(
                 pending.getAttempts(),
                 pending.getLastError(),
                 pending.getJobId(),
-                new CreateJobRequest(
-                        pending.getTemplateId(), pending.getCreateOverride(), pending.getResourceClass()));
+                CreateJobRequest.of(pending.getRequest()));
     }
 }

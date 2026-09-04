@@ -69,7 +69,7 @@ public class SecretService {
     }
 
     /**
-     * Every secret of the project in the clear. The one caller is {@code JobService}, which attaches
+     * Every secret of the project in the clear. The one caller is {@code JobLauncher}, which attaches
      * the result to the copy of the spec it hands the scheduler — never to the one it persists — so
      * the plaintext lives only as long as the dispatch does.
      */

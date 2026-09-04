@@ -7,10 +7,12 @@ import com.github.benmanes.caffeine.cache.Scheduler;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.storage.StorageConfig;
 import io.ib67.prts.storage.StorageService;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
 
 import java.time.Duration;
@@ -27,6 +29,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
+/**
+ * Brokers a worker's artifact straight to S3: reserves room against the job's quota, hands out a
+ * presigned PUT, and records an {@link Artifact} once the object has landed. The quota spans what has
+ * landed (rows) and what is still in flight ({@link #pending}), which is why both halves live here.
+ */
 @ApplicationScoped
 public class ArtifactUploadService {
     static final Duration PENDING_TTL_GRACE = Duration.ofMinutes(5);
@@ -42,8 +49,6 @@ public class ArtifactUploadService {
         return thread;
     });
 
-    @Inject
-    JobService jobService;
     @Inject
     StorageService storageService;
     @Inject
@@ -76,24 +81,17 @@ public class ArtifactUploadService {
         reserveSlot();
         var uploadId = UUID.randomUUID();
         var artifactName = artifactName(name);
-        var fileName = sanitizeFileName(artifactName);
-        var objectKey = destKey(jobId, uploadId, fileName);
+        var objectKey = destKey(jobId, uploadId, keyFileName(artifactName));
         var expiresAt = Instant.now().plus(storageConfig.presignDuration());
         var session = new PendingUpload(uploadId, jobId, workerId, artifactName, objectKey, sizeBytes, expiresAt);
-        // Flipped inside the callback, not after the call: a commit failure afterwards would otherwise
+        // Flipped inside the transaction, not after it: a commit failure afterwards would otherwise
         // have both this method and the removal listener decrement the slot count.
         var stored = new AtomicBoolean();
         try {
-            jobService.assertCanStoreArtifact(
-                    jobId,
-                    workerId,
-                    sizeBytes,
-                    () -> reservedBytes(jobId),
-                    storageConfig.maxJobSize().asLongValue(),
-                    () -> {
-                        pending.put(uploadId, session);
-                        stored.set(true);
-                    });
+            QuarkusTransaction.requiringNew().run(() -> {
+                reserve(session);
+                stored.set(true);
+            });
             var put = storageService.presignPut(objectKey, sizeBytes);
             return new ClientboundMessage.PresignedUpload(
                     uploadId,
@@ -127,6 +125,22 @@ public class ArtifactUploadService {
         }
     }
 
+    /**
+     * Checks the upload against the job's quota and puts it in {@link #pending} while the job row is
+     * still locked, so two uploads cannot both fit into the same remaining room.
+     */
+    private void reserve(PendingUpload session) {
+        lockAssignedOpen(session.jobId(), session.workerId());
+        var max = storageConfig.maxJobSize().asLongValue();
+        var used = Artifact.listByJob(session.jobId()).stream().mapToLong(Artifact::getSizeBytes).sum();
+        var reserved = reservedBytes(session.jobId());
+        if (used > max || reserved > max - used || session.sizeBytes() > max - used - reserved) {
+            throw new IllegalStateException(
+                    "job artifact quota exceeded: " + (used + reserved + session.sizeBytes()) + " > " + max);
+        }
+        pending.put(session.uploadId(), session);
+    }
+
     private long reservedBytes(UUID jobId) {
         long reserved = 0;
         for (var session : pending.asMap().values()) {
@@ -135,6 +149,38 @@ public class ArtifactUploadService {
             }
         }
         return reserved;
+    }
+
+    /** Idempotent on the object key: the sweeper and the removal listener may both see an upload land. */
+    private void record(PendingUpload session) {
+        QuarkusTransaction.requiringNew().run(() -> {
+            var job = lockAssignedOpen(session.jobId(), session.workerId());
+            if (Artifact.count("objectKey", session.objectKey()) > 0) {
+                return;
+            }
+            Artifact.builder()
+                    .job(job)
+                    .name(session.name())
+                    .objectKey(session.objectKey())
+                    .sizeBytes(session.sizeBytes())
+                    .build()
+                    .persist();
+        });
+    }
+
+    /** Only the worker the job was given may attach to it, and only while it is still running. */
+    private static Job lockAssignedOpen(UUID jobId, UUID workerId) {
+        var job = Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE);
+        if (job == null) {
+            throw new NoSuchElementException("no such job: " + jobId);
+        }
+        if (job.isCompleted()) {
+            throw new IllegalStateException("job already completed: " + jobId);
+        }
+        if (!workerId.equals(job.getWorker())) {
+            throw new IllegalStateException("job not assigned to this worker: " + jobId);
+        }
+        return job;
     }
 
     private void sweep() {
@@ -175,8 +221,7 @@ public class ArtifactUploadService {
             return;
         }
         try {
-            jobService.addArtifact(
-                    session.jobId(), session.workerId(), session.name(), session.objectKey(), session.sizeBytes());
+            record(session);
             pending.asMap().remove(session.uploadId());
         } catch (NoSuchElementException | IllegalStateException e) {
             LOG.infof("dropping pending artifact upload %s: %s", session.uploadId(), e.getMessage());
@@ -190,8 +235,7 @@ public class ArtifactUploadService {
         try {
             var size = storageService.findObjectSize(session.objectKey());
             if (size.isPresent() && size.getAsLong() == session.sizeBytes()) {
-                jobService.addArtifact(
-                        session.jobId(), session.workerId(), session.name(), session.objectKey(), session.sizeBytes());
+                record(session);
                 return;
             }
         } catch (NoSuchElementException | IllegalStateException e) {
@@ -219,41 +263,28 @@ public class ArtifactUploadService {
         return "jobs/" + jobId + "/" + uploadId + "/" + fileName;
     }
 
+    /**
+     * The last segment of whatever the worker called the file. Not {@code Path.getFileName()}: the
+     * string is a path on the worker's filesystem, not ours, so either separator may be in play.
+     */
     static String artifactName(String suggested) {
-        if (suggested == null || suggested.isBlank()) {
+        if (suggested == null) {
             return "artifact.bin";
         }
-        var name = suggested.replace('\\', '/');
-        var slash = name.lastIndexOf('/');
-        if (slash >= 0) {
-            name = name.substring(slash + 1);
-        }
+        var name = suggested.substring(Math.max(suggested.lastIndexOf('/'), suggested.lastIndexOf('\\')) + 1);
         if (name.isBlank() || ".".equals(name) || "..".equals(name)) {
             return "artifact.bin";
         }
-        if (name.length() > 255) {
-            name = name.substring(0, 255);
-        }
-        return name;
+        return name.length() > 255 ? name.substring(0, 255) : name;
     }
 
-    static String sanitizeFileName(String suggested) {
-        if (suggested == null || suggested.isBlank()) {
-            return "artifact.bin";
-        }
-        var name = suggested.replace('\\', '/');
-        var slash = name.lastIndexOf('/');
-        if (slash >= 0) {
-            name = name.substring(slash + 1);
-        }
-        name = name.replaceAll("[^A-Za-z0-9._-]", "_");
-        if (name.isBlank() || ".".equals(name) || "..".equals(name)) {
-            return "artifact.bin";
-        }
-        if (name.length() > 200) {
-            name = name.substring(name.length() - 200);
-        }
-        return name;
+    /**
+     * What of an {@link #artifactName} may sit in an object key. The name is already a basename, so only
+     * the character set and the length are left to settle; cut from the front so the extension survives.
+     */
+    static String keyFileName(String artifactName) {
+        var name = artifactName.replaceAll("[^A-Za-z0-9._-]", "_");
+        return name.length() > 200 ? name.substring(name.length() - 200) : name;
     }
 
     private record PendingUpload(
