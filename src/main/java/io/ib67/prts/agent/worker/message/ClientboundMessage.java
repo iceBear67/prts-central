@@ -13,7 +13,7 @@ import java.util.UUID;
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
         include = JsonTypeInfo.As.PROPERTY,
-        property = "id"
+        property = "type"
 )
 @JsonSubTypes({
         @JsonSubTypes.Type(value = ClientboundMessage.Response.class, name = "result"),
