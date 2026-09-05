@@ -15,7 +15,10 @@ import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.ClientErrorException;
+import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.util.List;
@@ -27,6 +30,8 @@ import java.util.UUID;
 public class ProjectService {
     private static final Logger LOG = Logger.getLogger(ProjectService.class);
     private static final String DELETE_REASON = "project deleted";
+    /** How often {@link #delete} stops work again before a project that keeps receiving jobs is refused. */
+    private static final int MAX_STOP_ROUNDS = 3;
 
     @Inject
     SubAccountService subAccountService;
@@ -80,18 +85,33 @@ public class ProjectService {
      * transaction — the same rule that keeps the blocking worker RPC outside one. A failure part-way
      * therefore leaves orphaned <em>objects</em>, whose keys are in the log, rather than rows nothing
      * can reach.
+     *
+     * <p>A dispatch attempt already in flight when the queue is cancelled cannot be called back, and
+     * may place a job after {@link #stopWork} has read them — so the row half refuses while a job is
+     * open, and the work is stopped again. Bounded: a project that keeps receiving jobs is a conflict,
+     * not a loop.
      */
     public boolean delete(UUID id) {
-        stopWork(id);
-        deleteObjects(id);
-        return QuarkusTransaction.requiringNew().call(() -> deleteRows(id));
+        for (var round = 1; ; round++) {
+            stopWork(id);
+            deleteObjects(id);
+            var rows = QuarkusTransaction.requiringNew().call(() -> deleteRows(id));
+            if (rows != Rows.BUSY) {
+                return rows == Rows.DELETED;
+            }
+            if (round == MAX_STOP_ROUNDS) {
+                throw new ClientErrorException(
+                        "project " + id + " keeps receiving jobs; retry the delete", Response.Status.CONFLICT);
+            }
+            LOG.infof("a job was placed on project %s while it was being deleted; stopping work again", id);
+        }
     }
 
     /**
-     * Cancels the queue first, so nothing new is placed while the rest of the delete runs, then tells
-     * each worker its job has ceased to exist, drops the uploads still in flight for it, and marks the
-     * job {@link JobState#CANCELLED} — which is what keeps a report arriving between the interrupt and
-     * the row delete from being taken as an outcome.
+     * Cancels the queue first, so nothing new is placed while the rest of the delete runs. Then, per
+     * open job: marks it {@link JobState#CANCELLED} — from here on a worker's report is no outcome and
+     * {@code lockAssignedOpen} refuses it a new upload — tells the worker the job has ceased to exist,
+     * and only then drops the uploads still in flight, when nothing is left to start another.
      */
     private void stopWork(UUID projectId) {
         try {
@@ -103,7 +123,11 @@ public class ProjectService {
             LOG.errorf(e, "cannot cancel the queued jobs of project %s", projectId);
         }
         for (var job : openJobs(projectId)) {
-            artifactUploadService.discardPendingOf(job.id());
+            try {
+                jobService.applyState(job.id(), JobState.CANCELLED);
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "cannot cancel job %s of project %s", job.id(), projectId);
+            }
             if (job.worker() != null) {
                 try {
                     if (!workerService.interrupt(job.worker(), job.id(), DELETE_REASON)) {
@@ -114,11 +138,7 @@ public class ProjectService {
                     LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
                 }
             }
-            try {
-                jobService.applyState(job.id(), JobState.CANCELLED);
-            } catch (RuntimeException e) {
-                LOG.errorf(e, "cannot cancel job %s of project %s", job.id(), projectId);
-            }
+            artifactUploadService.discardPendingOf(job.id());
         }
     }
 
@@ -155,23 +175,33 @@ public class ProjectService {
      * sub-accounts, whose {@code prts_user} rows are project property and would outlive the cascade
      * that takes their link.
      */
-    private boolean deleteRows(UUID id) {
-        if (Project.findById(id) == null) {
-            return false;
+    private Rows deleteRows(UUID id) {
+        // FOR UPDATE, and not against another delete: inserting a job takes FOR KEY SHARE on its
+        // project row, so an attempt that is persisting one has either committed — and its job is
+        // open below — or waits here and fails its FK once the row is gone.
+        var project = Project.<Project>findById(id, LockModeType.PESSIMISTIC_WRITE);
+        if (project == null) {
+            return Rows.ABSENT;
+        }
+        // stopWork read the jobs before this lock; anything open now was placed since, and may have a
+        // container nobody has told to stop.
+        if (!Job.listOpenByProject(id).isEmpty()) {
+            return Rows.BUSY;
         }
         subAccountService.list(id).forEach(account -> userService.delete(account.getUserId()));
         permissionService.revokeAllInProject(id);
-        Project.deleteById(id);
+        project.delete();
         // Flushed by hand: the bulk delete below touches only resource_class, so Hibernate would not
         // auto-flush the queued remove above — and job and job_spec_template still reference the rows.
         Project.flush();
         ResourceClass.deleteByProject(id);
-        return true;
+        return Rows.DELETED;
     }
 
+    private enum Rows { DELETED, ABSENT, BUSY }
+
     private static List<OpenJob> openJobs(UUID projectId) {
-        return QuarkusTransaction.requiringNew().call(() -> Job.listByProject(projectId).stream()
-                .filter(job -> !job.isCompleted())
+        return QuarkusTransaction.requiringNew().call(() -> Job.listOpenByProject(projectId).stream()
                 .map(job -> new OpenJob(job.getId(), job.getWorker()))
                 .toList());
     }

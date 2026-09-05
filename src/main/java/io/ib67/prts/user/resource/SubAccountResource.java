@@ -39,8 +39,8 @@ import java.util.UUID;
  * {@link ProjectRole#OWNER} work, because minting one and setting its permissions is handing out
  * access to the project.
  *
- * <p>The token endpoints are the owner's copy of {@code /user/token} — a sub-account has no session to
- * call that with, so its key is issued and revoked from here.
+ * <p>The token endpoints are the owner's copy of {@code /user/token}, which refuses a sub-account even
+ * over its own token — its key is the owner's to issue and revoke, and only from here.
  */
 @Path("/project/{projectId}/subaccount")
 @Produces(MediaType.APPLICATION_JSON)
@@ -110,10 +110,11 @@ public class SubAccountResource {
         if (request == null || request.permissions() == null) {
             throw new BadRequestException("permissions is required, empty to hold none");
         }
-        var perms = request.permissions().stream().map(SubAccountResource::perm).toList();
+        var perms = request.permissions().stream().map(SubAccountResource::perm).distinct().toList();
         subAccountService.setPermissions(projectId, userId, perms);
         // The set just written, not a read-back: the permission cache is invalidated only once this
         // transaction commits, so reading it here would answer with what the sub-account held before.
+        // Deduplicated above so it is the set that was stored, not the list as posted.
         return SubAccountView.of(subAccountService.require(projectId, userId), perms);
     }
 

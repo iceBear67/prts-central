@@ -160,6 +160,11 @@ public class Job extends PanacheEntityBase {
         return list("project.id", projectId);
     }
 
+    /** Jobs still to be stopped before the project can go: not yet placed, or running somewhere. */
+    public static List<Job> listOpenByProject(UUID projectId) {
+        return list("project.id = ?1 and state in ?2", projectId, List.of(JobState.PENDING, JobState.RUNNING));
+    }
+
     /** Jobs a worker still owes us an outcome for; used to fail them when it disconnects. */
     public static List<Job> listOpenByWorker(UUID workerId) {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));

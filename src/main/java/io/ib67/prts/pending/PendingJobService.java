@@ -136,7 +136,7 @@ public class PendingJobService {
 
     @Transactional
     public void markDispatched(UUID pendingId, UUID jobId) {
-        PendingJob.<PendingJob>findByIdOptional(pendingId).ifPresent(pending -> {
+        inFlight(pendingId).ifPresent(pending -> {
             pending.setAttempts(pending.getAttempts() + 1);
             pending.setState(PendingJobState.DISPATCHED);
             pending.setJobId(jobId);
@@ -147,7 +147,7 @@ public class PendingJobService {
     /** Back in line, later each time: an empty fleet must not cost a dispatch attempt per tick. */
     @Transactional
     public void requeue(UUID pendingId, String reason) {
-        PendingJob.<PendingJob>findByIdOptional(pendingId).ifPresent(pending -> {
+        inFlight(pendingId).ifPresent(pending -> {
             var attempts = pending.getAttempts() + 1;
             pending.setAttempts(attempts);
             pending.setState(PendingJobState.QUEUED);
@@ -158,11 +158,22 @@ public class PendingJobService {
 
     @Transactional
     public void markFailed(UUID pendingId, String reason) {
-        PendingJob.<PendingJob>findByIdOptional(pendingId).ifPresent(pending -> {
+        inFlight(pendingId).ifPresent(pending -> {
             pending.setAttempts(pending.getAttempts() + 1);
             pending.setState(PendingJobState.FAILED);
             pending.setLastError(reason);
         });
+    }
+
+    /**
+     * The entry an attempt may still conclude. Only {@link PendingJob#cancelActive} moves an entry off
+     * {@link PendingJobState#DISPATCHING} from outside its attempt, and that entry's project is being
+     * deleted: its outcome is not owed to anyone, and writing it would put a cancelled entry back in
+     * line if the delete then fails.
+     */
+    private static Optional<PendingJob> inFlight(UUID pendingId) {
+        return PendingJob.<PendingJob>findByIdOptional(pendingId)
+                .filter(pending -> pending.getState() == PendingJobState.DISPATCHING);
     }
 
     @Transactional

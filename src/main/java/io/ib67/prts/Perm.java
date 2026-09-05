@@ -1,5 +1,7 @@
 package io.ib67.prts;
 
+import jakarta.annotation.Nullable;
+
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Optional;
@@ -66,7 +68,8 @@ public enum Perm {
      * By the stored string rather than the constant name: that string is what a caller naming a
      * permission over the wire spells, and what {@code user_permission} already holds.
      */
-    public static Optional<Perm> byPermission(String permission) {
-        return Optional.ofNullable(BY_PERMISSION.get(permission));
+    public static Optional<Perm> byPermission(@Nullable String permission) {
+        // An unmodifiable map throws on a null key; a null off the wire is just an unknown permission.
+        return permission == null ? Optional.empty() : Optional.ofNullable(BY_PERMISSION.get(permission));
     }
 }
