@@ -125,6 +125,27 @@ public class PermissionService {
         return removed;
     }
 
+    /** Only what the user holds in {@code projectId}; grants made in another project are untouched. */
+    @Transactional
+    public long revokeAll(UUID userId, UUID projectId) {
+        var removed = Permission.deleteByUserInProject(userId, projectId);
+        invalidateAfterCompletion(userId);
+        return removed;
+    }
+
+    /**
+     * Every grant made in {@code projectId}, for a project being deleted. Nothing else removes them:
+     * the project half of the key carries no foreign key. The holders are read first because the
+     * cache is keyed by user.
+     */
+    @Transactional
+    public long revokeAllInProject(UUID projectId) {
+        var holders = Permission.listHolderIdsByProject(projectId);
+        var removed = Permission.deleteByProject(projectId);
+        holders.forEach(this::invalidateAfterCompletion);
+        return removed;
+    }
+
     public void invalidate(UUID userId) {
         cache.invalidate(userId).await().indefinitely();
     }

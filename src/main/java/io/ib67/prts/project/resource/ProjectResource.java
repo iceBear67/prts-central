@@ -12,7 +12,6 @@ import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
-import io.quarkus.security.UnauthorizedException;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
@@ -79,6 +78,20 @@ public class ProjectResource {
         return ProjectView.of(projectService.rename(projectId, request.name().strip()), roleOf(projectId));
     }
 
+    /**
+     * Takes the project and everything it owns, including the containers still running on workers and
+     * the artifact objects in S3 — see {@link ProjectService#delete}. Not {@code project:update}: this
+     * is strictly more than the rename that permission covers, and there is no undoing it.
+     */
+    @DELETE
+    @Path("/{projectId}")
+    @RequirePermission(value = Perm.PROJECT_DELETE, defaultRole = ProjectRole.OWNER)
+    public void deleteProject(@ProjectId @PathParam("projectId") UUID projectId) {
+        if (!projectService.delete(projectId)) {
+            throw new NotFoundException("no such project: " + projectId);
+        }
+    }
+
     @GET
     @Path("/{projectId}/member")
     @Transactional
@@ -131,14 +144,10 @@ public class ProjectResource {
     }
 
     private ProjectRole roleOf(UUID projectId) {
-        return userService.permissionOf(requireUser().getId(), projectId);
+        return userService.roleOf(requireUser().getId(), projectId);
     }
 
     private User requireUser() {
-        var user = userContext.get();
-        if (user == null) {
-            throw new UnauthorizedException();
-        }
-        return user;
+        return userContext.require();
     }
 }

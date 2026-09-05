@@ -18,6 +18,8 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
@@ -67,6 +69,7 @@ public class WorkerVolume extends PanacheEntityBase {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "project_id", nullable = false, updatable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @ToString.Exclude
     private Project project;
 

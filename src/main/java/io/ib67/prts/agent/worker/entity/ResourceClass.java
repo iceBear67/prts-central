@@ -92,6 +92,19 @@ public class ResourceClass extends PanacheEntityBase {
         return ResourceClass.findByIdOptional(new Key(name, GLOBAL));
     }
 
+    /**
+     * A project's own classes, when the project goes. The project half of the key carries no foreign
+     * key, so nothing else would remove them — but {@code job} and {@code job_spec_template} do
+     * reference the row, so this has to run after those are gone. Refuses {@link #GLOBAL}, which is
+     * not any project's to take with it.
+     */
+    public static long deleteByProject(UUID projectId) {
+        if (projectId == null || GLOBAL.equals(projectId)) {
+            throw new IllegalArgumentException("not a project scope: " + projectId);
+        }
+        return delete("projectId", projectId);
+    }
+
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

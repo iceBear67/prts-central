@@ -15,6 +15,8 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.util.List;
@@ -51,11 +53,20 @@ public class Artifact extends PanacheEntityBase {
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "job_id", nullable = false, updatable = false)
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @ToString.Exclude
     private Job job;
 
     public static List<Artifact> listByJob(UUID jobId) {
         return list("job.id", jobId);
+    }
+
+    /** Just the keys: a teardown deletes the objects and never reads the rows it is about to drop. */
+    public static List<String> listObjectKeysByProject(UUID projectId) {
+        return getEntityManager()
+                .createQuery("select a.objectKey from Artifact a where a.job.project.id = ?1", String.class)
+                .setParameter(1, projectId)
+                .getResultList();
     }
 
     /** Same rule as {@code JobService.findInProject}: found by its own id, then kept only if it belongs to the project. */

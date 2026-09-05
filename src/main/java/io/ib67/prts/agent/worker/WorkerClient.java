@@ -77,6 +77,19 @@ public final class WorkerClient {
         }
     }
 
+    /**
+     * Tells the worker that {@code jobId} is gone and it should drop everything it holds for it. Not
+     * acknowledged either: there is no row left for an outcome to be reported against.
+     */
+    public void interruptJob(UUID jobId, String reason) {
+        try {
+            conn.sendText(new ClientboundMessage.InterruptJob(jobId, reason))
+                    .await().atMost(SEND_TIMEOUT);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("failed to interrupt job on worker", e);
+        }
+    }
+
     /** A late ack for an attempt we already gave up on finds nothing here, which is intended. */
     void completeCreate(UUID requestId) {
         var future = outstanding.get(requestId);

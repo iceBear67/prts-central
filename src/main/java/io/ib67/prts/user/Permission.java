@@ -6,7 +6,10 @@ import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.OnDelete;
+import org.hibernate.annotations.OnDeleteAction;
 
+import java.util.List;
 import java.util.UUID;
 
 @Entity
@@ -29,6 +32,7 @@ public class Permission extends PanacheEntityBase {
     @MapsId("userId")
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id")
+    @OnDelete(action = OnDeleteAction.CASCADE)
     @ToString.Exclude
     protected User user;
 
@@ -45,6 +49,25 @@ public class Permission extends PanacheEntityBase {
      */
     public static Id idOf(UUID userId, Perm perm, @Nullable UUID projectId) {
         return new Id(userId, perm.permission(), perm.global() ? GLOBAL : projectId);
+    }
+
+    /** Who holds a grant in {@code projectId}, read before {@link #deleteByProject} so the per-user
+     *  permission cache can be invalidated for each of them. */
+    public static List<UUID> listHolderIdsByProject(UUID projectId) {
+        return getEntityManager()
+                .createQuery("select distinct p.id.userId from Permission p where p.id.projectId = ?1",
+                        UUID.class)
+                .setParameter(1, projectId)
+                .getResultList();
+    }
+
+    /** {@code project_id} carries no foreign key, so a deleted project leaves these behind. */
+    public static long deleteByProject(UUID projectId) {
+        return delete("id.projectId", projectId);
+    }
+
+    public static long deleteByUserInProject(UUID userId, UUID projectId) {
+        return delete("id.userId = ?1 and id.projectId = ?2", userId, projectId);
     }
 
     @Embeddable

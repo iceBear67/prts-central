@@ -51,9 +51,12 @@ public class User extends PanacheEntityBase {
 
     /**
      * The schema does not declare {@code email} unique, so this deliberately returns the first
-     * match instead of failing on duplicates.
+     * match instead of failing on duplicates. A blank address is nobody: sub-accounts carry one
+     * because they have no address and the column is not null, and they must not be resolvable by it.
      */
     public static Optional<User> findByEmail(String email) {
-        return find("email", email).firstResultOptional();
+        return email == null || email.isBlank()
+                ? Optional.empty()
+                : find("email", email).firstResultOptional();
     }
 }

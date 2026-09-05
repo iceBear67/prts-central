@@ -121,6 +121,20 @@ public class WorkerService {
         return true;
     }
 
+    /**
+     * Tells the worker running {@code jobId} that the job has ceased to exist here — see
+     * {@link io.ib67.prts.agent.worker.message.ClientboundMessage.InterruptJob}. {@code false} means
+     * that worker is not connected, so there was nobody to tell.
+     */
+    public boolean interrupt(UUID workerId, UUID jobId, String reason) {
+        var worker = activeWorkers.get(workerId);
+        if (worker == null) {
+            return false;
+        }
+        worker.getRpc().interruptJob(jobId, reason);
+        return true;
+    }
+
     private ResourceClass requireResourceClass(ResourceClass resourceClass) {
         if (resourceClass == null || resourceClass.getName() == null) {
             throw new IllegalArgumentException("resource class name is required");

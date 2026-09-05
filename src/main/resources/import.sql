@@ -104,6 +104,37 @@
 --     PRIMARY KEY (issuer, subject)
 -- );
 --
+-- CREATE TABLE "user_access_token"
+-- (
+--     -- One token per user, so the user is the key.
+--     user_id    uuid    NOT NULL
+--         REFERENCES prts_user (id)
+--             ON DELETE CASCADE,
+--     -- "<format>:<payload>", the SecretCipher idiom: sha256:<base64url of the digest>. The plaintext
+--     -- is returned once and never stored. Unique because this index is the lookup path.
+--     token_hash varchar NOT NULL,
+--     issued_at  timestamptz NOT NULL,
+--     PRIMARY KEY (user_id)
+-- );
+-- CREATE UNIQUE INDEX idx_user_access_token_hash ON "user_access_token" (token_hash);
+--
+-- CREATE TABLE "sub_account"
+-- (
+--     -- A prts_user owned by a project: no oauth_identity row, so it cannot log in, and no
+--     -- user_to_project row, so it holds only the permissions granted to it explicitly.
+--     user_id    uuid NOT NULL
+--         REFERENCES prts_user (id)
+--             ON DELETE CASCADE,
+--     project_id uuid NOT NULL
+--         REFERENCES project (id)
+--             ON DELETE CASCADE,
+--     -- Audit only, like job.requested_by: no FK, so deleting whoever minted it changes nothing.
+--     created_by uuid NOT NULL,
+--     created_at timestamptz NOT NULL,
+--     PRIMARY KEY (user_id)
+-- );
+-- CREATE INDEX idx_sub_account_project_id ON "sub_account" (project_id);
+--
 -- CREATE TABLE "resource_class"
 -- (
 --     name         varchar NOT NULL,

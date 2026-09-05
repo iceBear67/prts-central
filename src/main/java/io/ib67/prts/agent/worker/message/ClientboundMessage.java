@@ -19,6 +19,7 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ClientboundMessage.Response.class, name = "result"),
         @JsonSubTypes.Type(value = ClientboundMessage.CreateJob.class, name = "createJob"),
         @JsonSubTypes.Type(value = ClientboundMessage.CancelJob.class, name = "cancelJob"),
+        @JsonSubTypes.Type(value = ClientboundMessage.InterruptJob.class, name = "interruptJob"),
         @JsonSubTypes.Type(value = ClientboundMessage.PresignedUpload.class, name = "presignedUpload"),
 })
 public sealed interface ClientboundMessage {
@@ -58,6 +59,18 @@ public sealed interface ClientboundMessage {
     record CancelJob(UUID jobId) implements ClientboundMessage {
         public CancelJob {
             Objects.requireNonNull(jobId, "jobId");
+        }
+    }
+
+    /**
+     * Stop {@code jobId} and drop anything still queued for it. Distinct from {@link CancelJob},
+     * which leaves a row that still expects the worker's final word: here the job is gone, so its
+     * state updates, logs and artifact uploads have nowhere to land and must not be sent.
+     */
+    record InterruptJob(UUID jobId, String reason) implements ClientboundMessage {
+        public InterruptJob {
+            Objects.requireNonNull(jobId, "jobId");
+            Objects.requireNonNull(reason, "reason");
         }
     }
 

@@ -139,6 +139,17 @@ public class PendingJob extends PanacheEntityBase {
                 List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
     }
 
+    /**
+     * Everything the project still stands to dispatch, for a project being torn down: a claim taken
+     * after this can find nothing left to place. It does not call back an attempt already in flight —
+     * nothing can — which is why the teardown interrupts the jobs afterwards rather than before.
+     */
+    public static int cancelActive(UUID projectId) {
+        return update("state = ?1 where project.id = ?2 and state in ?3",
+                PendingJobState.CANCELLED, projectId,
+                List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
+    }
+
     public static int expireOverdue(Instant now) {
         return update("state = ?1 where state = ?2 and expiresAt < ?3",
                 PendingJobState.EXPIRED, PendingJobState.QUEUED, now);

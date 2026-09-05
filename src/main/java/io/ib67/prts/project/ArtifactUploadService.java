@@ -115,6 +115,19 @@ public class ArtifactUploadService {
         }
     }
 
+    /**
+     * Drops whatever is still in flight for {@code jobId} and deletes the objects: the job is about to
+     * cease to exist, so the sweeper would otherwise try to promote an upload into a row that is gone.
+     * Through {@link #claimed} like every other path, so a promote cannot race the discard.
+     */
+    public void discardPendingOf(UUID jobId) {
+        for (var session : List.copyOf(pending.asMap().values())) {
+            if (jobId.equals(session.jobId())) {
+                claimed(session, this::discard);
+            }
+        }
+    }
+
     private void reserveSlot() {
         var max = storageConfig.maxPendingUploads();
         while (true) {

@@ -1,5 +1,11 @@
 package io.ib67.prts;
 
+import java.util.Arrays;
+import java.util.Map;
+import java.util.Optional;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+
 /**
  * A permission and the scope it is held in.
  *
@@ -13,7 +19,10 @@ public enum Perm {
 
     PROJECT_READ("project:read", false),
     PROJECT_UPDATE("project:update", false),
+    /** Separate from {@link #PROJECT_UPDATE}: a delete tears down the project's jobs and artifacts. */
+    PROJECT_DELETE("project:delete", false),
     PROJECT_MEMBER_MANAGE("project:member:manage", false),
+    PROJECT_SUBACCOUNT_MANAGE("project:subaccount:manage", false),
     /** Which secrets a project has, by name — never a value. */
     PROJECT_SECRET_READ("project:secret:read", false),
     PROJECT_SECRET_MANAGE("project:secret:manage", false),
@@ -37,6 +46,9 @@ public enum Perm {
     private final String permission;
     private final boolean global;
 
+    private static final Map<String, Perm> BY_PERMISSION = Arrays.stream(values())
+            .collect(Collectors.toUnmodifiableMap(Perm::permission, Function.identity()));
+
     Perm(String permission, boolean global) {
         this.permission = permission;
         this.global = global;
@@ -48,5 +60,13 @@ public enum Perm {
 
     public boolean global() {
         return global;
+    }
+
+    /**
+     * By the stored string rather than the constant name: that string is what a caller naming a
+     * permission over the wire spells, and what {@code user_permission} already holds.
+     */
+    public static Optional<Perm> byPermission(String permission) {
+        return Optional.ofNullable(BY_PERMISSION.get(permission));
     }
 }
