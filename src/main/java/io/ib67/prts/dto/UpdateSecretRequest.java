@@ -3,10 +3,13 @@ package io.ib67.prts.dto;
 import jakarta.annotation.Nullable;
 
 /**
- * @param description null or blank clears it. There is no value field: a value is replaced by a
- *                    delete and a create, so that fixing a description cannot touch one.
+ * A partial update: a null field is left as it is, and at least one must be present.
+ *
+ * @param description blank clears it.
+ * @param value       the new plaintext, sealed on the way in; never blank.
  */
 public record UpdateSecretRequest(
-        @Nullable String description
+        @Nullable String description,
+        @Nullable String value
 ) {
 }

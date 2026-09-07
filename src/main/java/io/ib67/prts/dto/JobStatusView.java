@@ -2,7 +2,10 @@ package io.ib67.prts.dto;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import org.eclipse.microprofile.openapi.annotations.media.DiscriminatorMapping;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
+
+import java.time.Instant;
 
 /**
  * What a job id resolves to: the job, or the queue entry it has not become yet. A client holds the
@@ -14,11 +17,19 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
  */
 @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, include = JsonTypeInfo.As.PROPERTY, property = "type")
 @JsonSubTypes({
-        @JsonSubTypes.Type(value = JobView.class, name = "job"),
-        @JsonSubTypes.Type(value = PendingJobView.class, name = "pending")
+        @JsonSubTypes.Type(value = JobView.class, name = JobView.TYPE),
+        @JsonSubTypes.Type(value = PendingJobView.class, name = PendingJobView.TYPE)
 })
 // Spelled a second time for the document: the scanner does not read Jackson's subtypes, and without
 // this the interface publishes as a bare object and neither record is emitted at all.
-@Schema(oneOf = {JobView.class, PendingJobView.class}, discriminatorProperty = "type")
+@Schema(
+        oneOf = {JobView.class, PendingJobView.class},
+        discriminatorProperty = "type",
+        discriminatorMapping = {
+                @DiscriminatorMapping(value = JobView.TYPE, schema = JobView.class),
+                @DiscriminatorMapping(value = PendingJobView.TYPE, schema = PendingJobView.class)
+        })
 public sealed interface JobStatusView permits JobView, PendingJobView {
+
+    Instant createdAt();
 }

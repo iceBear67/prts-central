@@ -75,12 +75,6 @@ public class AccessTokenService {
         }
     }
 
-    /** Whether there was one to revoke. */
-    @Transactional
-    public boolean revoke(UUID userId) {
-        return UserAccessToken.deleteById(userId);
-    }
-
     private byte[] randomBytes() {
         var bytes = new byte[TOKEN_BYTES];
         random.nextBytes(bytes);

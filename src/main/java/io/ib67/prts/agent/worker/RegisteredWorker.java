@@ -14,6 +14,9 @@ public class RegisteredWorker {
     @Setter
     @Nullable
     protected Info info;
+    /** Mirror of {@link io.ib67.prts.agent.worker.entity.Worker#isDisabled()}, so selection needs no read. */
+    @Setter
+    protected volatile boolean disabled;
 
     public RegisteredWorker(String name, WorkerClient rpc, @Nullable Info info) {
         this.name = name;

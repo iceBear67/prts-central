@@ -9,10 +9,18 @@ import java.time.Duration;
 public interface JobConfig {
     Log log();
 
+    JobList list();
+
     Pending pending();
 
     interface Log {
         @WithDefault("20")
+        int maxPageSize();
+    }
+
+    /** {@code GET .../job}. Merged from two tables, so a page costs {@code offset + length} rows of each. */
+    interface JobList {
+        @WithDefault("50")
         int maxPageSize();
     }
 

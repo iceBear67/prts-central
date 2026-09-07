@@ -40,7 +40,8 @@ import java.util.UUID;
  * access to the project.
  *
  * <p>The token endpoints are the owner's copy of {@code /user/token}, which refuses a sub-account even
- * over its own token — its key is the owner's to issue and revoke, and only from here.
+ * over its own token — its key is the owner's to issue and reissue, and only from here. There is no
+ * revoke without a reissue: a key nobody knows is a locked-out account, not a safer one.
  */
 @Path("/project/{projectId}/subaccount")
 @Produces(MediaType.APPLICATION_JSON)
@@ -137,16 +138,6 @@ public class SubAccountResource {
         subAccountService.require(projectId, userId);
         var issued = accessTokenService.issue(userId);
         return new IssuedTokenView(issued.token(), issued.issuedAt());
-    }
-
-    @DELETE
-    @Path("/{userId}/token")
-    public void revokeToken(
-            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("userId") UUID userId) {
-        subAccountService.require(projectId, userId);
-        if (!accessTokenService.revoke(userId)) {
-            throw new NotFoundException("no access token has been issued");
-        }
     }
 
     /** Scoped to the project in the path, though a sub-account holds nothing outside it by construction. */

@@ -72,11 +72,6 @@ public class PendingJobService {
         });
     }
 
-    public List<PendingJob> listByProject(UUID projectId) {
-        projectService.require(projectId);
-        return PendingJob.listByProject(projectId);
-    }
-
     /** Same rule as jobs: found by its own id, then kept only if it belongs to the project. */
     public Optional<PendingJob> findInProject(UUID projectId, UUID pendingId) {
         return PendingJob.<PendingJob>findByIdOptional(pendingId)

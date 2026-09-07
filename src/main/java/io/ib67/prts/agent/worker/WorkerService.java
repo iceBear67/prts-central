@@ -3,6 +3,7 @@ package io.ib67.prts.agent.worker;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.entity.JobState;
@@ -29,9 +30,18 @@ public class WorkerService {
 
     private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
+    /**
+     * Orders a register against a {@link #setDisabled}: the row is read and then mirrored onto the
+     * session in two steps, and a flag written between them would reach the old session or none.
+     */
+    private final Object roster = new Object();
 
     public Map<UUID, RegisteredWorker> getActiveWorkers() {
         return Collections.unmodifiableMap(activeWorkers);
+    }
+
+    public boolean hasSchedulableWorker() {
+        return activeWorkers.values().stream().anyMatch(worker -> !worker.isDisabled());
     }
 
     public Optional<RegisteredWorker> getWorker(UUID id) {
@@ -40,12 +50,37 @@ public class WorkerService {
 
     /** Newest connection wins: a half-open socket must not lock out the reconnect that replaces it. */
     void registerWorker(UUID id, RegisteredWorker registeredWorker) {
-        QuarkusTransaction.requiringNew().run(() ->
-                io.ib67.prts.agent.worker.entity.Worker.upsert(id, registeredWorker.getName()));
-        var displaced = activeWorkers.put(id, registeredWorker);
+        RegisteredWorker displaced;
+        synchronized (roster) {
+            registeredWorker.setDisabled(QuarkusTransaction.requiringNew()
+                    .call(() -> Worker.upsert(id, registeredWorker.getName()).isDisabled()));
+            displaced = activeWorkers.put(id, registeredWorker);
+        }
         if (displaced != null) {
             scheduler.onWorkerRemoved(id);
             displaced.getRpc().failAll(new IllegalStateException("worker re-registered on a new connection"));
+        }
+    }
+
+    /**
+     * Takes the worker out of scheduling, or back in; what it is already running is left alone.
+     * Throws {@link NoSuchElementException} for a worker that never registered.
+     */
+    public Worker setDisabled(UUID id, boolean disabled) {
+        synchronized (roster) {
+            var row = QuarkusTransaction.requiringNew().call(() -> {
+                var worker = Worker.<Worker>findById(id);
+                if (worker == null) {
+                    throw new NoSuchElementException("no such worker: " + id);
+                }
+                worker.setDisabled(disabled);
+                return worker;
+            });
+            var live = activeWorkers.get(id);
+            if (live != null) {
+                live.setDisabled(disabled);
+            }
+            return row;
         }
     }
 

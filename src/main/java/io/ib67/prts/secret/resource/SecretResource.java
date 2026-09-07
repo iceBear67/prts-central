@@ -30,12 +30,9 @@ import java.util.regex.Pattern;
 
 /**
  * A project's secrets. Listing them takes {@link ProjectRole#MEMBER}, since whoever writes a job has
- * to know which names exist and what they are for; creating, describing and deleting takes
+ * to know which names exist and what they are for; creating, updating and deleting takes
  * {@link ProjectRole#OWNER}. Nothing here reads a value back — a stored secret is only reachable by
  * the dispatcher.
- *
- * <p>A value has no update: replacing one is a delete and a create, which is one fewer way to take
- * away the value a running job was given. Only the description can be changed in place.
  */
 @Path("/project/{projectId}/secret")
 @Produces(MediaType.APPLICATION_JSON)
@@ -69,29 +66,24 @@ public class SecretResource {
         if (request == null || request.name() == null || !NAME.matcher(request.name()).matches()) {
             throw new BadRequestException("name must match " + NAME.pattern());
         }
-        if (request.value() == null || request.value().isEmpty()) {
-            throw new BadRequestException("value is required");
-        }
-        if (request.value().length() > secretConfig.maxValueLength()) {
-            throw new BadRequestException(
-                    "value must be at most " + secretConfig.maxValueLength() + " characters");
-        }
         return SecretView.of(secretService.create(
-                projectId, request.name(), description(request.description()), request.value()));
+                projectId, request.name(), description(request.description()), checkSecretForm(request.value())));
     }
 
+    /** Partial: a field left out stays as it is, so leaving both out asks for nothing. */
     @PATCH
     @Path("/{name}")
     @Consumes(MediaType.APPLICATION_JSON)
     @RequirePermission(value = Perm.PROJECT_SECRET_MANAGE, defaultRole = ProjectRole.OWNER)
-    public SecretView describeSecret(
+    public SecretView updateSecret(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("name") String name,
             UpdateSecretRequest request) {
-        if (request == null) {
-            throw new BadRequestException("description is required, blank to clear it");
+        if (request == null || (request.description() == null && request.value() == null)) {
+            throw new BadRequestException("description or value is required; a blank description clears it");
         }
-        return secretService.describe(projectId, name, description(request.description()))
+        var value = request.value() == null ? null : checkSecretForm(request.value());
+        return secretService.update(projectId, name, description(request.description()), value)
                 .map(SecretView::of)
                 .orElseThrow(() -> new NotFoundException(
                         "no such secret in project " + projectId + ": " + name));
@@ -107,10 +99,21 @@ public class SecretResource {
         }
     }
 
-    /** Blank is no description at all, so clearing one and never setting one are the same row. */
+    private String checkSecretForm(@Nullable String value) {
+        if (value == null || value.isEmpty()) {
+            throw new BadRequestException("value is required");
+        }
+        if (value.length() > secretConfig.maxValueLength()) {
+            throw new BadRequestException(
+                    "value must be at most " + secretConfig.maxValueLength() + " characters");
+        }
+        return value;
+    }
+
+    /** Stripped and bounded; blank stays blank, which the service reads as no description. */
     @Nullable
     private String description(@Nullable String description) {
-        if (description == null || description.isBlank()) {
+        if (description == null) {
             return null;
         }
         var stripped = description.strip();

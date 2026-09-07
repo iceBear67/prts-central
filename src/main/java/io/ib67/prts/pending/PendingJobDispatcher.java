@@ -63,8 +63,8 @@ public class PendingJobDispatcher {
         try {
             pendingJobService.expireOverdue();
             // An attempt persists a job before it finds out there is nowhere to put it, so with no
-            // worker at all there is nothing to gain and a row to write per entry per tick.
-            if (workerService.getActiveWorkers().isEmpty()) {
+            // worker that may take one there is nothing to gain and a row to write per entry per tick.
+            if (!workerService.hasSchedulableWorker()) {
                 return;
             }
             for (var attempt : pendingJobService.claimDue(jobConfig.pending().batch())) {

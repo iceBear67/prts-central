@@ -129,8 +129,14 @@ public class PendingJob extends PanacheEntityBase {
                 .list();
     }
 
-    public static List<PendingJob> listByProject(UUID projectId) {
-        return list("project.id = ?1 order by createdAt desc", projectId);
+    /**
+     * Entries that never became a job, newest first — a dispatched one is listed as its job, and the
+     * job carries its {@code createdAt} from then on.
+     */
+    public static List<PendingJob> listUnplacedByProject(UUID projectId, int limit) {
+        return PendingJob.<PendingJob>find("project.id = ?1 and jobId is null order by createdAt desc, id desc", projectId)
+                .page(0, limit)
+                .list();
     }
 
     /** What the per-project cap counts: entries that still stand to become a job. */

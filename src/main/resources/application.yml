@@ -14,7 +14,7 @@ quarkus:
         maximum-size: 10000
   datasource:
     db-kind: postgresql
-    # No jdbc.url in dev/test on purpose: Dev Services starts a throwaway PostgreSQL container.
+    # Points at a local PostgreSQL, so Dev Services does not start one. S3 is left to Dev Services.
     jdbc:
       url: "jdbc:postgresql://localhost:5432/?user=postgres&password=12345aa"
   s3:
@@ -29,10 +29,11 @@ quarkus:
           paths:
             - "/api/*"
           policy: "authenticated"
+        # Only the socket takes the shared secret; /api/worker/* is an admin's, authenticated like
+        # the rest of the API.
         worker_ws:
           paths:
             - "/ws/worker"
-            - "/api/worker/*"
           policy: "authenticated"
           auth-mechanism:
             - "worker-token"
@@ -90,6 +91,8 @@ storage:
 job:
   log:
     max-page-size: 20
+  list:
+    max-page-size: 50
   pending:
     interval: PT1S
     # How long an entry keeps the authorization it was accepted with.

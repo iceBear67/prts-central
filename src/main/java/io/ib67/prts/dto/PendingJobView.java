@@ -30,6 +30,8 @@ public record PendingJobView(
         @Nullable UUID jobId,
         @Nullable CreateJobRequest request
 ) implements JobStatusView {
+    public static final String TYPE = "pending";
+
     public PendingJobView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(projectId, "projectId");

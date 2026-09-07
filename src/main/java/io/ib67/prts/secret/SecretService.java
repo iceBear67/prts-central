@@ -37,8 +37,8 @@ public class SecretService {
     }
 
     /**
-     * Conflicts rather than replacing: rotating a secret is a delete and a create, so a create can
-     * never silently drop the value a job is running with.
+     * Conflicts rather than replacing: changing a value is an {@link #update}, so a create can never
+     * silently drop the value a job is running with.
      */
     @Transactional
     public ProjectSecret create(UUID projectId, String name, @Nullable String description, String value) {
@@ -49,17 +49,34 @@ public class SecretService {
                     Response.Status.CONFLICT);
         }
         var secret = ProjectSecret.of(
-                project, name, description, cipher.seal(value, contextOf(projectId, name)));
+                project, name, normalize(description), cipher.seal(value, contextOf(projectId, name)));
         secret.persist();
         return secret;
     }
 
-    /** The description is the only thing about a secret that can be changed in place. */
+    /**
+     * Changes what is given and leaves the rest: a null argument is "as it is". The value is sealed
+     * under the same context as at create, so the row stays bound to its project and name.
+     */
     @Transactional
-    public Optional<ProjectSecret> describe(UUID projectId, String name, @Nullable String description) {
+    public Optional<ProjectSecret> update(
+            UUID projectId, String name, @Nullable String description, @Nullable String value) {
         var secret = ProjectSecret.findIn(projectId, name);
-        secret.ifPresent(it -> it.setDescription(description));
+        secret.ifPresent(it -> {
+            if (description != null) {
+                it.setDescription(normalize(description));
+            }
+            if (value != null) {
+                it.setCipherText(cipher.seal(value, contextOf(projectId, name)));
+            }
+        });
         return secret;
+    }
+
+    /** Blank is no description at all, so clearing one and never setting one are the same row. */
+    @Nullable
+    private static String normalize(@Nullable String description) {
+        return description == null || description.isBlank() ? null : description;
     }
 
     /** {@code false} means the project has no secret by that name. */

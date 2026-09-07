@@ -16,7 +16,8 @@ import lombok.ToString;
 import java.util.UUID;
 
 /**
- * Persistent worker identity. The live session is {@link RegisteredWorker}.
+ * Persistent worker identity. The live session is {@link RegisteredWorker}; {@link #disabled} lives
+ * here so it survives a reconnect, and is mirrored onto the session on register.
  */
 @Entity
 @Table(name = "worker")
@@ -35,14 +36,20 @@ public class Worker extends PanacheEntityBase {
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
 
-    public static void upsert(UUID id, String name) {
+    /** A disabled worker keeps its session and its running jobs, but is offered nothing new. */
+    @Column(name = "disabled", nullable = false)
+    private boolean disabled;
+
+    public static Worker upsert(UUID id, String name) {
         Worker existing = findById(id);
         if (existing == null) {
-            builder().id(id).name(name).build().persistAndFlush();
-            return;
+            var created = builder().id(id).name(name).build();
+            created.persistAndFlush();
+            return created;
         }
         if (name != null && !name.equals(existing.getName())) {
             existing.setName(name);
         }
+        return existing;
     }
 }

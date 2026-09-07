@@ -61,9 +61,10 @@ public class JobService {
         return job;
     }
 
-    public List<Job> listByProject(UUID projectId) {
+    /** The newest {@code limit} jobs a reader should see; see {@code Job.VISIBLE} for what is left out. */
+    public List<Job> listVisible(UUID projectId, int limit) {
         projectService.require(projectId);
-        return Job.listByProject(projectId);
+        return Job.listVisibleByProject(projectId, limit);
     }
 
     /**

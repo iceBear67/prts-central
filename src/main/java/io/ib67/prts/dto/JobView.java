@@ -34,6 +34,8 @@ public record JobView(
         List<ArtifactView> artifacts,
         @Nullable CreateJobRequest createRequest
 ) implements JobStatusView {
+    public static final String TYPE = "job";
+
     public JobView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(projectId, "projectId");
@@ -92,11 +94,6 @@ public record JobView(
                     spec.timeout(),
                     spec.lock());
         }
-    }
-
-    /** A job that has produced nothing yet — one just created, or just re-run. */
-    public static JobView of(Job job) {
-        return of(job, List.of(), null);
     }
 
     public static JobView of(Job job, List<Artifact> artifacts) {

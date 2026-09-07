@@ -156,13 +156,18 @@ final class WorkerScheduler {
 
     private Optional<Selection> select(ResourceClass required, Set<UUID> allowed) {
         return workers.entrySet().stream()
-                .filter(entry -> allowed.contains(entry.getKey()))
-                .filter(entry -> !locked.contains(entry.getKey()))
-                .filter(entry -> capacityFits(entry.getValue().getInfo(), required))
+                .filter(entry -> isEligible(entry.getKey(), entry.getValue(), required, allowed))
                 .min(Comparator
                         .comparingInt((Map.Entry<UUID, RegisteredWorker> entry) -> entry.getValue().pendingJobCount())
                         .thenComparing(Map.Entry::getKey))
                 .map(entry -> new Selection(entry.getKey(), entry.getValue()));
+    }
+
+    private boolean isEligible(UUID id, RegisteredWorker worker, ResourceClass required, Set<UUID> allowed) {
+        return allowed.contains(id)
+                && !worker.isDisabled()
+                && !locked.contains(id)
+                && capacityFits(worker.getInfo(), required);
     }
 
     /**

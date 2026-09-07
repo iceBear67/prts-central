@@ -19,6 +19,7 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,6 +60,11 @@ public class Artifact extends PanacheEntityBase {
 
     public static List<Artifact> listByJob(UUID jobId) {
         return list("job.id", jobId);
+    }
+
+    /** One query for a page of jobs; the caller groups by {@code getJob().getId()}. */
+    public static List<Artifact> listByJobs(Collection<UUID> jobIds) {
+        return jobIds.isEmpty() ? List.of() : list("job.id in ?1", jobIds);
     }
 
     /** Just the keys: a teardown deletes the objects and never reads the rows it is about to drop. */

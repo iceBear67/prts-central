@@ -33,6 +33,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -133,7 +134,7 @@ public class Job extends PanacheEntityBase {
     private JobSpecOverride createOverride;
 
     /**
-     * The request that reproduces this job, for the client to post back to {@code /create} — how a
+     * The request that reproduces this job, for the client to post back to {@code POST .../job} — how a
      * re-run goes through the same gates as the original. The resource class is the one that actually
      * ran, not what the requester typed: naming it pins the re-run to it even if the template has moved
      * on since. {@code null} when there is nothing to replay. Reads only what a detached job carries.
@@ -156,8 +157,42 @@ public class Job extends PanacheEntityBase {
         return state != null && state.isTerminal();
     }
 
-    public static List<Job> listByProject(UUID projectId) {
-        return list("project.id", projectId);
+    /**
+     * A {@code PENDING} job with no worker is an attempt still deciding where to put it — or one a
+     * crash left behind, see TODO.md — and either way not something to show a reader yet: the queue
+     * entry is what stands for it until {@code claimJob} hands it over.
+     */
+    private static final String VISIBLE_ROW = "(state <> :pending or worker is not null)";
+    private static final String VISIBLE = "project.id = :project and " + VISIBLE_ROW;
+
+    /** Newest first. */
+    public static List<Job> listVisibleByProject(UUID projectId, int limit) {
+        return find(VISIBLE + " order by createdAt desc, id desc",
+                Map.of("project", projectId, "pending", JobState.PENDING))
+                .page(0, limit)
+                .list();
+    }
+
+    /**
+     * Both counts a project view shows, off one pass: they walk the same rows of the same index, so
+     * two queries would read every one of them twice.
+     *
+     * @param visible jobs {@link #listVisibleByProject} would list.
+     * @param running of those, the ones not yet done: handed to a worker, or running on one.
+     */
+    public record Counts(long visible, long running) {
+    }
+
+    public static Counts countByProject(UUID projectId) {
+        var row = (Object[]) Job.getEntityManager()
+                .createQuery("select count(case when " + VISIBLE_ROW + " then 1 end), "
+                        + "count(case when worker is not null and state in :open then 1 end) "
+                        + "from Job where project.id = :project")
+                .setParameter("project", projectId)
+                .setParameter("pending", JobState.PENDING)
+                .setParameter("open", List.of(JobState.PENDING, JobState.RUNNING))
+                .getSingleResult();
+        return new Counts((long) row[0], (long) row[1]);
     }
 
     /** Jobs still to be stopped before the project can go: not yet placed, or running somewhere. */
