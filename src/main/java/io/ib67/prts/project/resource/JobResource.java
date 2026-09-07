@@ -6,6 +6,8 @@ import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.*;
+import io.ib67.prts.dto.job.*;
+import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
 import io.ib67.prts.project.JobAccess;

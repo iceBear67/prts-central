@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.storage;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -7,8 +7,6 @@ import com.github.benmanes.caffeine.cache.Scheduler;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.storage.StorageConfig;
-import io.ib67.prts.storage.StorageService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -38,9 +36,9 @@ import java.util.function.Consumer;
  * landed (rows) and what is still in flight ({@link #pending}), which is why both halves live here.
  */
 @ApplicationScoped
-public class ArtifactUploadService {
+public class ArtifactService {
     static final Duration PENDING_TTL_GRACE = Duration.ofMinutes(5);
-    private static final Logger LOG = Logger.getLogger(ArtifactUploadService.class);
+    private static final Logger LOG = Logger.getLogger(ArtifactService.class);
 
     private Cache<UUID, PendingUpload> pending;
     private final AtomicInteger pendingCount = new AtomicInteger();

@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.project;
 
 import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.user.UserToProject;

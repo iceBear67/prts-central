@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.job;
 
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import jakarta.annotation.Nullable;

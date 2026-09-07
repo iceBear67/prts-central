@@ -1,6 +1,7 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.job;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobState;

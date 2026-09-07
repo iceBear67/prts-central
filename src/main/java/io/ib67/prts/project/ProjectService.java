@@ -7,6 +7,7 @@ import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobState;
 import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.SubAccountService;
@@ -44,7 +45,7 @@ public class ProjectService {
     @Inject
     WorkerService workerService;
     @Inject
-    ArtifactUploadService artifactUploadService;
+    ArtifactService artifactService;
     @Inject
     StorageService storageService;
 
@@ -138,7 +139,7 @@ public class ProjectService {
                     LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
                 }
             }
-            artifactUploadService.discardPendingOf(job.id());
+            artifactService.discardPendingOf(job.id());
         }
     }
 

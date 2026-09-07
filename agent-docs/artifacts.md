@@ -3,7 +3,7 @@
 Uploads never pass through this service:
 
 1. Worker sends `UploadArtifactRequest`.
-2. `ArtifactUploadService.begin` checks the limits, reserves a slot and an in-memory quota entry, then
+2. `ArtifactService.begin` (in `storage`) checks the limits, reserves a slot and an in-memory quota entry, then
    returns a presigned `PUT` (`ClientboundMessage.PresignedUpload`). The quota check and the
    reservation happen under a `PESSIMISTIC_WRITE` on the job row (`reserve`), which is why the DB half
    and the cache half of the quota live in one bean.
@@ -16,7 +16,7 @@ sequenceDiagram
     autonumber
     participant W as Worker
     participant WS as WorkerWebSocket
-    participant A as ArtifactUploadService
+    participant A as ArtifactService
     participant S3
 
     W->>WS: UploadArtifactRequest(jobId, name, sizeBytes)

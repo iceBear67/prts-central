@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.request;
 
 import java.util.List;
 

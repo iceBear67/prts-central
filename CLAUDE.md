@@ -35,18 +35,23 @@ each one documents constraints that are not visible in the code it describes.
 
 ### Package map
 
+Entities live in an `.entity` sub-package and JAX-RS resources in a `.resource` one; the package root
+holds the services and value objects.
+
 | Package | Role |
 | --- | --- |
-| `agent.worker` | Live worker sessions, the WebSocket protocol, and scheduling |
-| `agent.job` | `JobSpec` value object, override/permission gating, `JobLock`, template entity |
-| `project` | `Project` / `Job` / `JobLog` / `Artifact` entities; `JobLauncher` (authorize, launch), `JobService` (state, discard, reads), `ArtifactUploadService`; `JobRequest` value |
+| `agent.worker` | Live worker sessions, the WebSocket protocol (`.message`), and scheduling; `.entity` = `Worker`, `ResourceClass`, `WorkerVolume` |
+| `agent.job` | `JobSpec` value object, override/permission gating; `.entity` = `JobSpecTemplate`, `JobLock` |
+| `project` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads), `ProjectService`, `JobAccess`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` plus the `JobRequest` value |
 | `pending` | The job queue: `PendingJob` entity, `PendingJobService`, `PendingJobDispatcher` |
 | `user` | `User`, project membership, permission grants + cached lookup, sub-accounts |
 | `auth` | OIDC identity augmentation, worker token mechanism, `@RequirePermission` interceptor |
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
-| `dto` | Outward-facing view records (`*View`, `*Request`) |
-| `storage` | S3 presigning |
+| `dto` | Outward-facing view records, grouped `dto.job` / `dto.project` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
+| `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing the annotations into the OpenAPI document |
+
+These groupings move; **do not hand-build a path from this table**, look the class up by name (below).
 
 ## Tooling
 
@@ -65,6 +70,10 @@ sandbox does not:
 - `mcp__idea__read_file` reads **library and JDK sources**, including entries inside jars
   (`/path/lib.jar!/pkg/Foo.class`) and decompiled `.class` files. This is the way to check what a
   Quarkus/Hibernate/Panache API actually does instead of guessing.
+
+**Reach a class by symbol name, not by a path you assembled.** Packages here get reshuffled (the DTOs
+and the entities both have been), so a path is the part that goes stale while the name does not —
+`mcp__idea__search_symbol` follows the move.
 
 ## Conventions
 

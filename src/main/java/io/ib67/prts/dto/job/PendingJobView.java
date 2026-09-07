@@ -1,5 +1,6 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.job;
 
+import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobState;
 import jakarta.annotation.Nullable;

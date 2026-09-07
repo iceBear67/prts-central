@@ -29,7 +29,7 @@ services open `QuarkusTransaction` blocks explicitly instead of annotating priva
 | `JobService.cancel` | `prepareCancel` in `requiringNew`, RPC, `logCancelOutcome` in `requiringNew` | state first, so a late worker report is ignored |
 | `PendingJobService.enqueue` | `requiringNew` | the caller has already authorized; this only persists |
 | `PendingJobService.claimDue` / `mark*` / `requeue` | `@Transactional` each | the replay in between makes RPCs |
-| `ArtifactUploadService.begin` → `reserve` | `requiringNew` | presign happens after the reservation is committed |
+| `ArtifactService.begin` → `reserve` | `requiringNew` | presign happens after the reservation is committed |
 
 `ProjectService.delete` is the other shape — see [project-deletion.md](project-deletion.md): it is
 deliberately **not** `@Transactional` at all, and only its row half opens one.

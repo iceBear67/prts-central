@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.job;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;

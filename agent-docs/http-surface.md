@@ -109,6 +109,13 @@ because no such check was made there.
 
 ## DTOs, mappers, OpenAPI
 
+DTOs live in `dto`, grouped by subject: `dto.job` (`JobView`, `JobStatusView`, `PendingJobView`,
+`JobLogPage`, `JobSpecTemplateView`), `dto.project` (`ProjectView`, `ProjectDetailView`,
+`ProjectMemberView`, `SubAccountView`) and `dto.request` for every inbound `*Request`; a view fitting
+no group (`SecretView`, `WorkerView`, `AccessTokenView`, `IssuedTokenView`, `PresignedUrlView`) stays
+at the root. Put a new one where its subject already is rather than at the root, and find an existing
+one with `mcp__idea__search_symbol` — these groups have been reshuffled once already.
+
 DTOs are the boundary, and the **resources own them**: services return entities (`Job`, `List<JobLog>`,
 `Artifact`) and the resource maps them with `JobView.of(...)`. Because create/rerun/cancel hand back an
 entity whose transaction has already closed, a mapper may only read what that entity carries — see the
@@ -138,4 +145,4 @@ the document out, which is how to check it.
 Services still throw `jakarta.ws.rs` exceptions directly as well (`JobLauncher`'s `NotFoundException` /
 `BadRequestException`, `JobService`'s and `UserService`'s `ClientErrorException(CONFLICT)`), so the web
 layer does leak inward. Finishing the job means domain exceptions plus more mappers, and touching how
-`ArtifactUploadService` and `WorkerWebSocket` branch on `NoSuchElementException | IllegalStateException`.
+`ArtifactService` and `WorkerWebSocket` branch on `NoSuchElementException | IllegalStateException`.

@@ -5,6 +5,7 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobLog;
 import io.ib67.prts.project.entity.JobState;
+import io.ib67.prts.storage.ArtifactService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -24,7 +25,7 @@ import java.util.UUID;
 
 /**
  * A job's own state and what is read off it. Making one is {@link JobLauncher}'s business, and its
- * artifacts {@link ArtifactUploadService}'s; what stays here is the state machine every writer goes
+ * artifacts {@link ArtifactService}'s; what stays here is the state machine every writer goes
  * through — the worker reporting, the requester cancelling, the launcher giving up — and the logs.
  */
 @ApplicationScoped

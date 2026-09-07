@@ -2,7 +2,7 @@ package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
-import io.ib67.prts.project.ArtifactUploadService;
+import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.project.JobService;
 import io.quarkus.websockets.next.*;
 import io.smallrye.common.annotation.Blocking;
@@ -23,7 +23,7 @@ public class WorkerWebSocket {
     @Inject
     JobService jobService;
     @Inject
-    ArtifactUploadService artifactUploadService;
+    ArtifactService artifactService;
 
     /** Blocking: unregistering fails the jobs this worker owed us an outcome for, which touches the DB. */
     @OnClose
@@ -112,7 +112,7 @@ public class WorkerWebSocket {
 
     private ClientboundMessage handleUploadArtifactRequest(ServerboundMessage.UploadArtifactRequest r) {
         try {
-            return artifactUploadService.begin(workerId(), r.jobId(), r.name(), r.sizeBytes());
+            return artifactService.begin(workerId(), r.jobId(), r.name(), r.sizeBytes());
         } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
             LOG.errorf("cannot begin artifact upload for job %s: %s", r.jobId(), e.getMessage());
             return new ClientboundMessage.Response(false, e.getMessage());

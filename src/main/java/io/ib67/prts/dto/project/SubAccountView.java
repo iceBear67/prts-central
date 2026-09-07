@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.project;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.user.SubAccount;

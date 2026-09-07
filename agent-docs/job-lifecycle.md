@@ -13,7 +13,9 @@ flowchart LR
     subgraph project[project]
         JL["JobLauncher<br/>authorize · launch"]
         JS["JobService<br/>cancel · applyState · discard · logs · reads"]
-        AUS["ArtifactUploadService<br/>begin · sweep · record"]
+    end
+    subgraph storage[storage]
+        AUS["ArtifactService<br/>begin · sweep · record"]
     end
     subgraph pending[pending]
         PJS[PendingJobService]
@@ -40,13 +42,14 @@ flowchart LR
     WWS -->|UploadArtifactRequest| AUS
 ```
 
-Three beans in `project`, split by what they own:
+Three beans split by what they own — the first two in `project`, `ArtifactService` in `storage`
+because it owns none of the job's state:
 
 | Bean | Owns | Never does |
 | --- | --- | --- |
 | `JobLauncher` | making a job: merge template + override, gate the spec, persist, hand to the scheduler | decide what an unplaceable job leaves behind, or move a job's state except through `JobService` |
 | `JobService` | every way a job ends (`cancel`, `applyState`, `discard`) and every `JobLock` release, logs, project-scoped reads | create or schedule |
-| `ArtifactUploadService` | the artifact quota and the S3 hand-off | anything about the job's state |
+| `ArtifactService` | the artifact quota and the S3 hand-off | anything about the job's state |
 
 Every `JobLock` release is on that middle bean, `discard` included — it takes a job id, not a request,
 and undoing a create is not the same job as making one.
@@ -65,7 +68,7 @@ may already have started a container.
 
 ```mermaid
 flowchart LR
-    CJR["CreateJobRequest<br/>(wire, dto)"] -->|toRequest| JRq["JobRequest<br/>(templateId, override, resourceClass)"]
+    CJR["CreateJobRequest<br/>(wire, dto.request)"] -->|toRequest| JRq["JobRequest<br/>(templateId, override, resourceClass)"]
     JRq -->|JobLauncher.authorize| PIN["JobRequest<br/>resourceClass pinned to the resolved name"]
     PIN -->|"@Embedded"| PJ[PendingJob]
     JRq -->|prepare| JOB["Job<br/>template_id · create_override · resource_class FK"]

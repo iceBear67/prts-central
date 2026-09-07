@@ -1,4 +1,4 @@
-package io.ib67.prts.dto;
+package io.ib67.prts.dto.request;
 
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.project.entity.JobRequest;
