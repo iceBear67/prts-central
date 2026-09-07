@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+# e2eTest starts containers, so a superseded run is not just noise — it is a runner holding a Postgres
+# and a LocalStack for a result nobody will read.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # This is where the JDK comes from. build.gradle deliberately has no toolchain block: the wrapper
+      # needs a JVM before Gradle can pick one, so a toolchain would not remove that need anywhere.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Every tier, including the @Tag("e2e") ones. Postgres and LocalStack come from Dev Services, so
+      # this needs a Docker daemon and nothing else — ubuntu-latest ships one the runner user can reach,
+      # which is exactly what the developer machine cannot offer. See agent-docs/testing.md.
+      - run: ./gradlew e2eTest --console=plain --stacktrace
+
+      - name: Upload test reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            build/reports/tests/
+            build/test-results/
+          retention-days: 7

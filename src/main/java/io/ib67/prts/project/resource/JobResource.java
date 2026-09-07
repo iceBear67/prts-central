@@ -14,6 +14,7 @@ import io.ib67.prts.project.JobAccess;
 import io.ib67.prts.project.JobConfig;
 import io.ib67.prts.project.JobLauncher;
 import io.ib67.prts.project.JobService;
+import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobRequest;
@@ -57,6 +58,8 @@ public class JobResource {
     JobConfig jobConfig;
     @Inject
     JobAccess jobAccess;
+    @Inject
+    ProjectService projectService;
 
     /** Lists visible templates (project-specific and global) for a project. */
     @GET
@@ -64,6 +67,9 @@ public class JobResource {
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
     public List<JobSpecTemplateView> listTemplates(@ProjectId @PathParam("projectId") UUID projectId) {
+        // The listing below queries no project row of its own — global templates match any id — so
+        // without this a caller who passes the permission check on a nonexistent project gets 200.
+        projectService.require(projectId);
         var withSpec = jobAccess.mayReadTemplate(projectId);
         return JobSpecTemplate.listVisibleFetched(projectId).stream()
                 .map(template -> JobSpecTemplateView.of(template, withSpec))
@@ -89,6 +95,7 @@ public class JobResource {
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
+        projectService.require(projectId);
         var window = clampLength(length, jobConfig.list().maxPageSize());
         var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
         var depth = start + window;

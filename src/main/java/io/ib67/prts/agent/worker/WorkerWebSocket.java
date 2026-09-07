@@ -12,7 +12,9 @@ import org.jboss.logging.Logger;
 import java.util.NoSuchElementException;
 import java.util.UUID;
 
-@WebSocket(path = "/ws/worker") //todo custom auth
+// Authentication is not here: quarkus.http.auth.permission.worker_ws pins this path to the
+// `worker-token` mechanism alone, so WorkerAuthMechanism is the only way through the upgrade.
+@WebSocket(path = "/ws/worker")
 public class WorkerWebSocket {
     private static final Logger LOG = Logger.getLogger(WorkerWebSocket.class);
     private static final UserData.TypedKey<String> INTERNAL_WORKER_ID = UserData.TypedKey.forString("worker_id");

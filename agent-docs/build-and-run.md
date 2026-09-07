@@ -24,6 +24,12 @@ a test).
 
 ## Local dependencies for `quarkusDev`
 
+**A `quarkusDev` already running is the frontend's test environment — leave it alone.** It is started
+from a root shell out of this same working copy, which makes it share `build/`: dev mode watches
+`src/main/**`, so an edit there triggers a live reload that rewrites `build/classes/java/main` and
+`build/resources/main` as root, and every later `./gradlew test` then fails on permissions. Repair is
+`sudo chown -R $USER:$USER build .gradle`.
+
 - **A Docker daemon must be reachable** — `%dev` sets neither a datasource URL nor an S3
   `endpoint-override`, so Dev Services starts **both** Postgres and LocalStack (the latter creating the
   `prts-artifacts` bucket). Setting either would be read as "something is already running" and suppress

@@ -64,6 +64,16 @@ is exactly the scope wanted.
   chain above stays the only way in.
 - **Presigning is local crypto.** `StorageService.presignGet`/`presignPut` never touch the network, so only
   `findObjectSize`, `deleteQuietly`, and real uploads need LocalStack.
+- **A refusal often has no body.** `io.quarkus.security.ForbiddenException`, which
+  `RequirePermissionInterceptor` throws, and the `NoSuchElementException` mapper both answer with a bare
+  status; only a `jakarta.ws.rs.*Exception(String)` carries `{"message": ...}`. Assert the status, and
+  check `message` only where a resource actually built one.
+- **A package-private method is behind the proxy.** An injected `@ApplicationScoped` bean is a client
+  proxy carrying only the public methods, so calling `PendingJobDispatcher.tick()` from a test needs
+  `io.quarkus.arc.ClientProxy.unwrap(bean)`.
+- **Some state outlives `DatabaseCleaner`.** `WorkerService.activeWorkers` is a field on an
+  application-scoped bean, not a table, so a worker left registered stays schedulable in the next test
+  class. Close what a test connected and wait for the roster to empty in `@AfterEach`.
 
 ## The `%test` profile
 
@@ -90,7 +100,8 @@ task). Dev Services starts Postgres and LocalStack — `quarkus.s3.devservices.b
 `prts-artifacts` — and stops them with the JVM, so the only prerequisite is a Docker daemon the test JVM
 can reach.
 
-**That is CI's job, not the developer machine's.** Here the daemon is rootful and the developer is
+**That is CI's job** — `.github/workflows/ci.yml`, on every push to `master` and every pull request —
+**not the developer machine's.** Here the daemon is rootful and the developer is
 deliberately not in the `docker` group, so tier C cannot run without `sudo`; the standing decision is
 that it does not run locally at all. Write the tests, run `./gradlew test` for tiers A and B, and let CI
 execute the rest. Do not propose `sudo ./gradlew`, podman, or a compose file — rootless podman is a
@@ -101,7 +112,11 @@ Because nothing is pinned, tier C must never assume a port or a URL — `%test` 
 Testcontainers picks, which is also why a running `%dev` stack on 5432 does not collide with it.
 
 Tier C classes are tagged `@Tag("e2e")` and gated from the single Gradle `test` task; a second `Test`
-task would have to re-create the wiring the Quarkus plugin does for `test`.
+task would have to re-create the wiring the Quarkus plugin does for `test`. **The tag alone does not
+gate them.** `excludeTags` is a post-discovery filter, and JUnit has already *loaded* the class by the
+time it runs — which for a `@QuarkusTest` means the FacadeClassLoader boots the application and Dev
+Services goes looking for a daemon, failing the build before a single tier A test reports. `test` also
+carries `exclude '**/*E2ETest*'`, which is why the name suffix is mandatory and not a convention.
 
 ## Coverage
 
@@ -115,10 +130,24 @@ opening, truncated and non-base64 envelopes).
 race), `PendingJobDispatcherTest`, `JobLauncherTest`. `JobLauncher.launch()` itself is out of reach —
 `job.persist()` is inherited — so the test covers `authorize()`, which is where the gating lives.
 
-**Tier C — begun.** Two beans carry it: `io.ib67.prts.testing.DatabaseCleaner` (TRUNCATE, since
-`@TestTransaction` cannot undo a `requiringNew()` commit) and `Fixtures` (user + PAT + project +
-membership). `ProjectResourceE2ETest` is the worked example — the permission matrix of one resource over
-the real PAT chain, `@BeforeEach` truncating. Still to do: the same matrix for the remaining resources;
-entity finders and their visibility rules; `JobLock` acquire/release under contention;
-`ProjectService.delete` cascades; `PendingJobService` claim/backoff/expire; the worker WebSocket
-handshake against `/ws/worker`.
+**Tier C — 14 classes, 192 tests.** Two beans carry it: `io.ib67.prts.testing.DatabaseCleaner` (TRUNCATE,
+since `@TestTransaction` cannot undo a `requiringNew()` commit) and `Fixtures` (actors with a PAT,
+projects, memberships, and a row for every entity a test needs). `ProjectResourceE2ETest` is the worked
+example — the permission matrix of one resource over the real PAT chain, `@BeforeEach` truncating.
+
+| Area | Classes |
+| --- | --- |
+| Permission matrices — uncredentialed, wrong actor, each `ProjectRole`, `ADMIN_OF_ALL`, and the non-disclosure rule that a stranger cannot tell "not yours" from "does not exist" | `ProjectResourceE2ETest`, `JobResourceE2ETest`, `SecretResourceE2ETest`, `SubAccountResourceE2ETest`, `UserTokenResourceE2ETest`, `WorkerResourceE2ETest` |
+| Entity finders, each covering what it includes *and* what it leaves out | `JobFinderE2ETest`, `JobSpecTemplateFinderE2ETest`, `ResourceClassFinderE2ETest`, `PendingJobFinderE2ETest` |
+| `JobLock.tryAcquire`/release, including contention from parallel threads | `JobLockE2ETest` |
+| `ProjectService.delete`, asserting every table `agent-docs/project-deletion.md` lists is emptied | `ProjectDeletionE2ETest` |
+| `PendingJobService` claim, backoff and expiry, driving `tick()` by hand | `PendingJobServiceE2ETest` |
+| The `/ws/worker` handshake and the register / report / disconnect protocol | `WorkerWebSocketE2ETest` |
+
+Still to do: `JobLauncher.launch()` end to end (tier B only reaches `authorize()`); the artifact upload
+path against LocalStack; `ProjectService`'s `Rows.BUSY` branch, reachable only by opening a job in the
+window between `stopWork` and the row lock `deleteRows` takes, which a test cannot hold open; the worker
+socket's `@OnError` reply, whose routing through websockets-next could not be
+established without executing it; and re-registering a worker on a second connection, where the claim
+worth testing — that closing the displaced connection leaves the live one registered — is a negative
+with nothing on the client side to wait on.

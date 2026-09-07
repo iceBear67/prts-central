@@ -4,7 +4,6 @@ import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
-import io.restassured.specification.RequestSpecification;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -12,6 +11,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
 
+import static io.ib67.prts.testing.Fixtures.as;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
@@ -32,10 +32,6 @@ class ProjectResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-    }
-
-    private static RequestSpecification as(Fixtures.Actor actor) {
-        return given().header("Authorization", "Bearer " + actor.token());
     }
 
     /**

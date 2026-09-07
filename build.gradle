@@ -65,6 +65,13 @@ test {
             excludeTags 'e2e'
         }
     }
+    if (!e2eRequested) {
+        // The tag filter alone is not enough. It is a post-discovery filter, and by the time it runs
+        // JUnit has already *loaded* the class — which for a @QuarkusTest means Quarkus' FacadeClassLoader
+        // boots the application, Dev Services looks for a Docker daemon, and the build fails before a
+        // single tier A test reports. Excluding the class files keeps them out of the scan entirely.
+        exclude '**/*E2ETest*'
+    }
 }
 
 /**
