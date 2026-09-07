@@ -50,7 +50,6 @@ compileJava {
 
 compileTestJava {
     options.encoding = 'UTF-8'
-    options.compilerArgs << '-parameters'
 }
 
 // Tier C is opted into either by running `e2eTest` or by passing -Pe2e; see agent-docs/testing.md.

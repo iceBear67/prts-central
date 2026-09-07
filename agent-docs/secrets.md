@@ -29,7 +29,7 @@ together**. `loadKeys` runs `@PostConstruct` on an eager `@Startup` bean: a malf
 `SecretConfig` (`@ConfigMapping(prefix = "secret")`): `keys` (base64 of 16/24/32 bytes),
 `activeKey`, `maxValueLength` (4096), `maxDescriptionLength` (256).
 
-`secret.keys` / `secret.active-key` have **no default outside `%dev`**, the same rule as
+`secret.keys` / `secret.active-key` have **no default outside `%dev` and `%test`**, the same rule as
 `worker.secret`: a deployment that forgets them fails to start rather than sealing secrets under a key
 from this repository. Rotating means adding a key (`python scripts/secrets.py genkey`), pointing
 `active-key` at it, then `python scripts/secrets.py rotate`; the old key may only be dropped once that

@@ -7,6 +7,7 @@ import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -21,10 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link JobLock#tryAcquire} under contention.
+ * {@link JobLock#tryAcquire}: who holds a name after a sequence of attempts, and when a holder's name
+ * may be taken over.
  *
  * <p>Each attempt runs in a committed transaction of its own, which is how {@code JobLauncher} calls it
- * and the only way the second attempt can see what the first left behind.
+ * and the only way the second attempt can see what the first left behind. The attempts are sequential:
+ * two first-acquires racing for the same name is not covered here (see TODO.md).
  */
 @QuarkusTest
 @Tag("e2e")
@@ -47,19 +50,13 @@ class JobLockE2ETest {
         small = fixtures.resourceClass("small", null);
     }
 
+    /** Re-entrant on purpose: a retry of the same job must not deadlock itself out. */
     @Test
-    void aFreeNameIsAcquired() {
+    void aFreeNameIsAcquiredAndTheHolderAskingAgainStillHoldsIt() {
         var job = job(JobState.RUNNING);
 
         assertTrue(acquire("deploy", job));
         assertEquals(job, holderOf("deploy"));
-    }
-
-    /** Re-entrant on purpose: a retry of the same job must not deadlock itself out. */
-    @Test
-    void theHolderAskingAgainStillHoldsIt() {
-        var job = job(JobState.RUNNING);
-        acquire("deploy", job);
 
         assertTrue(acquire("deploy", job));
         assertEquals(job, holderOf("deploy"));
@@ -80,24 +77,17 @@ class JobLockE2ETest {
      * wedge the name forever, so the next comer takes it over rather than waiting.
      */
     @Test
-    void aNameHeldByAFinishedJobIsTakenOver() {
-        var holder = job(JobState.RUNNING);
-        var contender = job(JobState.PENDING);
-        acquire("deploy", holder);
-        complete(holder);
-
-        assertTrue(acquire("deploy", contender));
-        assertEquals(contender, holderOf("deploy"));
-    }
-
-    @Test
-    void everyTerminalStateCountsAsFinished() {
+    void aNameHeldByAFinishedJobIsTakenOverWhateverItFinishedAs() {
         for (var state : new JobState[]{JobState.SUCCESS, JobState.FAILED, JobState.CANCELLED}) {
-            var holder = job(state);
-            var contender = job(JobState.RUNNING);
+            // Acquired while running and then ended, so the lock outlives its holder the way it would
+            // after a crash: nothing between the completion and here ever called releaseBy.
+            var holder = job(JobState.RUNNING);
+            var contender = job(JobState.PENDING);
             acquire(state.name(), holder);
+            end(holder, state);
 
             assertTrue(acquire(state.name(), contender), "a " + state + " holder should let go");
+            assertEquals(contender, holderOf(state.name()));
         }
     }
 
@@ -139,19 +129,28 @@ class JobLockE2ETest {
     }
 
     /**
-     * {@code releaseBy} deletes by job and its javadoc says "any lock", which reads as if a job could
-     * hold several names. It cannot: {@code job_id} is unique, and {@code JobSpec.lock} is one name, so
-     * a second name for the same job is unreachable from {@code WorkerScheduler} and the schema is what
-     * says so. The bulk delete is still the right shape — it just always frees one row or none.
+     * {@code JobSpec.lock} is one name, so a second acquire for the same job is unreachable from
+     * {@code WorkerScheduler}; the unique {@code job_id} is what says so at the schema, and it is also
+     * what lets {@code releaseBy} free at most one row.
      */
     @Test
     void aJobHoldsAtMostOneName() {
         var holder = job(JobState.RUNNING);
         assertTrue(acquire("deploy", holder));
 
-        assertThrows(RuntimeException.class, () -> acquire("publish", holder));
+        var thrown = assertThrows(RuntimeException.class, () -> acquire("publish", holder));
+        assertTrue(causedByConstraintViolation(thrown), () -> "expected a unique violation, got " + thrown);
         assertEquals(holder, holderOf("deploy"));
         assertNull(holderOf("publish"));
+    }
+
+    private static boolean causedByConstraintViolation(Throwable thrown) {
+        for (var cause = thrown; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** There is no project to scope the key to, so the attempt fails rather than guessing one. */
@@ -173,8 +172,8 @@ class JobLockE2ETest {
         return fixtures.job(projectId, alice, small, state, UUID.randomUUID());
     }
 
-    private void complete(UUID jobId) {
-        inTx(() -> Job.<Job>findById(jobId).transitionTo(JobState.SUCCESS));
+    private void end(UUID jobId, JobState terminal) {
+        inTx(() -> Job.<Job>findById(jobId).transitionTo(terminal));
     }
 
     private UUID holderOf(String name) {

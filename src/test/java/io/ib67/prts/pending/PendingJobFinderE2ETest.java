@@ -132,7 +132,7 @@ class PendingJobFinderE2ETest {
         assertEquals(List.of(), unplaced());
     }
 
-    /** A cancelled entry still holds no job, so it stays on the list for the reader to see. */
+    /** An expired entry still holds no job, so it stays on the list for the reader to see. */
     @Test
     void aSettledOneWithNoJobStaysOnTheList() {
         var entry = fixtures.queued(project, alice, template, "small");

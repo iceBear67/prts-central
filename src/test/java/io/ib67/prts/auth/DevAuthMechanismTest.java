@@ -87,10 +87,11 @@ class DevAuthMechanismTest {
         verifyNoInteractions(identityProviders);
     }
 
-    /** Under AccessTokenAuthMechanism's 1500, so a presented token is the one that decides. */
+    /** Under AccessTokenAuthMechanism, so a presented token is the one that decides. */
     @Test
     void itYieldsToTheAccessTokenMechanism() {
-        assertTrue(mechanism.getPriority() < 1500, "priority: " + mechanism.getPriority());
+        assertTrue(mechanism.getPriority() < AccessTokenAuthMechanism.PRIORITY,
+                "priority: " + mechanism.getPriority());
     }
 
     /** It asks for no credential, so it has nothing to challenge for. */

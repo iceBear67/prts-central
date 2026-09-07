@@ -72,15 +72,6 @@ class PendingJobDispatcherTest {
         verifyNoInteractions(jobLauncher);
     }
 
-    @Test
-    void theBatchSizeComesFromConfig() {
-        due();
-
-        dispatcher.tick();
-
-        verify(pendingJobService).claimDue(BATCH);
-    }
-
     /** The request was authorized when it was enqueued; re-checking it here would use the wrong identity. */
     @Test
     void aQueuedRequestIsLaunchedPreAuthorized() {

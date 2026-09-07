@@ -31,7 +31,7 @@ import java.util.Set;
 @IfBuildProperty(name = "quarkus.oidc.enabled", stringValue = "false")
 public class DevAuthMechanism implements HttpAuthenticationMechanism {
 
-    // Below AccessTokenAuthMechanism's 1500: a presented token is the one that decides.
+    // Below AccessTokenAuthMechanism.PRIORITY: a presented token is the one that decides.
     private static final int PRIORITY = 1200;
 
     @Inject

@@ -1,7 +1,8 @@
 # Build & run
 
-**There is no JDK on the shell `PATH` in this environment**, so a bare `./gradlew ...` fails from Bash.
-Prefer the IntelliJ MCP tools; they also reach the IDE index, which the sandbox cannot:
+Gradle needs a JDK 21 that the agent's shell `PATH` does not carry, so a bare `./gradlew ...` fails from
+Bash; it works with `JAVA_HOME` set explicitly. The IntelliJ MCP tools need no JDK on the PATH and also
+reach the IDE index, which the sandbox cannot:
 
 - Compile / check for errors: `mcp__idea__build_project` (optionally with `filesToRebuild`).
 - Lint a file the way the IDE does: `mcp__idea__get_file_problems` / `mcp__idea__lint_files`.
@@ -16,25 +17,19 @@ Canonical Gradle commands, for reference: `./gradlew build`,
 `./gradlew build -Dquarkus.package.jar.type=uber-jar`,
 `./gradlew build -Dquarkus.native.enabled=true [-Dquarkus.native.container-build=true]`.
 
-Gradle *does* run from Bash with an explicit JDK — `JAVA_HOME=$HOME/.sdkman/candidates/java/21.0.9-jbr
-./gradlew test --console=plain`. That is the way to run the test suite, which `build_project` does not
-touch. `./gradlew test` covers tiers A and B and is the only suite run locally: `./gradlew e2eTest` adds
-tier C, which needs containers and is left to CI (see [testing.md](testing.md), and read it before adding
-a test).
+`./gradlew test` (tiers A and B) is the test suite `build_project` does not touch, and the only one run
+locally: `./gradlew e2eTest` adds tier C, which needs containers and is left to CI (see
+[testing.md](testing.md), and read it before adding a test).
 
 ## Local dependencies for `quarkusDev`
 
-**A `quarkusDev` already running is the frontend's test environment — leave it alone.** It is started
-from a root shell out of this same working copy, which makes it share `build/`: dev mode watches
-`src/main/**`, so an edit there triggers a live reload that rewrites `build/classes/java/main` and
-`build/resources/main` as root, and every later `./gradlew test` then fails on permissions. Repair is
-`sudo chown -R $USER:$USER build .gradle`.
+**A `quarkusDev` already running is the frontend's test environment — leave it alone.** Dev mode watches
+`src/main/**`, so an edit there live-reloads it.
 
 - **A Docker daemon must be reachable** — `%dev` sets neither a datasource URL nor an S3
   `endpoint-override`, so Dev Services starts **both** Postgres and LocalStack (the latter creating the
   `prts-artifacts` bucket). Setting either would be read as "something is already running" and suppress
-  the container. On this machine the daemon is rootful and started by the user on demand; if it is down,
-  ask them to start it.
+  the container. If the daemon is down, ask the user to start it.
 - Postgres is pinned to `localhost:5432` with db/user/password all `prts`
   (`quarkus.datasource.devservices`) purely so a fixed `psql` invocation keeps working. The container
   dies with the dev process, so every boot starts on an empty schema; `reuse: true` plus
@@ -42,8 +37,14 @@ from a root shell out of this same working copy, which makes it share `build/`: 
   survive a live reload — an already-running dev stack is worth reusing rather than restarting.
 - **No OIDC provider is needed**, and no credential: `%dev` pins `quarkus.oidc.enabled` false and logs
   uncredentialed requests in as a seeded `ADMIN_OF_ALL` user, whose access token the boot log prints
-  for clients that want to send one. A PAT is how the real auth chain gets exercised; there is no
-  provider config in the repository. See [authorization.md](authorization.md).
+  for clients that want to send one. A PAT is how the real auth chain gets exercised. The provider
+  itself (`auth-server-url`, `client-id`, `credentials.secret`) comes from the environment; only the
+  flow settings shared by every deployment are in `application.yml`. See
+  [authorization.md](authorization.md).
+- **The dev login has no automated check.** `DevAuthMechanism` and `DevAdminSeeder` are
+  `@IfBuildProfile("dev")`, so no test build contains them and CI never runs them; their tier B tests
+  cover the classes in isolation, not the wiring. After touching either, boot `quarkusDev` and confirm an
+  uncredentialed `GET /api/project` answers 200.
 - The `%dev` profile runs Hibernate with `schema-management.strategy: update`.
   `src/main/resources/import.sql` is entirely commented out — it is kept as **reference DDL**, and the
   entities are the source of truth. Many columns carry an explicit
@@ -56,5 +57,5 @@ from a root shell out of this same working copy, which makes it share `build/`: 
 - For DDL use `psql` (on the PATH: `PGPASSWORD=prts psql -h localhost -U prts -d prts`).
   `mcp__idea__execute_sql_query` times out on a multi-table `DROP` and truncates results to 10 rows
   silently — page with `mcp__idea__fetch_query_result`.
-- `secret.keys` / `secret.active-key` and `worker.secret` are set **only under `%dev`**, deliberately —
-  see [secrets.md](secrets.md).
+- `secret.keys` / `secret.active-key` and `worker.secret` are set **only under `%dev` and `%test`**,
+  deliberately — see [secrets.md](secrets.md).

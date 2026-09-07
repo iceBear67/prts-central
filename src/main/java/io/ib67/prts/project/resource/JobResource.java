@@ -95,7 +95,6 @@ public class JobResource {
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
-        projectService.require(projectId);
         var window = clampLength(length, jobConfig.list().maxPageSize());
         var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
         var depth = start + window;

@@ -56,13 +56,13 @@ These groupings move; **do not hand-build a path from this table**, look the cla
 
 ## Tooling
 
-**There is no JDK on the shell `PATH`**, so `./gradlew ...` fails from Bash — build and lint through
-the IntelliJ MCP tools. Details in [agent-docs/build-and-run.md](agent-docs/build-and-run.md).
+**The shell `PATH` carries no JDK**, so a bare `./gradlew ...` fails from Bash; set `JAVA_HOME` or
+build and lint through the IntelliJ MCP tools. Details in
+[agent-docs/build-and-run.md](agent-docs/build-and-run.md).
 
-**Tier C (`@Tag("e2e")`) is not run locally — it is CI's job.** It needs containers, the container
-daemon here is rootful and the developer is deliberately not in the `docker` group, so there is no way
-to run it that does not involve `sudo`. Do not ask for one. `./gradlew test` (tiers A and B, no
-containers) is the local signal; write tier C tests, then let CI execute them. See
+**Tier C (`@Tag("e2e")`) is not run locally — it is CI's job.** It needs containers the test JVM cannot
+reach here; do not look for a way around that. `./gradlew test` (tiers A and B, no containers) is the
+local signal; write tier C tests, then let CI execute them. See
 [agent-docs/testing.md](agent-docs/testing.md).
 
 The agent also runs **sandboxed and isolated from the host environment**: a path the IDE can see is not

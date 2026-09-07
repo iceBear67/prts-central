@@ -14,6 +14,22 @@ quarkus:
         maximum-size: 10000
   datasource:
     db-kind: postgresql
+  # How the browser login behaves; the same for every deployment, so it lives here. What names the
+  # provider — auth-server-url, client-id, credentials.secret — comes from the environment, and %dev
+  # and %test disable the extension outright.
+  oidc:
+    # Server-side authorization code flow with a session cookie; the default (`service`) takes only a
+    # bearer token, and no login page exists.
+    application-type: web-app
+    authentication:
+      # openid is always requested; these two populate the name/email claims UserIdentityAugmenter
+      # needs to register a first-time user.
+      scopes:
+        - profile
+        - email
+      # Must match the redirect URI registered on the OAuth application exactly.
+      redirect-path: /auth/callback
+      restore-path-after-redirect: true
   s3:
     # Dev Services starts LocalStack unless endpoint-override is set; create the default work bucket.
     devservices:
@@ -58,8 +74,8 @@ quarkus:
     hibernate-orm:
       schema-management:
         strategy: update
-  # Dev only, deliberately: outside %dev the property has no default, so a deployment that forgets to
-  # set worker.secret fails to start rather than accepting a token from the repository.
+  # Deliberately no default outside %dev and %test, so a deployment that forgets to set worker.secret
+  # fails to start rather than accepting a token from the repository.
   worker:
     secret: "allo"
   # Same reason. Rotating means adding a key here (`python scripts/secrets.py genkey`), pointing
@@ -84,9 +100,6 @@ quarkus:
     # authenticate with a personal access token; dev's auto-login is @IfBuildProfile("dev") and so is
     # not built here, which is what keeps the permission matrix from passing as an admin.
     oidc:
-      enabled: false
-    # user-permissions caches grants for 5 minutes, so a grant made mid-test would not be observed.
-    cache:
       enabled: false
   worker:
     secret: "test-worker-secret"

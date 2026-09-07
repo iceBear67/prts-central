@@ -4,10 +4,11 @@
 
 See `application.yml` `quarkus.http.auth.permission`.
 
-- **Humans**: OIDC authorization-code flow against a Gitea instance, configured entirely from the
-  environment — `application.yml` holds no `quarkus.oidc.*` outside the `enabled: false` that `%dev` and
-  `%test` pin, so a deployment supplies `auth-server-url`, `client-id` and the secret the way it
-  supplies `DB_URL`. `UserIdentityAugmenter` resolves
+- **Humans**: OIDC authorization-code flow against a Gitea instance. `application.yml` holds only the
+  flow settings that are the same everywhere (`application-type: web-app`, the `profile`/`email`
+  scopes, the `/auth/callback` redirect path) plus the `enabled: false` that `%dev` and `%test` pin; what
+  names the provider — `auth-server-url`, `client-id`, `credentials.secret` — a deployment supplies from
+  the environment the way it supplies `DB_URL`. `UserIdentityAugmenter` resolves
   `(issuer, subject)` to a local `User` via `OAuthIdentity` and stashes it as an identity attribute;
   `UserContext.get()` reads it back. **First login registers**: it reads `iss`/`sub` and the
   `email` / `name` / `preferred_username` claims off the ID token and calls `UserService.provision`.
@@ -18,7 +19,7 @@ See `application.yml` `quarkus.http.auth.permission`.
   the same address stay two users; linking is explicit (`UserService.linkIdentity`), since automatic
   linking would trust an unverified address.
 - **Workers**: `WorkerAuthMechanism` compares an `X-Worker-Token` header to `worker.secret`, set **only
-  under `%dev`** so a deployment without one fails to start. All workers share that secret and one
+  under `%dev` and `%test`** so a deployment without one fails to start. All workers share that secret and one
   `"worker"` identity, and the protocol trusts them: nothing checks that a `JobStateUpdate` or
   `UpdateJobLog` names a job that worker was given (the artifact path does, via `lockAssignedOpen`).
   Deliberate, not an oversight.

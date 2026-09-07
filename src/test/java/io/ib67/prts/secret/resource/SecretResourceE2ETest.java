@@ -194,12 +194,23 @@ class SecretResourceE2ETest {
     void theSameNameInAnotherProjectIsFree() {
         var alice = fixtures.actor("alice");
         var other = fixtures.project("theirs");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
         fixtures.join(alice, other, ProjectRole.OWNER);
         fixtures.secret(project, "TOKEN", "s3cret");
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("name", "TOKEN", "value", "other"))
-                .post("/api/project/{p}/secret", other).then().statusCode(200);
+                .post("/api/project/{p}/secret", other).then()
+                .statusCode(200)
+                .body("name", equalTo("TOKEN"));
+
+        // One row each: the create landed in `other` and left `project`'s untouched.
+        as(alice).get("/api/project/{p}/secret", other).then()
+                .statusCode(200)
+                .body("name", contains("TOKEN"));
+        as(alice).get("/api/project/{p}/secret", project).then()
+                .statusCode(200)
+                .body("name", contains("TOKEN"));
     }
 
     @Test
@@ -261,7 +272,9 @@ class SecretResourceE2ETest {
 
         // The endpoint returns void, so RESTEasy answers 204.
         as(alice).delete("/api/project/{p}/secret/{n}", project, "TOKEN").then().statusCode(204);
-        as(alice).get("/api/project/{p}/secret", project).then().body("$", empty());
+        as(alice).get("/api/project/{p}/secret", project).then()
+                .statusCode(200)
+                .body("$", empty());
     }
 
     @Test

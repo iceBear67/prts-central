@@ -4,7 +4,6 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.project.JobConfig;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
-import io.quarkus.arc.ClientProxy;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.ClientErrorException;
@@ -30,8 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link PendingJobService}: claiming an entry, settling the attempt that followed, and the backoff
  * that decides when the next one may run.
  *
- * <p>No worker is ever connected in a tier C run, so a claimed entry is settled here by hand rather
- * than by {@link PendingJobDispatcher}, which would find nothing to place it on.
+ * <p>A worker is connected only while {@code WorkerWebSocketE2ETest} runs, so a claimed entry is
+ * settled here by hand rather than by {@link PendingJobDispatcher}, which would find nothing to place
+ * it on.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -282,7 +282,7 @@ class PendingJobServiceE2ETest {
         var overdue = fixtures.queued(project, alice, template, "small",
                 now.minus(Duration.ofMinutes(1)), now);
 
-        tick();
+        dispatcher.tick();
 
         assertEquals(PendingJobState.EXPIRED, stateOf(overdue));
     }
@@ -294,17 +294,9 @@ class PendingJobServiceE2ETest {
         // otherwise turn this into a dispatch attempt and fail somewhere else entirely.
         assertFalse(workerService.hasSchedulableWorker());
 
-        tick();
+        dispatcher.tick();
 
         assertEquals(PendingJobState.QUEUED, stateOf(entry));
-    }
-
-    /**
-     * {@code tick} is package-private, and a client proxy delegates only the public methods — calling it
-     * through one would run the body against a bean whose injected fields are all null.
-     */
-    private void tick() {
-        ClientProxy.unwrap(dispatcher).tick();
     }
 
     /** Where {@code claimDue} would have left it, without needing the entry to be due again. */

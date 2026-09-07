@@ -33,3 +33,27 @@ Closing it means a startup sweep failing `PENDING` rows with `worker IS NULL` ol
 threshold. The threshold must exceed the 30s `createJob` timeout, or it will fail rows still
 legitimately in flight. It belongs in `project`, not `pending` — the row is a `Job`. The `VISIBLE`
 predicate goes with it.
+
+## Test gaps
+
+What `agent-docs/testing.md` does not cover, and why each is still open.
+
+- **The worker's half of the protocol** — `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`,
+  `JobCreated` — and with it `JobLauncher.launch()` end to end (tier B only reaches `authorize()`;
+  `job.persist()` is inherited). `WorkerWebSocketE2ETest` drives `Register` and `UpdateResourceInfo` with
+  a hand-rolled client; the rest waits for the real worker, so the test speaks the protocol the worker
+  actually speaks rather than one written to pass.
+- **The artifact path** — upload quota, presigned hand-off, and the S3 delete inside
+  `ProjectService.delete` — against LocalStack. Same dependency: the upload is a worker's request.
+- **`ProjectService`'s `Rows.BUSY` branch.** Reachable only by opening a job in the window between
+  `stopWork` and the row lock `deleteRows` takes, which a test cannot hold open.
+- **The worker socket's `@OnError` reply.** Its routing through websockets-next was not established
+  without executing it.
+- **Re-registering a worker on a second connection.** The claim worth testing — that closing the
+  displaced connection leaves the live one registered — is a negative with nothing on the client side
+  to wait on.
+- **Two first-acquires racing for one `JobLock` name.** `JobLockE2ETest` covers the sequential takeover
+  semantics. When no row exists yet there is nothing for `PESSIMISTIC_WRITE` to lock, so two
+  concurrent callers both reach `persistAndFlush` and the primary key decides: the loser gets a
+  constraint violation, which `WorkerScheduler.acquireLock` folds into `false`. That fold is the
+  untested claim, and provoking it needs two transactions held open across threads.

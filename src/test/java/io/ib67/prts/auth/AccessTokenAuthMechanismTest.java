@@ -106,10 +106,10 @@ class AccessTokenAuthMechanismTest {
         assertNull(mechanism.getChallenge(context).await().indefinitely());
     }
 
-    /** Must outrank OIDC (1000), or a browser redirect would win over a personal access token. */
+    /** Must outrank quarkus-oidc (1001), or a browser redirect would win over a personal access token. */
     @Test
     void theMechanismOutranksOidc() {
-        assertTrue(mechanism.getPriority() > 1000, "priority: " + mechanism.getPriority());
+        assertTrue(mechanism.getPriority() > 1001, "priority: " + mechanism.getPriority());
     }
 
     @Test

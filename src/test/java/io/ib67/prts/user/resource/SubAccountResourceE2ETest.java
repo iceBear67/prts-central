@@ -130,7 +130,12 @@ class SubAccountResourceE2ETest {
         fixtures.grant(alice, Perm.PROJECT_SUBACCOUNT_MANAGE, project);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "ci"))
-                .post("/api/project/{p}/subaccount", project).then().statusCode(201);
+                .post("/api/project/{p}/subaccount", project).then()
+                .statusCode(201)
+                .body("name", equalTo("ci"))
+                .body("userId", notNullValue())
+                .body("permissions", empty())
+                .body("createdBy", equalTo(alice.id().toString()));
     }
 
     @Test
@@ -374,7 +379,10 @@ class SubAccountResourceE2ETest {
         // The endpoint returns void, so RESTEasy answers 204.
         as(alice).delete("/api/project/{p}/subaccount/{u}", project, ci.id())
                 .then().statusCode(204);
-        as(alice).get("/api/project/{p}/subaccount", project).then().body("$", empty());
+        as(alice).get("/api/project/{p}/subaccount", project).then()
+                .statusCode(200)
+                .body("$", empty());
+        as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then().statusCode(404);
         // The user row goes with it, so the token it held no longer resolves to anyone.
         as(ci).get("/api/project").then().statusCode(401);
     }

@@ -84,6 +84,10 @@ public class Fixtures {
         permissionService.grant(actor.id(), perm, projectId);
     }
 
+    public void revoke(Actor actor, Perm perm, UUID projectId) {
+        permissionService.revoke(actor.id(), perm, projectId);
+    }
+
     /** Mints a sub-account of the project and issues it a token, so it can be an {@link Actor}. */
     public Actor subAccount(UUID projectId, String name, Actor createdBy) {
         var account = subAccountService.create(projectId, name, createdBy.id());
@@ -121,15 +125,23 @@ public class Fixtures {
         return template.getId();
     }
 
+    /** A job with no template, so {@code Job.toRequest()} is null for it. */
     @Transactional
     public UUID job(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
                     @Nullable UUID worker) {
+        return job(projectId, requestedBy, klass, state, worker, null);
+    }
+
+    @Transactional
+    public UUID job(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
+                    @Nullable UUID worker, @Nullable UUID templateId) {
         var job = Job.builder()
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
                 .resourceClass(attach(klass))
                 .spec(spec("alpine"))
                 .worker(worker)
+                .templateId(templateId)
                 .build();
         // Through transitionTo, so completed_at satisfies the job_completion_consistency check.
         job.transitionTo(state);

@@ -85,15 +85,12 @@ class WorkerResourceE2ETest {
                 .body("name", equalTo("w1"));
     }
 
-    /** {@code getWorker} throws the no-arg {@code NotFoundException}, whose message is the status line. */
     @Test
     void aWorkerThatDoesNotExistIsNotFound() {
         var admin = fixtures.actor("root");
         fixtures.makeAdmin(admin);
 
-        as(admin).get("/api/worker/{id}", UUID.randomUUID()).then()
-                .statusCode(404)
-                .body("message", equalTo("HTTP 404 Not Found"));
+        as(admin).get("/api/worker/{id}", UUID.randomUUID()).then().statusCode(404);
     }
 
     @Test

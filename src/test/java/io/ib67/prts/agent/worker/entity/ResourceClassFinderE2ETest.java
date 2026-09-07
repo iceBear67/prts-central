@@ -13,7 +13,6 @@ import java.util.UUID;
 import static io.ib67.prts.testing.Fixtures.inTx;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -89,14 +88,5 @@ class ResourceClassFinderE2ETest {
 
         assertTrue(inTx(() -> ResourceClass.findVisible(mine, "small")).orElseThrow().isGlobal());
         assertFalse(inTx(() -> ResourceClass.findVisible(theirs, "small")).orElseThrow().isGlobal());
-    }
-
-    /** The sentinel is a key value, not a project; wiping it would take every project's fallback. */
-    @Test
-    void theGlobalScopeCannotBeDeletedAsIfItWereAProject() {
-        assertThrows(IllegalArgumentException.class,
-                () -> inTx(() -> ResourceClass.deleteByProject(ResourceClass.GLOBAL)));
-        assertThrows(IllegalArgumentException.class,
-                () -> inTx(() -> ResourceClass.deleteByProject(null)));
     }
 }

@@ -67,8 +67,8 @@ public record JobSpec(
         if (volumes.isEmpty()) {
             return;
         }
-        // Scanned rather than containsKey(null): a Map.of() throws NPE on a null lookup instead of
-        // answering false, which would turn this 400 into a 500.
+        // Scanned rather than containsKey(null): the constructor keeps whatever map it was handed, and
+        // a Map.of() throws NPE on a null lookup instead of answering false.
         if (volumes.keySet().stream().anyMatch(Objects::isNull)) {
             throw new BadRequestException("volume id is required");
         }

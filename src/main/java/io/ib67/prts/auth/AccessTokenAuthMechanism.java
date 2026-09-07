@@ -24,8 +24,9 @@ public class AccessTokenAuthMechanism implements HttpAuthenticationMechanism {
 
     private static final String BEARER = "Bearer ";
 
-    // High priority ensures personal access tokens take precedence over OIDC browser redirects.
-    private static final int PRIORITY = 1500;
+    // Above quarkus-oidc's 1001, so a personal access token is decided here and never answered with
+    // a browser redirect. Package-private: DevAuthMechanism must sort below it.
+    static final int PRIORITY = 1500;
 
     @Override
     public Uni<SecurityIdentity> authenticate(RoutingContext context,

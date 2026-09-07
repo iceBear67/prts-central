@@ -2,6 +2,7 @@ package io.ib67.prts.project.resource;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.project.JobConfig;
 import io.ib67.prts.project.entity.JobState;
 import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
@@ -39,6 +40,8 @@ class JobResourceE2ETest {
     Fixtures fixtures;
     @Inject
     DatabaseCleaner databaseCleaner;
+    @Inject
+    JobConfig jobConfig;
 
     private UUID project;
     private ResourceClass small;
@@ -149,19 +152,32 @@ class JobResourceE2ETest {
         as(alice).get("/api/project/{p}/job/{j}", project, elsewhere).then().statusCode(404);
     }
 
+    /** JOB_CREATE is a MEMBER's, so a viewer is not handed the payload to re-run the job. */
     @Test
-    void aViewerCanReadOneJob() {
+    void aViewerReadsOneJobWithoutItsCreateRequest() {
         var alice = fixtures.actor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID());
+        var job = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
 
         as(alice).get("/api/project/{p}/job/{j}", project, job).then()
                 .statusCode(200)
                 .body("type", equalTo("job"))
                 .body("state", equalTo("RUNNING"))
                 .body("resourceClass", equalTo("small"))
-                // JOB_CREATE is a MEMBER's, so a viewer is not handed the payload to re-run it.
                 .body("createRequest", nullValue());
+    }
+
+    @Test
+    void aMemberReadsOneJobWithItsCreateRequest() {
+        var alice = fixtures.actor("alice");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+        var job = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
+
+        as(alice).get("/api/project/{p}/job/{j}", project, job).then()
+                .statusCode(200)
+                .body("createRequest.templateId", equalTo(template.toString()))
+                .body("createRequest.resourceClass", equalTo("small"))
+                .body("createRequest.override", nullValue());
     }
 
     // ---- templates ----
@@ -357,8 +373,8 @@ class JobResourceE2ETest {
         as(alice).get("/api/project/{p}/job/{j}/log", project, job).then()
                 .statusCode(200)
                 .body("items.message", contains("first", "second"))
-                // No length asked for, so the window is job.log.max-page-size.
-                .body("length", equalTo(20))
+                // No length asked for, so the window is the maximum.
+                .body("length", equalTo(jobConfig.log().maxPageSize()))
                 .body("offset", equalTo(0));
     }
 
@@ -367,10 +383,11 @@ class JobResourceE2ETest {
         var alice = fixtures.actor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
         var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var max = jobConfig.log().maxPageSize();
 
-        as(alice).queryParam("length", 5000).get("/api/project/{p}/job/{j}/log", project, job).then()
+        as(alice).queryParam("length", max + 1).get("/api/project/{p}/job/{j}/log", project, job).then()
                 .statusCode(200)
-                .body("length", equalTo(20));
+                .body("length", equalTo(max));
     }
 
     @Test
