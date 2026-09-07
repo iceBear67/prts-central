@@ -31,7 +31,7 @@ import java.util.UUID;
 public class ProjectService {
     private static final Logger LOG = Logger.getLogger(ProjectService.class);
     private static final String DELETE_REASON = "project deleted";
-    /** How often {@link #delete} stops work again before a project that keeps receiving jobs is refused. */
+    /** Maximum retry attempts to stop running jobs during project deletion before giving up. */
     private static final int MAX_STOP_ROUNDS = 3;
 
     @Inject
@@ -77,20 +77,10 @@ public class ProjectService {
     }
 
     /**
-     * Outside-in, because a project owns things that are not rows — containers running on workers,
-     * objects in S3 — and no foreign key reaches them. Deleting the rows first would leave a container
-     * running for a project that no longer exists, reporting against a job id that resolves to nothing,
-     * and orphan every object it had already uploaded.
+     * Deletes a project and cleans up all associated resources (running jobs, external storage, and database records).
      *
-     * <p>Everything before {@link #deleteRows} is best-effort and logged, and none of it runs in a
-     * transaction — the same rule that keeps the blocking worker RPC outside one. A failure part-way
-     * therefore leaves orphaned <em>objects</em>, whose keys are in the log, rather than rows nothing
-     * can reach.
-     *
-     * <p>A dispatch attempt already in flight when the queue is cancelled cannot be called back, and
-     * may place a job after {@link #stopWork} has read them — so the row half refuses while a job is
-     * open, and the work is stopped again. Bounded: a project that keeps receiving jobs is a conflict,
-     * not a loop.
+     * <p>Running worker jobs and storage objects are stopped and removed first to prevent orphaned external resources.
+     * If jobs are scheduled concurrently during deletion, the cleanup retries up to {@link #MAX_STOP_ROUNDS} times.
      */
     public boolean delete(UUID id) {
         for (var round = 1; ; round++) {
@@ -109,10 +99,7 @@ public class ProjectService {
     }
 
     /**
-     * Cancels the queue first, so nothing new is placed while the rest of the delete runs. Then, per
-     * open job: marks it {@link JobState#CANCELLED} — from here on a worker's report is no outcome and
-     * {@code lockAssignedOpen} refuses it a new upload — tells the worker the job has ceased to exist,
-     * and only then drops the uploads still in flight, when nothing is left to start another.
+     * Cancels queued jobs and interrupts currently running jobs on workers.
      */
     private void stopWork(UUID projectId) {
         try {
@@ -143,7 +130,6 @@ public class ProjectService {
         }
     }
 
-    /** Keys only: the rows are about to go, and reading them back after the delete would be too late. */
     private void deleteObjects(UUID projectId) {
         List<String> keys;
         try {
@@ -154,16 +140,11 @@ public class ProjectService {
             return;
         }
         for (var key : keys) {
-            // Already quiet about a failure, which is why each key is logged: that log is the only
-            // record of an object the delete did not reach.
             LOG.debugf("deleting artifact object %s of project %s", key, projectId);
             try {
                 storageService.deleteQuietly(key);
             } catch (RuntimeException e) {
-                // deleteQuietly swallows an S3 error, but not a storage layer that cannot start at
-                // all: that throws creating the client, before the method body. Retrying per key
-                // would fail the same way, so give up on the objects — the rows still go, which is
-                // the point of doing them last.
+                // Stop attempting further deletions if storage client initialization fails
                 LOG.errorf(e, "cannot reach storage; the objects of project %s are left behind", projectId);
                 return;
             }
@@ -171,29 +152,22 @@ public class ProjectService {
     }
 
     /**
-     * The row half. Jobs, logs, artifacts, templates, volumes, secrets, locks, the queue and the roster
-     * all go by foreign key; what is left is the two things keyed on the project without one, and the
-     * sub-accounts, whose {@code prts_user} rows are project property and would outlive the cascade
-     * that takes their link.
+     * Deletes project database records and associated sub-accounts and permissions in a transaction.
      */
     private Rows deleteRows(UUID id) {
-        // FOR UPDATE, and not against another delete: inserting a job takes FOR KEY SHARE on its
-        // project row, so an attempt that is persisting one has either committed — and its job is
-        // open below — or waits here and fails its FK once the row is gone.
+        // Lock the project row to prevent concurrent job insertions
         var project = Project.<Project>findById(id, LockModeType.PESSIMISTIC_WRITE);
         if (project == null) {
             return Rows.ABSENT;
         }
-        // stopWork read the jobs before this lock; anything open now was placed since, and may have a
-        // container nobody has told to stop.
+        // Check if any job was started concurrently after stopWork
         if (!Job.listOpenByProject(id).isEmpty()) {
             return Rows.BUSY;
         }
         subAccountService.list(id).forEach(account -> userService.delete(account.getUserId()));
         permissionService.revokeAllInProject(id);
         project.delete();
-        // Flushed by hand: the bulk delete below touches only resource_class, so Hibernate would not
-        // auto-flush the queued remove above — and job and job_spec_template still reference the rows.
+        // Explicitly flush project removal before running bulk delete on resource_class
         Project.flush();
         ResourceClass.deleteByProject(id);
         return Rows.DELETED;
@@ -207,12 +181,7 @@ public class ProjectService {
                 .toList());
     }
 
-    /**
-     * A job to stop, detached: the entities do not outlive the read, and the interrupt that follows
-     * must not run inside a transaction.
-     *
-     * @param worker who to tell, or {@code null} if it was never dispatched.
-     */
+    /** Detached job descriptor used when interrupting worker jobs outside a transaction. */
     private record OpenJob(UUID id, @Nullable UUID worker) {
     }
 }

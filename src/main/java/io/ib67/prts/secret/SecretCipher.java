@@ -20,27 +20,19 @@ import java.util.regex.Pattern;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 /**
- * AES-GCM under one of {@link SecretConfig#keys()}. A sealed value is
- * {@code <format>:<keyId>:<base64(iv || ciphertext || tag)>}, so which key opens a row is readable
- * off the row and a key can be rotated without a schema change — {@code scripts/secrets.py} does
- * that offline and reimplements this format, so the two have to be changed together.
+ * Handles AES-GCM encryption and decryption of secrets using configured keys.
  *
- * <p>Sealing takes a {@code context} string; it and the envelope header go in as additional
- * authenticated data, so a ciphertext only opens under the identity it was sealed for: whoever can
- * write the table cannot move a value onto another project or name, nor relabel which key it names.
+ * <p>Values are encoded as {@code <format>:<keyId>:<base64(iv || ciphertext || tag)>}.
+ * The header and context string are included as Additional Authenticated Data (AAD)
+ * to guarantee authenticity and prevent tampering across different projects or keys.
  */
-// @Startup only so that loadKeys() runs at boot: nothing else here needs an eager bean.
 @Startup
 @ApplicationScoped
 public class SecretCipher {
-    /** Layout of everything after the header. Bumped if that changes; a parse rejects other values. */
     private static final String FORMAT = "1";
-    /** Outside the base64 alphabet, so the header splits off the payload unambiguously. */
     private static final char SEPARATOR = ':';
-    /** Held clear of {@link #SEPARATOR} as well, so no id can forge a header of its own. */
     private static final Pattern KEY_ID = Pattern.compile("[A-Za-z0-9_-]{1,32}");
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
-    /** The 96 bits GCM is specified for, so no derivation step is needed. */
     private static final int IV_LENGTH = 12;
     private static final int TAG_LENGTH_BITS = 128;
 
@@ -52,7 +44,7 @@ public class SecretCipher {
     private Map<String, SecretKeySpec> keys;
     private String activeKeyId;
 
-    /** Fails startup rather than the first request: a malformed key set is a deployment error. */
+    /** Validates and loads encryption keys at application startup. */
     @PostConstruct
     void loadKeys() {
         var loaded = new HashMap<String, SecretKeySpec>();
@@ -65,7 +57,9 @@ public class SecretCipher {
         keys = Map.copyOf(loaded);
     }
 
-    /** Under {@link SecretConfig#activeKey()}, with a fresh IV per call as GCM requires. */
+    /**
+     * Encrypts plaintext under the active key with associated context as AAD.
+     */
     public String seal(String plaintext, String context) {
         var iv = new byte[IV_LENGTH];
         random.nextBytes(iv);
@@ -77,7 +71,9 @@ public class SecretCipher {
         return header + SEPARATOR + Base64.getEncoder().encodeToString(blob);
     }
 
-    /** Throws when the key the value names is gone from the config, or under another {@code context}. */
+    /**
+     * Decrypts an encrypted envelope using the specified context.
+     */
     public String open(String stored, String context) {
         var envelope = parse(stored);
         var iv = Arrays.copyOf(envelope.payload(), IV_LENGTH);
@@ -125,12 +121,10 @@ public class SecretCipher {
         return new Envelope(parts[0] + SEPARATOR + parts[1], parts[1], payload);
     }
 
-    /** The header as stored, so relabelling the format or the key id breaks the tag. */
     private static byte[] aad(String header, String context) {
         return (header + SEPARATOR + context).getBytes(UTF_8);
     }
 
-    /** A {@link Cipher} is not thread-safe, so each call gets its own. */
     private byte[] apply(int mode, String keyId, byte[] iv, byte[] aad, byte[] input) {
         var key = keys.get(keyId);
         if (key == null) {
@@ -143,7 +137,7 @@ public class SecretCipher {
             cipher.updateAAD(aad);
             return cipher.doFinal(input);
         } catch (GeneralSecurityException e) {
-            // Never the message: it would describe the value or the key.
+            // Do not include exception details to avoid leaking sensitive information
             throw new IllegalStateException(
                     mode == Cipher.ENCRYPT_MODE ? "failed to seal a secret" : "failed to open a secret", e);
         }

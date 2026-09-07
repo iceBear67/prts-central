@@ -7,12 +7,7 @@ import jakarta.ws.rs.ext.Provider;
 import java.util.NoSuchElementException;
 
 /**
- * Services report a missing row as {@link NoSuchElementException} — {@code ProjectService.require},
- * {@code JobService.require}, {@code UserService.requireUser}. Translating it here is what lets an
- * endpoint call those directly instead of looking the row up a second time just to raise a 404.
- *
- * <p>The trade-off is that a stray {@code Optional#get} or {@code Iterator#next} also reads as 404
- * instead of 500; the message is dropped rather than returned, so nothing internal leaks either way.
+ * Maps {@link NoSuchElementException} thrown by services to HTTP 404 Not Found responses.
  */
 @Provider
 public class NotFoundMapper implements ExceptionMapper<NoSuchElementException> {

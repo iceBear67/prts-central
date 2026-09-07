@@ -5,11 +5,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Clears one override field and hands the value back, so that {@link JobSpecOverride#applyTo} decides
- * field by field. {@link JobSpecOverridePermissions} is the implementation that asks for a permission;
- * it is a parameter rather than a fixed dependency because a create may be authorized in the request
- * it arrived in and submitted later, off a thread where no such check could run — see
- * {@code JobLauncher#authorize}.
+ * Authorizes individual job spec override fields before they are applied.
+ *
+ * <p>Each method checks whether the caller is permitted to override that field
+ * and returns the value, or throws a security exception.
  */
 public interface JobSpecOverrideAuthorizer {
 

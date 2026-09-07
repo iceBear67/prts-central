@@ -35,7 +35,7 @@ public class PermissionService {
     @CacheName(CACHE_NAME)
     Cache cache;
 
-    /** Every grant the user holds, each carrying the project it was granted in. */
+    /** Returns all permission grants held by the user. */
     public Set<Permission.Id> grantsOf(UUID userId) {
         return cache.<UUID, Set<Permission.Id>>get(userId, this::loadGrants).await().indefinitely();
     }
@@ -45,9 +45,7 @@ public class PermissionService {
     }
 
     /**
-     * A project-scoped permission matches only a grant in {@code projectId} — nothing implies it
-     * across projects, which is what {@link Perm#ADMIN_OF_ALL} is for. A missing project therefore
-     * matches nothing instead of throwing: callers use this to decide, not to validate.
+     * Checks if the user holds a specific permission within the given project scope.
      */
     public boolean has(UUID userId, Perm perm, @Nullable UUID projectId) {
         var id = Permission.idOf(userId, perm, projectId);
@@ -59,10 +57,7 @@ public class PermissionService {
     }
 
     /**
-     * The decision {@code @RequirePermission(value = perm, defaultRole = defaultRole)} makes,
-     * answered instead of enforced — for a caller that varies what it returns rather than refusing.
-     * Kept in step with {@link io.ib67.prts.auth.RequirePermissionInterceptor} by hand; it stays a
-     * separate method because the interceptor must throw and this must not.
+     * Checks whether the user is permitted either through explicit grants, admin role, or project role.
      */
     public boolean allows(UUID userId, Perm perm, @Nullable UUID projectId, ProjectRole defaultRole) {
         return isAdmin(userId)
@@ -125,7 +120,7 @@ public class PermissionService {
         return removed;
     }
 
-    /** Only what the user holds in {@code projectId}; grants made in another project are untouched. */
+    /** Revokes all permissions held by a user within a specific project. */
     @Transactional
     public long revokeAll(UUID userId, UUID projectId) {
         var removed = Permission.deleteByUserInProject(userId, projectId);
@@ -134,9 +129,7 @@ public class PermissionService {
     }
 
     /**
-     * Every grant made in {@code projectId}, for a project being deleted. Nothing else removes them:
-     * the project half of the key carries no foreign key. The holders are read first because the
-     * cache is keyed by user.
+     * Revokes all permissions granted within a project and invalidates caches for all affected users.
      */
     @Transactional
     public long revokeAllInProject(UUID projectId) {
@@ -174,7 +167,6 @@ public class PermissionService {
                 .getResultList());
     }
 
-    /** A project-scoped row without a project could never be matched by {@link #has}. */
     private static UUID requireScope(Perm perm, @Nullable UUID projectId) {
         var scope = perm.global() ? Permission.GLOBAL : projectId;
         if (scope == null) {

@@ -6,7 +6,7 @@ import jakarta.annotation.Nullable;
 
 import java.util.UUID;
 
-/** The wire shape of a {@link JobRequest}; the resource checks it and converts. */
+/** Request payload to submit or queue a new job. */
 public record CreateJobRequest(
         UUID templateId,
         @Nullable JobSpecOverride override,

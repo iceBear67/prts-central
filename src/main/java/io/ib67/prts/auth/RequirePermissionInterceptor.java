@@ -18,17 +18,12 @@ import jakarta.ws.rs.core.UriInfo;
 
 import java.util.UUID;
 
-/** The binding value is irrelevant here: every member of the annotation is {@code @Nonbinding}. */
 @Interceptor
 @RequirePermission(Perm.ADMIN_OF_ALL)
 @Priority(Interceptor.Priority.APPLICATION)
 public class RequirePermissionInterceptor {
 
-    /**
-     * Path template variable naming the project. Every project-scoped endpoint spells it exactly
-     * this way, which is how a check deep inside a request — spec override gating, say — finds its
-     * project without each method along the way taking one as an argument.
-     */
+    /** Path parameter name used to extract the target project ID. */
     public static final String PROJECT_PATH_PARAM = "projectId";
 
     @Inject
@@ -93,7 +88,6 @@ public class RequirePermissionInterceptor {
         return explicit != null ? explicit : fromRequestPath();
     }
 
-    /** An argument wins over the request: it names the project regardless of how we got here. */
     @Nullable
     private UUID annotatedArgument(InvocationContext context) {
         var method = context.getMethod();
@@ -110,10 +104,7 @@ public class RequirePermissionInterceptor {
         return null;
     }
 
-    /**
-     * Reads {@link #PROJECT_PATH_PARAM} off the matched path. Anything not serving a REST request —
-     * a worker message, the scheduler tick — has no path to read and so gets no project.
-     */
+    /** Resolves the project ID from the REST request path parameters, if present. */
     @Nullable
     private UUID fromRequestPath() {
         String value;
@@ -128,7 +119,6 @@ public class RequirePermissionInterceptor {
         try {
             return UUID.fromString(value);
         } catch (IllegalArgumentException e) {
-            // What JAX-RS itself does with a path parameter it cannot convert.
             throw new NotFoundException("malformed " + PROJECT_PATH_PARAM + ": " + value);
         }
     }

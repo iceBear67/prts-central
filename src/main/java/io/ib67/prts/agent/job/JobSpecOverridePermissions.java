@@ -9,12 +9,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * One pass-through method per overridable {@link JobSpec} field, each carrying its own permission so
- * that {@link JobSpecOverride#applyTo} enforces the override rules field by field. These permissions
- * are project-scoped, and the project comes from the request the override arrived in — see
- * {@link io.ib67.prts.auth.RequirePermissionInterceptor#PROJECT_PATH_PARAM}. The class name is read
- * by {@link io.ib67.prts.openapi.PermissionOASFilter} to publish those rules, so it may not be
- * renamed away from the {@code Permissions} suffix.
+ * Validates caller permissions for each overridable {@link JobSpec} field via {@link RequirePermission}.
+ *
+ * <p>Note: The class name is inspected by {@link io.ib67.prts.openapi.PermissionOASFilter}
+ * to document override permissions in OpenAPI specifications.
  */
 @ApplicationScoped
 public class JobSpecOverridePermissions implements JobSpecOverrideAuthorizer {

@@ -3,8 +3,10 @@ package io.ib67.prts.dto.request;
 import jakarta.annotation.Nullable;
 
 /**
- * @param description optional; what the name is for, so a member can use it without seeing it
- * @param value       the only place a plaintext secret travels over the API, and only inbound.
+ * Request payload to create a new project secret.
+ *
+ * @param description Optional description for the secret.
+ * @param value       Plaintext secret value to seal and store.
  */
 public record CreateSecretRequest(
         String name,

@@ -7,8 +7,7 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * A secret as everything outside the server sees it: that it exists, what it is for, and since when.
- * There is deliberately no value field — not even the ciphertext — so no endpoint can hand one back.
+ * Metadata view of a project secret, omitting the secret value.
  */
 public record SecretView(
         String name,

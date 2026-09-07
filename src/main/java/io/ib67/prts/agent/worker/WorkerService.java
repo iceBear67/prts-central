@@ -30,10 +30,7 @@ public class WorkerService {
 
     private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
-    /**
-     * Orders a register against a {@link #setDisabled}: the row is read and then mirrored onto the
-     * session in two steps, and a flag written between them would reach the old session or none.
-     */
+    // Synchronizes registration and state toggling so worker state remains consistent.
     private final Object roster = new Object();
 
     public Map<UUID, RegisteredWorker> getActiveWorkers() {
@@ -48,7 +45,7 @@ public class WorkerService {
         return Optional.ofNullable(activeWorkers.get(id));
     }
 
-    /** Newest connection wins: a half-open socket must not lock out the reconnect that replaces it. */
+    /** Registers an active worker session, replacing any previous session with the same ID. */
     void registerWorker(UUID id, RegisteredWorker registeredWorker) {
         RegisteredWorker displaced;
         synchronized (roster) {
@@ -63,8 +60,7 @@ public class WorkerService {
     }
 
     /**
-     * Takes the worker out of scheduling, or back in; what it is already running is left alone.
-     * Throws {@link NoSuchElementException} for a worker that never registered.
+     * Enables or disables a worker for job scheduling.
      */
     public Worker setDisabled(UUID id, boolean disabled) {
         synchronized (roster) {
@@ -84,7 +80,7 @@ public class WorkerService {
         }
     }
 
-    /** Only the connection that owns the session may end it, or a superseded socket's close wins. */
+    /** Unregisters a worker if the closing connection matches its active session. */
     void unregisterWorker(UUID id, WebSocketConnection connection) {
         var worker = activeWorkers.get(id);
         if (worker == null || !worker.getRpc().isFor(connection) || !activeWorkers.remove(id, worker)) {
@@ -95,7 +91,6 @@ public class WorkerService {
         failJobsOf(id);
     }
 
-    /** Nobody will report on these now, and a non-terminal job holds its {@link JobLock} forever. */
     private void failJobsOf(UUID workerId) {
         try {
             var open = QuarkusTransaction.requiringNew()
@@ -128,10 +123,9 @@ public class WorkerService {
     }
 
     /**
-     * Places {@code jobId} on a live worker. {@code false} means it cannot be placed right now — no
-     * eligible worker, or its {@link JobLock} is held — and nothing is queued, so it is on the
-     * caller to dispose of the job and answer for it. Which of the two reasons it was only reaches
-     * the log: it is not a distinction the requester can act on.
+     * Attempts to place a job on an eligible worker.
+     *
+     * @return true if successfully placed, false otherwise
      */
     public boolean schedule(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
         var required = requireResourceClass(resourceClass);
@@ -144,8 +138,9 @@ public class WorkerService {
     }
 
     /**
-     * Asks the worker running {@code jobId} to stop it. {@code false} means that worker is not
-     * connected, so there was nobody to tell.
+     * Asks the worker running the job to cancel it.
+     *
+     * @return true if the message was sent, false if the worker is disconnected
      */
     public boolean cancelJob(UUID workerId, UUID jobId) {
         var worker = activeWorkers.get(workerId);
@@ -157,9 +152,9 @@ public class WorkerService {
     }
 
     /**
-     * Tells the worker running {@code jobId} that the job has ceased to exist here — see
-     * {@link io.ib67.prts.agent.worker.message.ClientboundMessage.InterruptJob}. {@code false} means
-     * that worker is not connected, so there was nobody to tell.
+     * Tells the worker to terminate and discard the job.
+     *
+     * @return true if the message was sent, false if the worker is disconnected
      */
     public boolean interrupt(UUID workerId, UUID jobId, String reason) {
         var worker = activeWorkers.get(workerId);

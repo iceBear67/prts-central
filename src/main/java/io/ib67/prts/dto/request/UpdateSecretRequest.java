@@ -3,10 +3,10 @@ package io.ib67.prts.dto.request;
 import jakarta.annotation.Nullable;
 
 /**
- * A partial update: a null field is left as it is, and at least one must be present.
+ * Request payload to update a project secret.
  *
- * @param description blank clears it.
- * @param value       the new plaintext, sealed on the way in; never blank.
+ * @param description New description, or empty to clear. Null keeps the existing description.
+ * @param value       New plaintext secret value. Null keeps the existing secret value.
  */
 public record UpdateSecretRequest(
         @Nullable String description,

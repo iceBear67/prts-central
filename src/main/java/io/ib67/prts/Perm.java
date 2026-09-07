@@ -9,23 +9,22 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * A permission and the scope it is held in.
+ * Permissions and their scopes.
  *
- * <p>A {@link #global()} permission is held once for the whole system and its grant row is scoped to
- * {@link io.ib67.prts.user.Permission#GLOBAL}. Every other permission is held per project and only
- * ever matches the project it was granted in, so reach across projects belongs to
- * {@link #ADMIN_OF_ALL} alone.
+ * <p>A {@link #global()} permission applies system-wide (scoped to
+ * {@link io.ib67.prts.user.Permission#GLOBAL}), such as {@link #ADMIN_OF_ALL}.
+ * All other permissions are scoped to specific projects.
  */
 public enum Perm {
     ADMIN_OF_ALL("admin:all", true),
 
     PROJECT_READ("project:read", false),
     PROJECT_UPDATE("project:update", false),
-    /** Separate from {@link #PROJECT_UPDATE}: a delete tears down the project's jobs and artifacts. */
+    /** Deleting a project permanently removes all its jobs and artifacts. */
     PROJECT_DELETE("project:delete", false),
     PROJECT_MEMBER_MANAGE("project:member:manage", false),
     PROJECT_SUBACCOUNT_MANAGE("project:subaccount:manage", false),
-    /** Which secrets a project has, by name — never a value. */
+    /** View project secret names (never secret values). */
     PROJECT_SECRET_READ("project:secret:read", false),
     PROJECT_SECRET_MANAGE("project:secret:manage", false),
 
@@ -44,7 +43,7 @@ public enum Perm {
     JOB_SPEC_LOCK("job:spec:lock", false),
     JOB_RESOURCE_CLASS("job:resource-class", false);
 
-    /** Stored in {@code user_permission}, so these strings are part of the schema, not labels. */
+    /** The permission identifier stored in the database. */
     private final String permission;
     private final boolean global;
 
@@ -65,11 +64,9 @@ public enum Perm {
     }
 
     /**
-     * By the stored string rather than the constant name: that string is what a caller naming a
-     * permission over the wire spells, and what {@code user_permission} already holds.
+     * Resolves a permission by its string identifier.
      */
     public static Optional<Perm> byPermission(@Nullable String permission) {
-        // An unmodifiable map throws on a null key; a null off the wire is just an unknown permission.
         return permission == null ? Optional.empty() : Optional.ofNullable(BY_PERMISSION.get(permission));
     }
 }

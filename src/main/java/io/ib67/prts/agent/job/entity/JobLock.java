@@ -29,11 +29,9 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * The holder of a {@link JobSpec#lock()}, so that two jobs naming the same lock never run at once.
- * Held from the moment a job is handed to a worker until it reaches a terminal
- * {@link JobState}; a job that cannot take the lock is refused, not queued.
+ * Mutual exclusion lock for jobs scoped to a project.
  *
- * <p>Locks are scoped to a project: the same name in two projects is two independent locks.
+ * <p>Prevents concurrent execution of jobs requesting the same lock name within a project.
  */
 @Entity
 @Table(name = "job_lock")
@@ -53,7 +51,6 @@ public class JobLock extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /** Unique: a spec carries a single lock, so a job holds at most one. */
     @OneToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "job_id", nullable = false, unique = true)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -64,12 +61,10 @@ public class JobLock extends PanacheEntityBase {
     private Instant acquiredAt;
 
     /**
-     * Takes {@code name} for {@code jobId} within that job's project. {@code false} means another
-     * live job holds it, so the caller has to refuse this one.
+     * Attempts to acquire a lock for the given job.
      *
-     * <p>A row whose holder is already terminal (or gone) is taken over, so a lock cannot be
-     * orphaned by a crash between dispatch and completion. Must run inside a transaction; the
-     * insert can lose a race on the primary key, which the caller treats as "busy".
+     * <p>Returns {@code true} if acquired, or {@code false} if already held by an active job.
+     * Stale locks held by completed jobs are taken over.
      */
     public static boolean tryAcquire(String name, UUID jobId) {
         var job = Job.<Job>findById(jobId);
@@ -100,7 +95,9 @@ public class JobLock extends PanacheEntityBase {
         return true;
     }
 
-    /** Idempotent: releases whatever lock {@code jobId} holds, if any. Must run in a transaction. */
+    /**
+     * Releases any lock held by the given job.
+     */
     public static void releaseBy(UUID jobId) {
         delete("job.id", jobId);
     }

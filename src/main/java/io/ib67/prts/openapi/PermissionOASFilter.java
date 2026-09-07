@@ -22,14 +22,9 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Publishes what {@link RequirePermission} enforces into the OpenAPI document: the permission an
- * endpoint takes, the project role that stands in for it, and the responses a caller holding neither
- * gets. Field-gating beans — a bean of pass-through methods named after the record whose fields they
- * gate, see {@link io.ib67.prts.agent.job.JobSpecOverridePermissions} — annotate that record's
- * schema properties instead.
+ * OpenAPI filter that documents {@link RequirePermission} rules in the generated OpenAPI specification.
  *
- * <p>Runs at build time because that is where the Jandex index still knows which Java method serves
- * which path; the OpenAPI model alone no longer does.
+ * <p>Enriches operations and schema properties with authorization requirements and error responses.
  */
 @OpenApiFilter(stages = OpenApiFilter.RunStage.BUILD)
 public class PermissionOASFilter implements OASFilter {
@@ -48,9 +43,7 @@ public class PermissionOASFilter implements OASFilter {
     private static final String EXTENSION = "x-required-permission";
 
     private final IndexView index;
-    /** {@code "GET /project/{projectId}"} — the path as JAX-RS spells it, without any prefix. */
     private final Map<String, Rule> endpoints = new HashMap<>();
-    /** Schema name to property name to the rule gating that property. */
     private final Map<String, Map<String, Rule>> gatedFields = new HashMap<>();
 
     public PermissionOASFilter(IndexView index) {
@@ -87,7 +80,7 @@ public class PermissionOASFilter implements OASFilter {
         }
     }
 
-    /** A class-level binding covers the resource methods that do not carry one of their own. */
+    // Class-level annotations apply to methods that do not define their own.
     private void collect(ClassInfo type, Rule rule) {
         if (type.declaredAnnotation(JAXRS_PATH) == null) {
             return;
@@ -158,10 +151,7 @@ public class PermissionOASFilter implements OASFilter {
         });
     }
 
-    /**
-     * Document paths carry the {@code quarkus.rest.path} prefix and the HTTP root path, neither of
-     * which the annotations know about, so leading segments are dropped until one matches.
-     */
+    // Strips context prefixes until matching a known endpoint path.
     private Rule ruleFor(PathItem.HttpMethod verb, String path) {
         for (var candidate = path; candidate != null; ) {
             var rule = endpoints.get(key(verb, candidate));
@@ -179,7 +169,6 @@ public class PermissionOASFilter implements OASFilter {
         operation.addExtension(EXTENSION, extension(rule));
 
         var responses = operation.getResponses() != null ? operation.getResponses() : OASFactory.createAPIResponses();
-        // Every check refuses an identity with no local user, whatever else it allows.
         if (!responses.hasAPIResponse("401")) {
             responses.addAPIResponse("401", OASFactory.createAPIResponse()
                     .description("Not signed in, or no local user for the authenticated identity."));

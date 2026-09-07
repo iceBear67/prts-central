@@ -16,8 +16,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Drains the queue by acting as a client of {@link JobLauncher}: it holds no scheduling knowledge of
- * its own, and being the only caller that launches, it owns what an unplaceable job leaves behind.
+ * Background scheduler that periodically processes queued pending jobs and attempts to dispatch them.
  */
 @ApplicationScoped
 public class PendingJobDispatcher {
@@ -40,7 +39,6 @@ public class PendingJobDispatcher {
     @Inject
     JobConfig jobConfig;
 
-    // On startup rather than @PostConstruct: nothing injects this bean, so it would never be created.
     void start(@Observes StartupEvent event) {
         try {
             var requeued = pendingJobService.resetDispatching();
@@ -62,8 +60,7 @@ public class PendingJobDispatcher {
     private void tick() {
         try {
             pendingJobService.expireOverdue();
-            // An attempt persists a job before it finds out there is nowhere to put it, so with no
-            // worker that may take one there is nothing to gain and a row to write per entry per tick.
+            // Skip processing if no workers are currently available to accept jobs.
             if (!workerService.hasSchedulableWorker()) {
                 return;
             }
@@ -71,16 +68,12 @@ public class PendingJobDispatcher {
                 attempt(attempt);
             }
         } catch (Throwable t) {
-            // Letting this out would cancel the schedule for the rest of the process's life.
             LOG.error("pending job dispatcher tick failed", t);
         }
     }
 
     /**
-     * Replays a request {@link PendingJobService#enqueue} already had cleared, which is why the gate
-     * is {@link JobLauncher#PRE_AUTHORIZED}: only the per-field override rules are taken as settled,
-     * and this is where that is vouched for. Everything else — the template's project, the volume
-     * rule, the class the spec may name — the launcher checks again against the state of now.
+     * Attempts to dispatch a pending job using {@link JobLauncher}.
      */
     private void attempt(PendingJobService.Attempt attempt) {
         try {
@@ -90,14 +83,12 @@ public class PendingJobDispatcher {
             if (created.scheduled()) {
                 pendingJobService.markDispatched(attempt.id(), created.job().getId());
             } else {
-                // The entry is the thing that waits, so the job it made has nothing to say and is
-                // undone; the next attempt makes another. See TODO.md on what a crash here leaves.
+                // Discard the unplaced job record and requeue the pending entry with backoff.
                 jobService.discard(created.job().getId());
                 pendingJobService.requeue(attempt.id(), "no worker could take the job yet");
             }
         } catch (RuntimeException e) {
-            // The request stopped working — a deleted template, a removed volume, a hand-over that
-            // failed. Nothing here will fix it and the requester is not around to be asked.
+            // Unrecoverable failure; mark the pending job as failed.
             LOG.infof("pending job %s gave up: %s", attempt.id(), e.toString());
             pendingJobService.markFailed(attempt.id(), e.toString());
         }

@@ -8,10 +8,10 @@ import java.util.UUID;
 import static java.util.Objects.requireNonNull;
 
 /**
- * @param projectId     the project owning the template, or {@code null} for one every project may use.
- * @param spec          what the template runs, or {@code null} for a caller who may not see it: id and
- *                      name are enough to create from, the content is what {@code job:template:read}
- *                      buys. {@code resourceClass} is content too and goes with it.
+ * View representing a job spec template.
+ *
+ * @param projectId Owning project ID, or null if globally available.
+ * @param spec      The job spec definition, or null if hidden by caller permissions.
  */
 public record JobSpecTemplateView(
         UUID id,

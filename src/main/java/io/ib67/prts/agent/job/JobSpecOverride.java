@@ -11,11 +11,10 @@ import java.util.UUID;
 import java.util.function.Function;
 
 /**
- * Present fields override the template {@link JobSpec}; {@code null} means keep the template value.
- * Scalars replace, containers merge: map entries win per key, list entries are appended after the
- * template's. An empty container therefore changes nothing — and that is why absent is {@code null}
- * here rather than empty, unlike in {@link JobSpec}: only a field the caller actually supplied is
- * gated, so a no-op override must not cost a permission.
+ * Overrides fields of a template {@link JobSpec}.
+ *
+ * <p>Specified fields override base template values. Scalar fields replace existing values,
+ * maps merge by key, and lists append to base values. Null fields leave the template value unchanged.
  */
 public record JobSpecOverride(
         @Nullable String image,
@@ -37,15 +36,13 @@ public record JobSpecOverride(
                 mergeMap(volumes, authorizer::volumes, base.volumes()),
                 timeout != null ? authorizer.timeout(timeout) : base.timeout(),
                 apply(lock, authorizer::lock, base.lock()), base.secret());
-        // Not overridable: secrets are the project's, injected at dispatch, never requested.
     }
 
     private static <T> T apply(T override, Function<T, T> gated, T fallback) {
         return override != null ? gated.apply(override) : fallback;
     }
 
-    // The gated call happens before merging so the permission interceptor still sees exactly what
-    // the caller supplied. Insertion-ordered copies keep the jsonb representation stable.
+    // Gating occurs before merging so authorizers inspect only user-supplied inputs.
     private static <K, V> Map<K, V> mergeMap(
             @Nullable Map<K, V> override, Function<Map<K, V>, Map<K, V>> gated, Map<K, V> base) {
         if (override == null) {

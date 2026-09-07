@@ -24,9 +24,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A job's own state and what is read off it. Making one is {@link JobLauncher}'s business, and its
- * artifacts {@link ArtifactService}'s; what stays here is the state machine every writer goes
- * through — the worker reporting, the requester cancelling, the launcher giving up — and the logs.
+ * Manages job state transitions, cancellations, and logs.
  */
 @ApplicationScoped
 public class JobService {
@@ -51,9 +49,7 @@ public class JobService {
     }
 
     /**
-     * Jobs carry their own id, so a lookup is by id alone and the project from the request only
-     * decides whether the caller may see the result — reaching a job through the wrong project is a
-     * miss, not a different job.
+     * Validates that the job exists and belongs to the specified project.
      */
     private static Job requireIn(UUID projectId, UUID jobId, @Nullable Job job) {
         if (job == null || !job.getProject().getId().equals(projectId)) {
@@ -62,15 +58,14 @@ public class JobService {
         return job;
     }
 
-    /** The newest {@code limit} jobs a reader should see; see {@code Job.VISIBLE} for what is left out. */
+    /** Lists visible jobs in the project up to the given limit. */
     public List<Job> listVisible(UUID projectId, int limit) {
         projectService.require(projectId);
         return Job.listVisibleByProject(projectId, limit);
     }
 
     /**
-     * Marks the job {@link JobState#CANCELLED} and tells the worker running it to stop. Our state is
-     * authoritative: a late report from the worker is ignored by {@link #applyState(UUID, JobState)}.
+     * Cancels a job, transitions its state to {@link JobState#CANCELLED}, and signals the assigned worker.
      */
     public Job cancel(UUID projectId, UUID jobId) {
         var cancelled = QuarkusTransaction.requiringNew().call(() -> prepareCancel(projectId, jobId));
@@ -103,7 +98,6 @@ public class JobService {
         return new CancelledJob(job, job.getWorker());
     }
 
-    /** Best effort: a missing log line must never mask the cancellation itself. */
     private void logCancelOutcome(UUID jobId, String message) {
         try {
             QuarkusTransaction.requiringNew().run(() -> Job.<Job>findByIdOptional(jobId)
@@ -113,7 +107,6 @@ public class JobService {
         }
     }
 
-    /** @param worker the worker that still has to be told, or {@code null} if never dispatched. */
     private record CancelledJob(Job job, @Nullable UUID worker) {
         private CancelledJob {
             Objects.requireNonNull(job, "job");
@@ -121,8 +114,7 @@ public class JobService {
     }
 
     /**
-     * Moves the job to {@code state} unless it is already terminal, releasing its {@link JobLock} on a
-     * terminal one. Locked like {@link #prepareCancel}: the terminal-state guard is a check-then-write.
+     * Applies a state transition to a job if not already completed, releasing any held lock on terminal states.
      */
     @Transactional
     public Optional<Job> applyState(UUID jobId, JobState state) {
@@ -145,15 +137,7 @@ public class JobService {
     }
 
     /**
-     * Deletes a job no worker took: it never ran, so it has no logs, no artifacts and nothing worth
-     * keeping. The lock is already released by the scheduler when it reports a job unplaceable; this
-     * covers the paths where it is not.
-     *
-     * <p>"No worker took it" is checked, not assumed: a job already gone is left alone, and one that
-     * reached a worker is refused. {@link JobState#PENDING} does not say so by itself — the scheduler
-     * sets {@code worker} on hand-over and the state only moves when the worker reports back, so a
-     * job with a worker may have a container starting behind it. Deleting that would strand the
-     * container, drop the row its reports land on, and free the lock for a job to run beside it.
+     * Deletes an unassigned pending job that could not be scheduled.
      */
     public void discard(UUID jobId) {
         QuarkusTransaction.requiringNew().run(() -> {
@@ -162,8 +146,6 @@ public class JobService {
                 return;
             }
             if (job.getState() != JobState.PENDING || job.getWorker() != null) {
-                // A wiring bug, not a race: today's only caller reaches this having been told the job
-                // was never offered to anyone. Loud, so the next caller that is wrong finds out here.
                 throw new IllegalStateException(
                         "refusing to discard job " + jobId + ": " + job.getState()
                                 + ", worker " + job.getWorker());

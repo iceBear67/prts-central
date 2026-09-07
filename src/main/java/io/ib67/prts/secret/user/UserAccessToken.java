@@ -23,9 +23,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The one access token a {@link User} may hold, by hash — the plaintext exists only in the response
- * that issued it. The user is the primary key, which is what makes "one per user" a constraint
- * rather than a rule some service remembers to apply.
+ * Stored hash and metadata for a user's personal access token.
  */
 @Entity
 @Table(
@@ -64,10 +62,7 @@ public class UserAccessToken extends PanacheEntityBase {
         return token;
     }
 
-    /**
-     * Selects the user itself, so authentication can use it outside a session — the same shape as
-     * {@link io.ib67.prts.auth.OAuthIdentity#findUser}, since it answers the same question.
-     */
+    /** Finds the associated user for a given token hash. */
     public static Optional<User> findUserByHash(String tokenHash) {
         return getEntityManager()
                 .createQuery("select t.user from UserAccessToken t where t.tokenHash = ?1", User.class)

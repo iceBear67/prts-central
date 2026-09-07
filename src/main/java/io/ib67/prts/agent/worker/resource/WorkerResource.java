@@ -19,8 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The worker roster, for administrators: every worker that ever registered, connected or not.
- * Workers belong to no project, so there is no role to stand in for the permission.
+ * Administrative endpoints for managing registered workers.
  */
 @Path("/worker")
 @Produces(MediaType.APPLICATION_JSON)
@@ -42,7 +41,6 @@ public class WorkerResource {
         return view(Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new));
     }
 
-    /** Stops offering it jobs; what it is running finishes as usual. */
     @POST
     @Path("/{id}/disable")
     public WorkerView disableWorker(@PathParam("id") UUID id) {

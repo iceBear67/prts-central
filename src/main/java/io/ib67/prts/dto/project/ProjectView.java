@@ -7,8 +7,9 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * @param role the <em>caller's</em> role in this project, {@link ProjectRole#NONE} when they hold
- *             none — an admin reading a project they are not a member of sees exactly that.
+ * Summary view of a project.
+ *
+ * @param role The caller's role in the project, or {@link ProjectRole#NONE} if not a direct member.
  */
 public record ProjectView(
         UUID id,

@@ -38,12 +38,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Reading takes {@link ProjectRole#VIEWER}, acting on a job takes {@link ProjectRole#MEMBER}. The
- * path variable must stay named {@code projectId}: checks with no project argument read it off the
- * path.
- *
- * <p>A queue entry is addressed exactly like the job it will become: one list, one read, one cancel,
- * each answering a {@link JobStatusView} whose {@code type} says which of the two it found.
+ * REST endpoint managing jobs, queued tasks, templates, logs, and artifacts within a project.
  */
 @Path("/project/{projectId}/job")
 @Produces(MediaType.APPLICATION_JSON)
@@ -63,10 +58,7 @@ public class JobResource {
     @Inject
     JobAccess jobAccess;
 
-    /**
-     * The project's own templates plus the global ones; another project's are not listed. Every
-     * reader gets id and name, which is all a create needs; the content takes {@code job:template:read}.
-     */
+    /** Lists visible templates (project-specific and global) for a project. */
     @GET
     @Path("/template")
     @Transactional
@@ -89,11 +81,7 @@ public class JobResource {
                 .orElseThrow(NotFoundException::new);
     }
 
-    /**
-     * Jobs and the queue entries that are not jobs yet, newest first. Two tables, so each is read
-     * {@code offset + length} deep and the page cut out of the merge — fine for paging, not for
-     * reaching the bottom of a long history.
-     */
+    /** Lists both running/completed jobs and queued pending jobs in reverse chronological order. */
     @GET
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
@@ -120,13 +108,7 @@ public class JobResource {
     }
 
     /**
-     * Takes either id the client may be holding: a job's, or that of the queue entry it came from,
-     * which is followed to the job once one exists. So the id handed out at create time keeps working
-     * for the life of the run, and {@code type} on the answer says which of the two it found.
-     *
-     * <p>Artifact names ride on {@code job:read}; the bytes need {@code job:artifact:read}. The stored
-     * create request rides on {@code job:create}, so what a caller may do with the job decides how
-     * much of it they get back, rather than a second endpoint.
+     * Retrieves status for a job or a queued pending job by its ID.
      */
     @GET
     @Path("/{jobId}")
@@ -155,25 +137,15 @@ public class JobResource {
                 requestFor(jobAccess.mayCreate(projectId), job.toRequest()));
     }
 
-    /**
-     * The stored request, but only for a caller who could post it back — a re-run is the client doing
-     * exactly that, so seeing one takes what using it takes.
-     */
+    /** Returns the creation request details if the caller has permission to create jobs. */
     @Nullable
     private static CreateJobRequest requestFor(boolean mayCreate, @Nullable JobRequest request) {
         return request != null && mayCreate ? CreateJobRequest.of(request) : null;
     }
 
-    /**
-     * Queues the create rather than performing it, so the answer is the entry and not a job: the job
-     * appears on it, as {@code jobId}, once a worker has taken the request. Authorizing here is what
-     * makes that sound — the per-field override gates read the project off this request's path, and
-     * the dispatcher that submits it later runs on a thread with no request at all.
-     */
+    /** Enqueues a new job creation request after authorizing requested overrides. */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
-    // 201 by annotation rather than by returning a Response, so the declared type stays JobStatusView
-    // — that is what puts the discriminator on the wire and a schema in the document.
     @ResponseStatus(RestResponse.StatusCode.CREATED)
     @APIResponse(
             responseCode = "201",
@@ -187,16 +159,10 @@ public class JobResource {
         }
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
-        // The creator holds job:create by definition — this endpoint is gated on it.
         return PendingJobView.of(pending, CreateJobRequest.of(pending.getRequest()));
     }
 
-    /**
-     * Either id again, like {@link #getJob}: a job is stopped on its worker and marked cancelled, an
-     * entry still waiting is taken off the queue, and an entry whose job exists is cancelled as that
-     * job. The two refuse on different conditions — a terminal job, an entry whose attempt is in flight
-     * — and {@code type} on the answer says which rule applied.
-     */
+    /** Cancels an active job or queued pending job. */
     @POST
     @Path("/{jobId}/cancel")
     @RequirePermission(value = Perm.JOB_CANCEL, defaultRole = ProjectRole.MEMBER)
@@ -214,7 +180,6 @@ public class JobResource {
         return JobView.of(jobService.cancel(projectId, jobId), Artifact.listByJob(jobId));
     }
 
-    /** Handing out the presigned URL is the download. */
     @GET
     @Path("/artifact/{artifactId}")
     @Transactional
@@ -235,7 +200,6 @@ public class JobResource {
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = clampLength(length, jobConfig.log().maxPageSize());
-        // Capped so the inclusive upper bound cannot overflow negative.
         var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
         return JobLogPage.of(jobService.listLogs(projectId, jobId, start, window), start, window);
     }

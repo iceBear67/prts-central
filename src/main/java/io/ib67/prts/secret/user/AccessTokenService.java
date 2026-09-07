@@ -16,20 +16,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Issues and resolves personal access tokens.
- *
- * <p>The stored value is a bare digest, without a salt and without a constant-time compare: the
- * token is 256 bits from a CSPRNG, so there is nothing to guess offline and nothing a timing signal
- * narrows down. Determinism is the point — {@link #resolve} hashes what the caller presented and
- * looks that up on an index, rather than reading a row to compare against.
+ * Service for issuing and resolving personal user access tokens.
  */
 @ApplicationScoped
 public class AccessTokenService {
 
-    /** Marks a bearer as ours, so a mechanism can decline someone else's token without a DB read. */
+    /** Prefix for all personal access tokens. */
     public static final String PREFIX = "prts_";
 
-    /** As on a sealed secret: which digest a row is under is readable off the row. */
     private static final String HASH_FORMAT = "sha256";
     private static final String HASH_ALGORITHM = "SHA-256";
     private static final int TOKEN_BYTES = 32;
@@ -40,15 +34,16 @@ public class AccessTokenService {
         return UserAccessToken.findByIdOptional(userId);
     }
 
-    /** The user a token authenticates, or empty when no row carries its hash. */
+    /** Resolves the user associated with the given raw token string. */
     public Optional<User> resolve(String token) {
         return UserAccessToken.findUserByHash(hash(token));
     }
 
     /**
-     * Creates the user's token or rerolls it, returning the plaintext — the only time it exists.
-     * Rerolling updates the row in place: a delete and an insert of the same key in one flush would
-     * trip the primary key, since Hibernate orders inserts first.
+     * Issues a new access token or regenerates an existing one for the specified user.
+     *
+     * @param userId the user ID
+     * @return the issued token plaintext and issue timestamp
      */
     @Transactional
     public Issued issue(UUID userId) {
@@ -67,7 +62,7 @@ public class AccessTokenService {
         return new Issued(token, issuedAt);
     }
 
-    /** The plaintext and when it was minted — the only time the two exist together. */
+    /** Represents an issued plaintext access token and its creation timestamp. */
     public record Issued(String token, Instant issuedAt) {
         public Issued {
             Objects.requireNonNull(token, "token");

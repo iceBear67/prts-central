@@ -11,7 +11,7 @@ import org.hibernate.annotations.OnDeleteAction;
 import java.util.Optional;
 
 /**
- * An external login linked to a {@link User}. Several identities may point at the same user.
+ * External OAuth/OIDC identity linked to a {@link User}.
  */
 @Entity
 @Table(name = "oauth_identity")
@@ -24,10 +24,6 @@ public class OAuthIdentity extends PanacheEntityBase {
     @EmbeddedId
     private Id id;
 
-    /**
-     * Plain foreign key, not part of the key: unlike {@link UserToProject} the primary key here is
-     * (issuer, subject), so there is nothing for {@code @MapsId} to derive.
-     */
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -41,7 +37,6 @@ public class OAuthIdentity extends PanacheEntityBase {
         return identity;
     }
 
-    /** Selects the user itself, so the caller can use it outside a session. */
     public static Optional<User> findUser(String issuer, String subject) {
         return getEntityManager().createQuery(
                         "select i.user from OAuthIdentity i where i.id.issuer = ?1 and i.id.subject = ?2",

@@ -14,13 +14,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * @param resourceClass  the class the job actually runs under, resolved at create time. Its project
- *                       is not published: a name is all a client can act on.
- * @param createRequest what to post back to re-run this job, or {@code null} when the caller may not
- *                      re-run it or the job records no request. Detail varies with permission rather
- *                      than living on a second endpoint, so the caller decides — see
- *                      {@link #of(Job, List, CreateJobRequest)}.
- * @param requestedBy   who asked for the job, carried over from the queue entry it came from.
+ * View representing a job's execution state, metadata, and artifacts.
+ *
+ * @param resourceClass The resolved resource class name used for execution.
+ * @param createRequest Request payload needed to re-run this job, or null if omitted or forbidden.
+ * @param requestedBy   User ID who requested the job.
  */
 public record JobView(
         UUID id,
@@ -58,10 +56,7 @@ public record JobView(
         }
     }
 
-    /**
-     * The one place that decides what of a spec a client may see; {@link JobSpecTemplateView} goes
-     * through it too, so a new {@link JobSpec} field is not published by default.
-     */
+    /** Public view of a {@link JobSpec}, excluding sensitive values such as secrets. */
     public record SpecView(
             String image,
             Map<String, String> environment,
@@ -80,7 +75,6 @@ public record JobView(
             Objects.requireNonNull(lock, "lock");
         }
 
-        /** {@code null} in, {@code null} out: a job may carry no spec at all. */
         @Nullable
         public static SpecView of(@Nullable JobSpec spec) {
             if (spec == null) {
@@ -101,13 +95,6 @@ public record JobView(
         return of(job, artifacts, null);
     }
 
-    /**
-     * Reads only what a detached job carries — the project for its id alone, which a lazy proxy
-     * answers without loading, and the resource class, which is fetched eagerly for this. Keep it
-     * that way: callers map jobs after the transaction closed. That is also why {@code createRequest}
-     * is passed in: whether the caller may see it is an authorization question, and those are
-     * answered at the endpoint.
-     */
     public static JobView of(Job job, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
         return new JobView(
                 job.getId(),

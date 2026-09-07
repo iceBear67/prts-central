@@ -19,8 +19,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Scheduling overlay on {@link WorkerService}'s worker map: worker selection and exclusive
- * create-locks. The map itself stays on the service.
+ * Handles worker selection and concurrency locks for job scheduling.
  */
 final class WorkerScheduler {
     private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
@@ -42,10 +41,9 @@ final class WorkerScheduler {
     }
 
     /**
-     * Tries to place {@code jobId} on a live worker. Returns why it could not be placed — no
-     * eligible worker, or its {@link JobLock} is held — for the caller to refuse the job with; there
-     * is no queue. {@code null} means nothing more is needed, which also covers a job that went
-     * terminal in the meantime. RPC failure after a worker is locked is thrown (and unlocked).
+     * Attempts to place a job on an eligible worker.
+     *
+     * @return null on success or if the job has already finished; otherwise an error message explaining why placement failed
      */
     @Nullable
     String schedule0(UUID jobId, ResourceClass required, JobSpec spec) {
@@ -67,14 +65,12 @@ final class WorkerScheduler {
                 pick.registeredWorker().getRpc().createJob(jobId, spec, required);
             } catch (RuntimeException e) {
                 unlock(pick.id());
-                // The offer timed out rather than being refused, so the worker may have started the
-                // job anyway. Tell it to stop before this job is failed, or it runs on past the lock
-                // this attempt is about to release.
+                // Creation timed out or failed; cancel on the worker to avoid leaking an unmanaged container.
                 cancelQuietly(pick, jobId);
                 throw e;
             }
             if (!claimJob(jobId, pick.id())) {
-                // Cancelled while the worker was starting it: undo rather than leak the container.
+                // Job was cancelled while dispatching; cancel on the worker.
                 cancelQuietly(pick, jobId);
                 return null;
             }
@@ -87,7 +83,6 @@ final class WorkerScheduler {
         }
     }
 
-    /** {@code false} once the job is gone or terminal, so there is nothing left to dispatch. */
     private boolean isSchedulable(UUID jobId) {
         return QuarkusTransaction.requiringNew().call(() -> Job.<Job>findByIdOptional(jobId)
                 .filter(job -> !job.isCompleted())
@@ -95,8 +90,7 @@ final class WorkerScheduler {
     }
 
     /**
-     * Records the worker that took the job. {@code false} means the job went terminal (a cancel
-     * landed) while we were handing it over.
+     * Assigns the worker to the job in the database. Returns false if the job is already completed.
      */
     private boolean claimJob(UUID jobId, UUID workerId) {
         return QuarkusTransaction.requiringNew().call(() -> {
@@ -109,10 +103,6 @@ final class WorkerScheduler {
         });
     }
 
-    /**
-     * {@code false} means another live job holds the lock. A failed insert lost a race with a
-     * concurrent dispatch, which is also "busy": either way the job is refused.
-     */
     private boolean acquireLock(String lockName, UUID jobId) {
         try {
             return QuarkusTransaction.requiringNew().call(() -> JobLock.tryAcquire(lockName, jobId));
@@ -171,9 +161,7 @@ final class WorkerScheduler {
     }
 
     /**
-     * The workers that could hold the spec's volumes — every live one when it mounts none. An empty
-     * set means the volumes cannot be placed, which is why "no constraint" is the full set and not
-     * an empty one.
+     * Finds workers capable of mounting the requested volumes. Returns all workers if no volumes are requested.
      */
     private Set<UUID> workersForVolumes(JobSpec spec) {
         var volumes = spec.volumes();

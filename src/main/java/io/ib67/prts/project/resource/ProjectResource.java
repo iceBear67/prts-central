@@ -35,9 +35,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The project itself and who is on it. Reading takes {@link ProjectRole#VIEWER}, changing the project
- * or its roster takes {@link ProjectRole#OWNER}. Leaving is the exception: dropping your own
- * membership needs no permission at all, and is the same {@code DELETE} as removing anyone else.
+ * REST endpoint managing projects and member roles.
  */
 @Path("/project")
 @Produces(MediaType.APPLICATION_JSON)
@@ -51,10 +49,7 @@ public class ProjectResource {
     @Inject
     UserContext userContext;
 
-    /**
-     * The caller's own memberships — there is no project to scope a check to, and nothing here the
-     * caller is not already part of. Admins see their own memberships too, not every project.
-     */
+    /** Lists projects where the current user is a member. */
     @GET
     @Transactional
     public List<ProjectView> listMyProjects() {
@@ -63,7 +58,7 @@ public class ProjectResource {
                 .toList();
     }
 
-    /** The roster and the job counts too, and how the caller came to see them — see {@link ProjectDetailView}. */
+    /** Retrieves detailed project information, member roster, and job counts. */
     @GET
     @Path("/{projectId}")
     @Transactional
@@ -95,11 +90,7 @@ public class ProjectResource {
         return ProjectView.of(projectService.rename(projectId, request.name().strip()), roleOf(projectId));
     }
 
-    /**
-     * Takes the project and everything it owns, including the containers still running on workers and
-     * the artifact objects in S3 — see {@link ProjectService#delete}. Not {@code project:update}: this
-     * is strictly more than the rename that permission covers, and there is no undoing it.
-     */
+    /** Deletes a project and all associated resources. */
     @DELETE
     @Path("/{projectId}")
     @RequirePermission(value = Perm.PROJECT_DELETE, defaultRole = ProjectRole.OWNER)
@@ -109,7 +100,7 @@ public class ProjectResource {
         }
     }
 
-    /** Adds the user at that role, or moves an existing member to it. */
+    /** Sets or updates a project member's role. */
     @PUT
     @Path("/{projectId}/member/{userId}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -129,10 +120,8 @@ public class ProjectResource {
     }
 
     /**
-     * Removing anyone else takes the permission; removing yourself takes none, which is why the
-     * interceptor lets every caller through and the body draws the line. A last owner cannot leave
-     * either way — {@link UserService#revoke} refuses with a 409, because a project with an empty
-     * roster could never be administered again. Disbanding is {@link #deleteProject}, not this.
+     * Removes a member from a project, or allows a member to leave.
+     * Members can remove themselves without requiring manage permissions.
      */
     @DELETE
     @Path("/{projectId}/member/{userId}")

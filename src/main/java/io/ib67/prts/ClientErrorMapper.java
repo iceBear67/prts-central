@@ -9,13 +9,9 @@ import jakarta.ws.rs.ext.Provider;
 import java.util.Objects;
 
 /**
- * Gives a 4xx the message it was thrown with. {@code WebApplicationException(String, Status)} builds
- * an entity-less response, so without this every {@code throw new BadRequestException("name is
- * required")} in the tree reaches the client as a bare status — two different 409s become
- * indistinguishable.
+ * Formats 4xx client errors into JSON error responses containing the exception message.
  *
- * <p>Only client errors are touched: a 5xx keeps whatever the runtime decided, so an internal message
- * never leaks, and a response that already carries an entity is passed through untouched.
+ * <p>Passes through responses that already have an entity, and leaves 5xx errors untouched.
  */
 @Provider
 public class ClientErrorMapper implements ExceptionMapper<WebApplicationException> {

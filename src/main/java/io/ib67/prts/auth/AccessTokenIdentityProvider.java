@@ -15,12 +15,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 
 /**
- * Builds the same identity an OIDC login ends up with — the {@link User} attribute above all, which
- * is what {@code UserContext.get()} and therefore every {@code @RequirePermission} reads. That
- * attribute is the whole of the equivalence: nothing downstream can tell the two apart.
- *
- * <p>{@link UserIdentityAugmenter} then leaves this identity alone, because its principal is no
- * {@code JsonWebToken} and carries no issuer.
+ * Authenticates personal access tokens and produces the corresponding {@link SecurityIdentity}
+ * with attached {@link User} details.
  */
 @ApplicationScoped
 public class AccessTokenIdentityProvider implements IdentityProvider<AccessTokenAuthenticationRequest> {
@@ -38,9 +34,7 @@ public class AccessTokenIdentityProvider implements IdentityProvider<AccessToken
     @Override
     public Uni<SecurityIdentity> authenticate(AccessTokenAuthenticationRequest request,
                                               AuthenticationRequestContext context) {
-        // Blocking: the lookup is a database read and this runs on the event loop. In a transaction
-        // this bean opens itself, because a mechanism runs before the request context exists — there
-        // is no session for either the token lookup or the admin check to join.
+        // Runs database queries in a worker thread and transaction before the JAX-RS request context is active.
         return context.runBlocking(() -> QuarkusTransaction.requiringNew()
                 .call(() -> accessTokenService.resolve(request.getToken())
                         .map(this::identityOf)

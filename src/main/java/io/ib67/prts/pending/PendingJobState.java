@@ -1,16 +1,16 @@
 package io.ib67.prts.pending;
 
-/** Where a queued create request stands. Everything but the first two is settled for good. */
+/** Lifecycle states of a queued pending job. */
 public enum PendingJobState {
     QUEUED,
-    /** Claimed by the dispatcher, with an attempt in flight; nothing else may touch it. */
+    /** Claimed by dispatcher; dispatch attempt in flight. */
     DISPATCHING,
-    /** A job was created and taken by a worker; the entry names it and stops here. */
+    /** Successfully dispatched and converted to a running Job. */
     DISPATCHED,
     CANCELLED,
-    /** Outlived its authorization before any worker could take it. */
+    /** Expired before a worker could accept it. */
     EXPIRED,
-    /** The request itself stopped working — a deleted template, a removed volume, a lost hand-over. */
+    /** Terminated due to unrecoverable errors. */
     FAILED;
 
     public boolean isSettled() {

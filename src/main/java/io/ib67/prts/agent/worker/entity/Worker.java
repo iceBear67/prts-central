@@ -16,8 +16,7 @@ import lombok.ToString;
 import java.util.UUID;
 
 /**
- * Persistent worker identity. The live session is {@link RegisteredWorker}; {@link #disabled} lives
- * here so it survives a reconnect, and is mirrored onto the session on register.
+ * Persistent worker entity storing registration details and disabled status across reconnects.
  */
 @Entity
 @Table(name = "worker")
@@ -36,7 +35,7 @@ public class Worker extends PanacheEntityBase {
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
 
-    /** A disabled worker keeps its session and its running jobs, but is offered nothing new. */
+    /** Whether this worker is paused from receiving new jobs. */
     @Column(name = "disabled", nullable = false)
     private boolean disabled;
 

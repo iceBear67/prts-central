@@ -20,10 +20,7 @@ import java.util.UUID;
 @ToString
 public class Permission extends PanacheEntityBase {
 
-    /**
-     * Scope of a {@link Perm#global()} grant. The project is part of the primary key and Postgres
-     * cannot key on null, so "no project" is {@link Reserved#ID} rather than null.
-     */
+    /** Sentinel project ID for global permissions. */
     public static final UUID GLOBAL = Reserved.ID;
 
     @EmbeddedId
@@ -43,16 +40,12 @@ public class Permission extends PanacheEntityBase {
         return granted;
     }
 
-    /**
-     * @param projectId ignored for a global permission, and the returned id carries no project for a
-     *                  project-scoped one when it is null — such an id matches no row.
-     */
+    /** Constructs a composite permission key for the user, permission, and project. */
     public static Id idOf(UUID userId, Perm perm, @Nullable UUID projectId) {
         return new Id(userId, perm.permission(), perm.global() ? GLOBAL : projectId);
     }
 
-    /** Who holds a grant in {@code projectId}, read before {@link #deleteByProject} so the per-user
-     *  permission cache can be invalidated for each of them. */
+    /** Lists all user IDs who hold any permission within the given project. */
     public static List<UUID> listHolderIdsByProject(UUID projectId) {
         return getEntityManager()
                 .createQuery("select distinct p.id.userId from Permission p where p.id.projectId = ?1",
@@ -61,7 +54,7 @@ public class Permission extends PanacheEntityBase {
                 .getResultList();
     }
 
-    /** {@code project_id} carries no foreign key, so a deleted project leaves these behind. */
+    /** Deletes all permission grants within a project. */
     public static long deleteByProject(UUID projectId) {
         return delete("id.projectId", projectId);
     }

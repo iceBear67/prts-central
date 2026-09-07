@@ -31,8 +31,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A reusable {@link JobSpec} that can be looked up and scheduled later. The resource class is
- * optional; when null, the caller chooses one at schedule time.
+ * Reusable {@link JobSpec} template.
+ *
+ * <p>Can be scoped to a project or defined globally (when project is null).
  */
 @Entity
 @Table(
@@ -58,7 +59,6 @@ public class JobSpecTemplate extends PanacheEntityBase {
     @Column(name = "spec", nullable = false, columnDefinition = "jsonb")
     private JobSpec spec;
 
-    /** Must be global on a global template, or the spec would name another project's class. */
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumns({
             @JoinColumn(name = "resource_class", referencedColumnName = "name"),
@@ -67,10 +67,7 @@ public class JobSpecTemplate extends PanacheEntityBase {
     @ToString.Exclude
     private ResourceClass resourceClass;
 
-    /**
-     * The project that owns this template, or {@code null} for a global one every project may use.
-     * A template of another project is invisible, so a spec cannot be reached across projects.
-     */
+    /** Owning project, or null if this template is global. */
     @Nullable
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "project_id")
@@ -78,12 +75,11 @@ public class JobSpecTemplate extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /** {@code ?1} is the project; append further conditions with the next index. */
     private static final String VISIBLE_TO =
             "from JobSpecTemplate t left join fetch t.resourceClass "
                     + "where (t.project is null or t.project.id = ?1)";
 
-    /** The global templates plus the ones {@code projectId} owns. */
+    /** Lists templates visible to the given project (including global templates). */
     public static List<JobSpecTemplate> listVisibleFetched(UUID projectId) {
         return find(VISIBLE_TO, projectId).list();
     }

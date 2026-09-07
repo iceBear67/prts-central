@@ -30,14 +30,10 @@ public sealed interface ClientboundMessage {
     }
 
     /**
-     * @param jobId   the id the job is known by on both sides: the worker must quote it back in
-     *                {@code JobStateUpdate}, {@code UpdateJobLog} and {@code UploadArtifactRequest}.
-     * @param secrets the project's secrets in the clear, beside the spec rather than inside it:
-     *                {@link JobSpec#secret()} is {@code @JsonIgnore}d, which is what keeps secrets
-     *                out of the {@code jsonb} column and out of every view but also drops them from
-     *                the serialized spec — so the sender lifts them onto this field by hand. This
-     *                message is therefore the only place a secret is serialized, and it is never
-     *                persisted. Empty when the project keeps none.
+     * Instructs a worker to execute a job.
+     *
+     * @param jobId   Job identifier.
+     * @param secrets Decrypted secrets needed for the job.
      */
     record CreateJob(
             UUID requestId,
@@ -55,18 +51,14 @@ public sealed interface ClientboundMessage {
         }
     }
 
-    /** Stop {@code jobId} and release its resources. The job is already terminal on our side. */
+    /** Requests the worker to cancel a running job. */
     record CancelJob(UUID jobId) implements ClientboundMessage {
         public CancelJob {
             Objects.requireNonNull(jobId, "jobId");
         }
     }
 
-    /**
-     * Stop {@code jobId} and drop anything still queued for it. Distinct from {@link CancelJob},
-     * which leaves a row that still expects the worker's final word: here the job is gone, so its
-     * state updates, logs and artifact uploads have nowhere to land and must not be sent.
-     */
+    /** Instructs the worker to immediately terminate and discard a job. */
     record InterruptJob(UUID jobId, String reason) implements ClientboundMessage {
         public InterruptJob {
             Objects.requireNonNull(jobId, "jobId");

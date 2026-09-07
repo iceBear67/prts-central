@@ -15,6 +15,9 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.OptionalLong;
 
+/**
+ * Service for S3-compatible object storage operations, including presigned URL generation and object management.
+ */
 @ApplicationScoped
 public class StorageService {
     @Inject
@@ -104,7 +107,7 @@ public class StorageService {
         try {
             s3.deleteObject(b -> b.bucket(storageConfig.bucket()).key(objectKey));
         } catch (RuntimeException ignored) {
-            // best-effort cleanup of an object that never became an artifact
+            // Best-effort cleanup
         }
     }
 

@@ -27,14 +27,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Marks a {@link User} as owned by a project rather than by a person: no {@link
- * io.ib67.prts.auth.OAuthIdentity} row, so no way to log in, and no {@link ProjectRole}, so it is
- * never on a roster and never counts toward the last-owner rule. What it may do is exactly the
- * {@link io.ib67.prts.Perm} set its project granted it.
- *
- * <p>A separate table rather than a column on {@code prts_user}, so both cascades are the database's:
- * deleting the user or the project takes the link with it, and the user's token and grants follow the
- * user.
+ * Represents a programmatic sub-account (service account) tied to a project rather than a human user.
  */
 @Entity
 @Table(
@@ -63,7 +56,7 @@ public class SubAccount extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /** Audit only, by id and with no FK, like {@code Job.requestedBy}: the creator may be gone. */
+    /** User ID of the creator for audit purposes. */
     @Column(name = "created_by", nullable = false, updatable = false)
     private UUID createdBy;
 
@@ -80,10 +73,7 @@ public class SubAccount extends PanacheEntityBase {
         return account;
     }
 
-    /**
-     * Same rule as {@code JobService.findInProject}: found by its own id, then kept only if it belongs
-     * to the project — so one project's owner cannot reach another's sub-account, or any other user.
-     */
+    /** Finds a sub-account by user ID within a specific project. */
     public static Optional<SubAccount> findInProject(UUID projectId, UUID userId) {
         return find("from SubAccount s join fetch s.user where s.userId = ?1 and s.project.id = ?2",
                 userId, projectId).firstResultOptional();

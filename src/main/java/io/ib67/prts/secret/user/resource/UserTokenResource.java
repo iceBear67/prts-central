@@ -17,17 +17,9 @@ import jakarta.ws.rs.core.MediaType;
 import java.util.UUID;
 
 /**
- * The caller's own access token. No {@code @RequirePermission}: like {@code GET /project} these only
- * ever touch the caller, so the identity having a local user is the whole check.
+ * REST endpoint for managing the current user's personal access token.
  *
- * <p>Reachable with a token as well as with a session — that is the equivalence, and for a person
- * rerolling costs nothing that whoever already holds the token could not do anyway. Not so for a
- * sub-account: its token is the only credential it has and its project's owner minted it, so letting
- * the holder reroll it would take the credential away from the owner. A sub-account is refused here
- * and managed from {@code SubAccountResource} only.
- *
- * <p>Reissue is the only write: a token that leaked is replaced, not merely voided, since a person
- * with no token has only the browser flow left.
+ * <p>Note: Sub-account tokens are managed separately through {@code SubAccountResource}.
  */
 @Path("/user/token")
 @Produces(MediaType.APPLICATION_JSON)
@@ -45,7 +37,7 @@ public class UserTokenResource {
                 .orElseThrow(() -> new NotFoundException("no access token has been issued"));
     }
 
-    /** Idempotent in shape, not in value: every call replaces whatever token was there. */
+    /** Issues or regenerates the user's access token. */
     @PUT
     public IssuedTokenView issueToken() {
         var issued = accessTokenService.issue(requireOwnAccount());

@@ -11,18 +11,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * What a job runs. Everything but {@link #secret} is persisted as {@code jsonb} and published in
- * views.
+ * Container execution specification for a job.
  *
- * @param lock   The lock two jobs must never hold at once, scoped to the project the job belongs to;
- *               empty means no mutual exclusion.
- * @param secret The project's secrets in the clear, attached by {@code JobLauncher} to the copy of
- *               the spec that goes to the scheduler and to no other; empty on every other copy.
- *               {@code @JsonIgnore} is what keeps them out of the {@code jsonb} column and out of
- *               every view, so a spec that carries them still cannot leak them. It also keeps them
- *               out of the spec the worker receives, which is why
- *               {@link io.ib67.prts.agent.worker.message.ClientboundMessage.CreateJob} carries a
- *               {@code secrets} field of its own, lifted from here when the message is sent.
+ * @param lock   Mutual exclusion lock name scoped to the project; empty string if no lock is required.
+ * @param secret Decrypted project secrets attached at dispatch time. Excluded from serialization to avoid persistence or exposure.
  */
 public record JobSpec(
         String image,
@@ -34,12 +26,6 @@ public record JobSpec(
         String lock,
         @JsonIgnore Map<String, String> secret
 ) {
-    /**
-     * Nothing here is nullable. A field that a stored row, a template or an override leaves out
-     * arrives as {@code null} and is normalized to its empty value, so no reader has to tell absent
-     * from empty — and a blank lock is the one way to say "not exclusive". The image has no empty
-     * value that means anything, so it is required outright.
-     */
     public JobSpec {
         Objects.requireNonNull(image, "image");
         environment = Objects.requireNonNullElse(environment, Map.of());
@@ -60,14 +46,13 @@ public record JobSpec(
     }
 
     /**
-     * This spec plus {@code secret}. Nothing overrides that field, so attaching the project's
-     * secrets to a spec on its way to a worker is the only way one is ever set.
+     * Returns a copy of this spec with the given secrets attached.
      */
     public JobSpec withSecret(Map<String, String> secret) {
         return new JobSpec(image, environment, labels, command, volumes, timeout, lock, secret);
     }
 
-    /** Hand-written so that {@link #secret} cannot reach a log through a {@code %s}. */
+    // Redacted toString to prevent logging decrypted secret values.
     @Override
     public String toString() {
         return "JobSpec[image=" + image + ", environment=" + environment + ", labels=" + labels
@@ -76,8 +61,7 @@ public record JobSpec(
     }
 
     /**
-     * Every volume must exist and belong to {@code projectId} — not merely to a project the caller is
-     * in: this job's logs and artifacts are readable by everyone who can view <em>its</em> project.
+     * Validates that all requested volumes exist and belong to the specified project.
      */
     public void requireVolumesIn(UUID projectId) {
         if (volumes.isEmpty()) {

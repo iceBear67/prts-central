@@ -31,9 +31,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * Brokers a worker's artifact straight to S3: reserves room against the job's quota, hands out a
- * presigned PUT, and records an {@link Artifact} once the object has landed. The quota spans what has
- * landed (rows) and what is still in flight ({@link #pending}), which is why both halves live here.
+ * Coordinates worker artifact uploads directly to object storage.
+ *
+ * <p>Tracks in-flight uploads against job storage quotas, issues presigned upload URLs,
+ * and records completed artifacts once uploaded.
  */
 @ApplicationScoped
 public class ArtifactService {
@@ -42,7 +43,7 @@ public class ArtifactService {
 
     private Cache<UUID, PendingUpload> pending;
     private final AtomicInteger pendingCount = new AtomicInteger();
-    /** Uploads currently being promoted, so the sweeper and the removal listener never overlap. */
+    /** Upload IDs currently being processed to prevent concurrent promotion or cleanup. */
     private final Set<UUID> promoting = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService sweeper = Executors.newSingleThreadScheduledExecutor(runnable -> {
         var thread = new Thread(runnable, "prts-artifact-upload-sweeper");
@@ -85,8 +86,6 @@ public class ArtifactService {
         var objectKey = destKey(jobId, uploadId, keyFileName(artifactName));
         var expiresAt = Instant.now().plus(storageConfig.presignDuration());
         var session = new PendingUpload(uploadId, jobId, workerId, artifactName, objectKey, sizeBytes, expiresAt);
-        // Flipped inside the transaction, not after it: a commit failure afterwards would otherwise
-        // have both this method and the removal listener decrement the slot count.
         var stored = new AtomicBoolean();
         try {
             QuarkusTransaction.requiringNew().run(() -> {
@@ -113,11 +112,7 @@ public class ArtifactService {
         }
     }
 
-    /**
-     * Drops whatever is still in flight for {@code jobId} and deletes the objects: the job is about to
-     * cease to exist, so the sweeper would otherwise try to promote an upload into a row that is gone.
-     * Through {@link #claimed} like every other path, so a promote cannot race the discard.
-     */
+    /** Cancels in-flight uploads and deletes partial objects for a job. */
     public void discardPendingOf(UUID jobId) {
         for (var session : List.copyOf(pending.asMap().values())) {
             if (jobId.equals(session.jobId())) {
@@ -139,10 +134,7 @@ public class ArtifactService {
         }
     }
 
-    /**
-     * Checks the upload against the job's quota and puts it in {@link #pending} while the job row is
-     * still locked, so two uploads cannot both fit into the same remaining room.
-     */
+    /** Validates the upload against the job's remaining quota under a pessimistic lock. */
     private void reserve(PendingUpload session) {
         lockAssignedOpen(session.jobId(), session.workerId());
         var artifacts = Artifact.listByJob(session.jobId());
@@ -176,11 +168,11 @@ public class ArtifactService {
         return new Reservations(count, bytes);
     }
 
-    /** What the job's still-in-flight uploads already hold against its quota. */
+    /** Active quota reservations for in-flight uploads. */
     private record Reservations(int count, long bytes) {
     }
 
-    /** Idempotent on the object key: the sweeper and the removal listener may both see an upload land. */
+    /** Records an uploaded artifact in the database. */
     private void record(PendingUpload session) {
         QuarkusTransaction.requiringNew().run(() -> {
             var job = lockAssignedOpen(session.jobId(), session.workerId());
@@ -197,7 +189,7 @@ public class ArtifactService {
         });
     }
 
-    /** Only the worker the job was given may attach to it, and only while it is still running. */
+    /** Acquires a pessimistic lock on an open job assigned to the specified worker. */
     private static Job lockAssignedOpen(UUID jobId, UUID workerId) {
         var job = Job.<Job>findById(jobId, LockModeType.PESSIMISTIC_WRITE);
         if (job == null) {
@@ -222,11 +214,7 @@ public class ArtifactService {
         }
     }
 
-    /**
-     * Runs {@code work} only if nothing else is on this upload. The sweeper and the removal listener
-     * (on the common pool) both HEAD-then-insert, and could otherwise promote it twice — or delete
-     * the object after the other thread persisted it.
-     */
+    /** Executes work on an upload session ensuring exclusive access. */
     private void claimed(PendingUpload session, Consumer<PendingUpload> work) {
         if (!promoting.add(session.uploadId())) {
             return;
@@ -292,10 +280,7 @@ public class ArtifactService {
         return "jobs/" + jobId + "/" + uploadId + "/" + fileName;
     }
 
-    /**
-     * The last segment of whatever the worker called the file. Not {@code Path.getFileName()}: the
-     * string is a path on the worker's filesystem, not ours, so either separator may be in play.
-     */
+    /** Extracts a sanitized file name from the worker's suggested file path. */
     static String artifactName(String suggested) {
         if (suggested == null) {
             return "artifact.bin";
@@ -307,10 +292,7 @@ public class ArtifactService {
         return name.length() > 255 ? name.substring(0, 255) : name;
     }
 
-    /**
-     * What of an {@link #artifactName} may sit in an object key. The name is already a basename, so only
-     * the character set and the length are left to settle; cut from the front so the extension survives.
-     */
+    /** Sanitizes and truncates a file name for use in storage object keys. */
     static String keyFileName(String artifactName) {
         var name = artifactName.replaceAll("[^A-Za-z0-9._-]", "_");
         return name.length() > 200 ? name.substring(name.length() - 200) : name;

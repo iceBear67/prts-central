@@ -9,19 +9,15 @@ import java.util.Map;
 public interface SecretConfig {
 
     /**
-     * AES keys by id, each base64 of 16, 24 or 32 bytes — generate one with
-     * {@code openssl rand -base64 32}. The id it was sealed under is part of every stored value, so a
-     * key must stay here for as long as one row still names it: drop it only once
-     * {@code scripts/secrets.py rotate} reports nothing left. No default outside {@code %dev} on
-     * purpose — a deployment that forgets these must fail to start rather than seal secrets with a
-     * key from this repository.
+     * Map of key ID to base64-encoded AES key (16, 24, or 32 bytes).
+     * Existing keys must be retained as long as rows are encrypted with them.
      */
     Map<String, String> keys();
 
-    /** Id in {@link #keys()} that new values are sealed under, and that a rotation re-seals to. */
+    /** Key ID in {@link #keys()} used to encrypt new secrets. */
     String activeKey();
 
-    /** Bound on a single value, so a caller cannot fill the table through this endpoint. */
+    /** Maximum allowed plaintext length for a secret value. */
     @WithDefault("4096")
     int maxValueLength();
 

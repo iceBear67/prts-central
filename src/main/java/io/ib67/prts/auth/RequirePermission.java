@@ -18,15 +18,11 @@ public @interface RequirePermission {
     @Nonbinding
     Perm value();
 
-    /** Allowed even without the permission and without a qualifying project role. */
+    /** Whether access is granted by default if no explicit permission or role matches. */
     @Nonbinding
     boolean defaultValue() default false;
 
-    /**
-     * Project role that stands in for the permission: a caller holding at least this role in the
-     * {@link ProjectId} project is allowed. {@link ProjectRole#NONE} turns the rule off — it is the
-     * absence of a role, so it can never stand in for a grant.
-     */
+    /** Minimum project role that satisfies this permission check. */
     @Nonbinding
     ProjectRole defaultRole() default ProjectRole.NONE;
 

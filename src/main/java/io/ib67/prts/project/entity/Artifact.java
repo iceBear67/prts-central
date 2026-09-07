@@ -25,8 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A file produced by a job. Only the object store key and size are kept here; the bytes live in the
- * object store.
+ * Metadata record for a file produced by a job. The actual content is stored in object storage.
  */
 @Entity
 @Table(name = "artifact", indexes = @Index(name = "idx_artifact_job_id", columnList = "job_id"))
@@ -62,12 +61,12 @@ public class Artifact extends PanacheEntityBase {
         return list("job.id", jobId);
     }
 
-    /** One query for a page of jobs; the caller groups by {@code getJob().getId()}. */
+    /** Finds all artifacts for a batch of jobs. */
     public static List<Artifact> listByJobs(Collection<UUID> jobIds) {
         return jobIds.isEmpty() ? List.of() : list("job.id in ?1", jobIds);
     }
 
-    /** Just the keys: a teardown deletes the objects and never reads the rows it is about to drop. */
+    /** Retrieves all artifact storage keys for a project. */
     public static List<String> listObjectKeysByProject(UUID projectId) {
         return getEntityManager()
                 .createQuery("select a.objectKey from Artifact a where a.job.project.id = ?1", String.class)
@@ -75,7 +74,7 @@ public class Artifact extends PanacheEntityBase {
                 .getResultList();
     }
 
-    /** Same rule as {@code JobService.findInProject}: found by its own id, then kept only if it belongs to the project. */
+    /** Finds an artifact by ID within a specific project. */
     public static Optional<Artifact> findInProject(UUID projectId, UUID artifactId) {
         return find("id = ?1 and job.project.id = ?2", artifactId, projectId).firstResultOptional();
     }

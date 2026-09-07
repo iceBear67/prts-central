@@ -33,9 +33,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * A create request that was authorized and kept, waiting for a worker that can take it. It stores the
- * request rather than a job or a spec: the dispatcher replays it through the same path the endpoint
- * uses, so the merged spec and the project's secrets are produced per attempt and never live here.
+ * Queued job request waiting to be dispatched to an available worker.
  */
 @Entity
 @Table(
@@ -69,19 +67,11 @@ public class PendingJob extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /**
-     * Whose authorization the entry is holding. Kept like {@code Job.worker}, by id and without a FK.
-     * Never absent: {@link PendingJobService#enqueue} refuses a caller it cannot name, so a future
-     * path that queues without a requester fails there rather than storing a blank one here.
-     */
+    /** User ID who requested the job. */
     @Column(name = "requested_by", nullable = false, updatable = false)
     private UUID requestedBy;
 
-    /**
-     * The request as {@link io.ib67.prts.project.JobLauncher#authorize} handed it back, its resource
-     * class pinned — by name only: the two-column reference belongs on what actually runs, and
-     * replaying the name lets {@code ResourceClass.findVisible} apply its shadowing rule again.
-     */
+    /** Authorized job request payload. */
     @Embedded
     @AttributeOverride(name = "resourceClass",
             column = @Column(name = "resource_class", nullable = false, updatable = false, columnDefinition = "varchar"))
@@ -100,7 +90,7 @@ public class PendingJob extends PanacheEntityBase {
     @Column(name = "expires_at", nullable = false, updatable = false)
     private Instant expiresAt;
 
-    /** When the next attempt may run; the backoff that keeps an empty fleet from being retried per tick. */
+    /** Earliest time the next dispatch attempt may run. */
     @Column(name = "next_attempt_at")
     private Instant nextAttemptAt;
 
@@ -108,18 +98,15 @@ public class PendingJob extends PanacheEntityBase {
     @Column(name = "attempts", nullable = false)
     private int attempts = 0;
 
-    /** Why the last attempt did not dispatch, for a requester who is no longer on the line. */
+    /** Error message from the most recent failed dispatch attempt. */
     @Column(name = "last_error", columnDefinition = "varchar")
     private String lastError;
 
-    /** The job the entry became, once one was created and taken. */
+    /** The created Job ID once dispatched. */
     @Column(name = "job_id")
     private UUID jobId;
 
-    /**
-     * Entries an attempt may be made for, oldest first. Locked because the claim that follows is a
-     * check-then-write against a cancel.
-     */
+    /** Retrieves due queued jobs, ordered by creation time. */
     public static List<PendingJob> listDue(Instant now, int limit) {
         return PendingJob.<PendingJob>find(
                         "state = ?1 and nextAttemptAt <= ?2 order by createdAt, id",
@@ -129,27 +116,20 @@ public class PendingJob extends PanacheEntityBase {
                 .list();
     }
 
-    /**
-     * Entries that never became a job, newest first — a dispatched one is listed as its job, and the
-     * job carries its {@code createdAt} from then on.
-     */
+    /** Lists undispatched pending jobs for a project. */
     public static List<PendingJob> listUnplacedByProject(UUID projectId, int limit) {
         return PendingJob.<PendingJob>find("project.id = ?1 and jobId is null order by createdAt desc, id desc", projectId)
                 .page(0, limit)
                 .list();
     }
 
-    /** What the per-project cap counts: entries that still stand to become a job. */
+    /** Counts pending jobs that are currently queued or dispatching for a project. */
     public static long countActive(UUID projectId) {
         return count("project.id = ?1 and state in ?2", projectId,
                 List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
     }
 
-    /**
-     * Everything the project still stands to dispatch, for a project being torn down: a claim taken
-     * after this can find nothing left to place. It does not call back an attempt already in flight —
-     * nothing can — which is why the teardown interrupts the jobs afterwards rather than before.
-     */
+    /** Cancels all active pending jobs for a project. */
     public static int cancelActive(UUID projectId) {
         return update("state = ?1 where project.id = ?2 and state in ?3",
                 PendingJobState.CANCELLED, projectId,
@@ -161,10 +141,7 @@ public class PendingJob extends PanacheEntityBase {
                 PendingJobState.EXPIRED, PendingJobState.QUEUED, now);
     }
 
-    /**
-     * Nothing survives a restart in flight — the worker map is in memory — so a claim left behind by
-     * a previous run is owed another attempt rather than being stuck.
-     */
+    /** Resets any jobs left in DISPATCHING state back to QUEUED after server restart. */
     public static int resetDispatching() {
         return update("state = ?1 where state = ?2",
                 PendingJobState.QUEUED, PendingJobState.DISPATCHING);

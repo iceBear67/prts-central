@@ -6,9 +6,7 @@ import lombok.Getter;
 import java.util.Objects;
 
 /**
- * A presented personal access token. Its own request type rather than quarkus-oidc's
- * {@code TokenAuthenticationRequest}: {@code IdentityProviderManager} dispatches on the exact class,
- * so sharing one would mean two providers claiming the same request.
+ * Authentication request carrying a personal access token.
  */
 @Getter
 public class AccessTokenAuthenticationRequest extends BaseAuthenticationRequest {

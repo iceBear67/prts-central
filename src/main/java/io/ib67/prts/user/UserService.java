@@ -23,7 +23,6 @@ import java.util.stream.Collectors;
 @ApplicationScoped
 public class UserService {
 
-    /** Both beans are normal-scoped, so the cycle with {@link PermissionService} goes through a proxy. */
     @Inject
     PermissionService permissionService;
 
@@ -88,11 +87,7 @@ public class UserService {
         return roleOf(userId, projectId).ordinal() <= required.ordinal();
     }
 
-    /**
-     * Every {@link Perm} the user holds in one project — {@link PermissionService#has} the other way
-     * round, for a caller listing grants rather than asking about one. {@link Permission#GLOBAL} lists
-     * the global ones.
-     */
+    /** Lists all permissions granted to a user within a specific project. */
     public Set<Perm> permissionsOf(UUID userId, UUID projectId) {
         return permissionService.grantsOf(userId).stream()
                 .filter(grant -> projectId.equals(grant.getProjectId()))
@@ -101,14 +96,8 @@ public class UserService {
     }
 
     /**
-     * Declarative, and the counterpart of {@link #grant} for what a role cannot express: whatever the
-     * user held in {@code projectId} is replaced by {@code perms}, and what they hold in another
-     * project is untouched.
-     *
-     * <p>A {@link Perm#global()} one is refused whoever the user is — {@link Permission#idOf} would
-     * scope it to {@link Permission#GLOBAL}, so it would leave the project this is setting. A
-     * sub-account is refused {@link Perm#PROJECT_SUBACCOUNT_MANAGE} on top, which is what stops it
-     * minting further ones.
+     * Sets the user's project permissions to the given set, replacing existing grants in that project.
+     * Global permissions and sub-account management by sub-accounts are disallowed.
      */
     @Transactional
     public void setPermissions(UUID userId, UUID projectId, Collection<Perm> perms) {
@@ -118,7 +107,7 @@ public class UserService {
         permissionService.grantAll(userId, perms, projectId);
     }
 
-    /** Memberships rather than projects, so callers can show the role along with each project. */
+    /** Lists project memberships for a user. */
     public List<UserToProject> listMemberships(UUID userId) {
         return UserToProject.listByUserFetched(userId);
     }
@@ -155,11 +144,8 @@ public class UserService {
     }
 
     /**
-     * Everything the user owns, in the order the foreign keys allow. Their token and, for a
-     * sub-account, the {@link SubAccount} row go with them at the database.
-     *
-     * <p>No external resources of its own: jobs belong to projects, and {@code job.requested_by} is a
-     * bare column with no FK, so deleting whoever asked for a run leaves the run alone.
+     * Deletes a user and their memberships, permissions, identities, and tokens.
+     * Ensures the user is not the sole owner of any project.
      */
     @Transactional
     public boolean delete(UUID userId) {
@@ -188,10 +174,6 @@ public class UserService {
         }
     }
 
-    /**
-     * A sub-account is project property, not a person: giving it a login or a project role would make
-     * it one, and a role would also put it on a roster the last-owner rule counts.
-     */
     private void requireNotSubAccount(UUID userId, String what) {
         if (SubAccount.isSubAccount(userId)) {
             throw new ClientErrorException(
@@ -199,21 +181,14 @@ public class UserService {
         }
     }
 
-    /**
-     * Serializes roster changes on one project. {@link #requireAnotherOwner} counts owners and then
-     * mutates, so without this two owners leaving at the same moment would each see the other and both
-     * succeed, emptying the project of owners.
-     */
+    /** Locks the project row to serialize roster changes and prevent concurrent owner departures. */
     private void lockRoster(UUID projectId) {
         if (Project.findById(projectId, LockModeType.PESSIMISTIC_WRITE) == null) {
             throw new NoSuchElementException("no such project: " + projectId);
         }
     }
 
-    /**
-     * A project whose last owner steps down can never be administered again — no one left could grant
-     * the role back — so both demotion and removal stop here.
-     */
+    /** Ensures the project retains at least one owner. */
     private void requireAnotherOwner(UUID userId, UUID projectId) {
         if (!UserToProject.hasOtherOwner(projectId, userId)) {
             throw new ClientErrorException(

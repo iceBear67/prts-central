@@ -19,40 +19,30 @@ public final class WorkerClient {
     private static final long CREATE_TIMEOUT_SECONDS = 30;
 
     private final WebSocketConnection conn;
-    /**
-     * Acks we are still waiting for, keyed by the id of the <em>attempt</em>. Not by job id: after a
-     * timeout the same job can be offered again, and a late ack for the abandoned attempt must not
-     * be mistaken for an ack of the new one.
-     */
+    // Pending create-job acknowledgments keyed by request ID.
     private final Map<UUID, CompletableFuture<Void>> outstanding = new ConcurrentHashMap<>();
 
-    /**
-     * Unwrapped, not the injected proxy: that one resolves through the WebSocket session context,
-     * which is only active inside a callback for this connection — and every send below happens on a
-     * request or scheduler thread, where it would throw {@code ContextNotActiveException}.
-     */
+    // Unwraps the client proxy so messages can be sent outside the WebSocket request context.
     public WorkerClient(WebSocketConnection conn) {
         this.conn = ClientProxy.unwrap(conn);
     }
 
     /**
-     * Whether this handle speaks over {@code connection} — how a closing socket proves it owns a
-     * session. By id: the argument is the proxy and {@link #conn} is what it stands for.
+     * Checks if this client wraps the given WebSocket connection.
      */
     boolean isFor(WebSocketConnection connection) {
         return conn.id().equals(connection.id());
     }
 
     /**
-     * Asks the worker to run {@code jobId} and blocks until it acknowledges.
+     * Sends a create job request to the worker and blocks until acknowledged.
      */
     public void createJob(UUID jobId, JobSpec spec, ResourceClass resourceClass) {
         var requestId = UUID.randomUUID();
         var future = new CompletableFuture<Void>();
         outstanding.put(requestId, future);
         try {
-            // Secrets are lifted out of the spec by hand: JobSpec#secret() is @JsonIgnore'd, so the
-            // spec on the wire carries none and that field is the only copy the worker gets.
+            // Secrets are extracted explicitly because JobSpec.secret is excluded from serialization.
             var message = new ClientboundMessage.CreateJob(
                     requestId, jobId, spec, resourceClass, spec.secret());
             conn.sendText(message).await().atMost(SEND_TIMEOUT);
@@ -66,8 +56,7 @@ public final class WorkerClient {
     }
 
     /**
-     * Tells the worker to stop {@code jobId}. Not acknowledged: the job is already terminal on our
-     * side, so there is nothing to wait for.
+     * Sends a cancellation request to the worker.
      */
     public void cancelJob(UUID jobId) {
         try {
@@ -78,8 +67,7 @@ public final class WorkerClient {
     }
 
     /**
-     * Tells the worker that {@code jobId} is gone and it should drop everything it holds for it. Not
-     * acknowledged either: there is no row left for an outcome to be reported against.
+     * Instructs the worker to terminate and discard the job immediately.
      */
     public void interruptJob(UUID jobId, String reason) {
         try {
@@ -90,7 +78,6 @@ public final class WorkerClient {
         }
     }
 
-    /** A late ack for an attempt we already gave up on finds nothing here, which is intended. */
     void completeCreate(UUID requestId) {
         var future = outstanding.get(requestId);
         if (future != null) {

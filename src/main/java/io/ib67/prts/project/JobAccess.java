@@ -10,9 +10,7 @@ import jakarta.inject.Inject;
 import java.util.UUID;
 
 /**
- * The answers to "what may this caller see of a job here", for the views whose detail scales with
- * permission instead of splitting into a second endpoint. Each mirrors a {@code @RequirePermission}
- * rule by hand and is kept in one bean so there is one thing to remember when that rule changes.
+ * Evaluates caller permissions for selectively displaying sensitive job details in views.
  */
 @ApplicationScoped
 public class JobAccess {
@@ -22,15 +20,12 @@ public class JobAccess {
     @Inject
     PermissionService permissionService;
 
-    /** The create endpoint's gate: what seeing a stored create request costs. */
+    /** Checks whether the caller is permitted to submit or view job create requests in the project. */
     public boolean mayCreate(UUID projectId) {
         return allows(Perm.JOB_CREATE, projectId, ProjectRole.MEMBER);
     }
 
-    /**
-     * Template content — the spec and resource class — against the id and name every reader gets.
-     * No role stands in: an explicit {@code job:template:read} grant, or {@code admin:all}.
-     */
+    /** Checks whether the caller is permitted to read template specs and resource classes. */
     public boolean mayReadTemplate(UUID projectId) {
         return allows(Perm.JOB_TEMPLATE_READ, projectId, ProjectRole.NONE);
     }

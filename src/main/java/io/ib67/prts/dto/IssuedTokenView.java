@@ -4,8 +4,8 @@ import java.time.Instant;
 import java.util.Objects;
 
 /**
- * The one response that carries a token in the clear. Only what stored it can produce this: the
- * server keeps a hash, so a lost token is rerolled, never recovered.
+ * View returned upon token creation containing the plaintext token value.
+ * Plaintext tokens cannot be retrieved after initial issuance.
  */
 public record IssuedTokenView(String token, Instant issuedAt) {
     public IssuedTokenView {

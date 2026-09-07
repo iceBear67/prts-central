@@ -22,13 +22,10 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A named resource requirement. Workers are matched against these numbers when a job is scheduled.
- * The name is unique within a project, so two projects may each mean their own thing by "large".
+ * Named resource requirement profile used to match jobs to capable workers.
  */
 @Entity
 @Table(name = "resource_class")
-// @IdClass, not @EmbeddedId: the name stays a plain property, so getName() and the JSON the worker
-// receives are unchanged by the project half of the key.
 @IdClass(ResourceClass.Key.class)
 @Getter
 @Setter
@@ -38,11 +35,7 @@ import java.util.UUID;
 @ToString
 public class ResourceClass extends PanacheEntityBase {
 
-    /**
-     * Scope of a class every project may use. The project is part of the primary key and Postgres
-     * cannot key on null, so "no project" is {@link Reserved#ID} — same reason as
-     * {@link io.ib67.prts.user.Permission#GLOBAL}, and the same value.
-     */
+    /** Sentinel project ID for globally accessible resource classes. */
     @JsonIgnore
     public static final UUID GLOBAL = Reserved.ID;
 
@@ -50,7 +43,7 @@ public class ResourceClass extends PanacheEntityBase {
     @Column(name = "name", nullable = false, updatable = false, columnDefinition = "varchar")
     private String name;
 
-    /** The owning project, or {@link #GLOBAL}. Not published: no worker needs to know. */
+    /** Owning project ID, or {@link #GLOBAL}. */
     @Id
     @Column(name = "project_id", nullable = false, updatable = false)
     @JsonIgnore
@@ -73,15 +66,13 @@ public class ResourceClass extends PanacheEntityBase {
         return GLOBAL.equals(projectId);
     }
 
-    /** Null is the global scope everywhere this key is built, as it cannot be stored as one. */
+    /** Returns {@link #GLOBAL} if projectId is null, otherwise returns projectId. */
     public static UUID scopeOf(@Nullable UUID projectId) {
         return projectId == null ? GLOBAL : projectId;
     }
 
     /**
-     * What {@code name} means inside {@code projectId}: the project's own definition, or the global
-     * one when it has none — a project-scoped row shadows a global row of the same name. Nothing
-     * reaches another project's, which is the point of keying on the project at all.
+     * Looks up a resource class visible to the given project, falling back to global definitions.
      */
     public static Optional<ResourceClass> findVisible(@Nullable UUID projectId, String name) {
         var scope = scopeOf(projectId);
@@ -93,10 +84,7 @@ public class ResourceClass extends PanacheEntityBase {
     }
 
     /**
-     * A project's own classes, when the project goes. The project half of the key carries no foreign
-     * key, so nothing else would remove them — but {@code job} and {@code job_spec_template} do
-     * reference the row, so this has to run after those are gone. Refuses {@link #GLOBAL}, which is
-     * not any project's to take with it.
+     * Deletes all resource classes belonging to the specified project.
      */
     public static long deleteByProject(UUID projectId) {
         if (projectId == null || GLOBAL.equals(projectId)) {

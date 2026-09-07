@@ -10,13 +10,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * @param request      what will be posted on the entry's behalf, or {@code null} when the caller may
- *                     not post it. Gated exactly like {@link JobView#createRequest()} — an entry is a
- *                     create that has not happened yet, so seeing the request takes what making one
- *                     takes. Not published to every reader of the queue: the request carries the
- *                     override, whose fields are individually gated on the way in.
- * @param nextAttemptAt when the entry is due again, or {@code null} once it stops moving.
- * @param jobId        the job the entry became, set with {@link PendingJobState#DISPATCHED}.
+ * View representing a queued job pending dispatch.
+ *
+ * @param request       The create request payload, or null if hidden by caller permissions.
+ * @param nextAttemptAt Timestamp when the next dispatch attempt is scheduled.
+ * @param jobId         The resulting Job ID once dispatched.
  */
 public record PendingJobView(
         UUID id,
@@ -42,11 +40,6 @@ public record PendingJobView(
         Objects.requireNonNull(expiresAt, "expiresAt");
     }
 
-    /**
-     * Reads only what a detached entry carries — the project for its id alone, like {@link JobView}.
-     * {@code request} is passed in for the same reason {@code createRequest} is there: whether the
-     * caller may see it is an authorization question, answered at the endpoint.
-     */
     public static PendingJobView of(PendingJob pending, @Nullable CreateJobRequest request) {
         return new PendingJobView(
                 pending.getId(),

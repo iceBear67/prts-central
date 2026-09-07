@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * A volume attached to a {@link Worker}. {@link io.ib67.prts.agent.job.JobSpec#volumes()} keys are these ids.
+ * Storage volume hosted on a worker and allocated to a project.
  */
 @Entity
 @Table(

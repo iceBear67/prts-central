@@ -8,11 +8,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A worker as the roster knows it, with the live session's snapshot when it is connected. Internal
- * scheduling state and the RPC channel stay off this type.
+ * View representing worker registration and current connection status.
  *
- * @param disabled  held back from new jobs, whether or not it is connected.
- * @param connected has a live session right now; {@code info} is null without one.
+ * @param disabled  Whether the worker is paused from receiving new jobs.
+ * @param connected Whether the worker currently maintains an active WebSocket session.
  */
 public record WorkerView(
         UUID id,

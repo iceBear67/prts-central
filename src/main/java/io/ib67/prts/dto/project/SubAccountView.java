@@ -10,8 +10,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A sub-account and what it may do. No address and no role, because it has neither; the permissions
- * are the {@link Perm#permission()} strings, which is what a caller sets them with.
+ * View representing a sub-account and its granted permissions within a project.
  */
 public record SubAccountView(
         UUID userId,
@@ -28,7 +27,6 @@ public record SubAccountView(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
-    /** Reads {@code account.getUser()}, so the row must have been fetched with its user. */
     public static SubAccountView of(SubAccount account, Collection<Perm> permissions) {
         return new SubAccountView(
                 account.getUserId(),

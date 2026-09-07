@@ -35,13 +35,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * A project's sub-accounts: machine principals it owns outright. Everything here is
- * {@link ProjectRole#OWNER} work, because minting one and setting its permissions is handing out
- * access to the project.
- *
- * <p>The token endpoints are the owner's copy of {@code /user/token}, which refuses a sub-account even
- * over its own token — its key is the owner's to issue and reissue, and only from here. There is no
- * revoke without a reissue: a key nobody knows is a locked-out account, not a safer one.
+ * REST endpoint managing project sub-accounts, permissions, and access tokens.
  */
 @Path("/project/{projectId}/subaccount")
 @Produces(MediaType.APPLICATION_JSON)
@@ -71,7 +65,6 @@ public class SubAccountResource {
         projectService.require(projectId);
         var account = subAccountService.create(
                 projectId, request.name().strip(), userContext.require().getId());
-        // Brand new, so it holds nothing yet — no need to read its grants back.
         return SubAccountView.of(account, List.of());
     }
 
@@ -99,7 +92,7 @@ public class SubAccountResource {
         subAccountService.delete(projectId, userId);
     }
 
-    /** Declarative: the body is the complete set, and an empty list takes everything away. */
+    /** Sets the permissions for a sub-account, replacing existing grants. */
     @PUT
     @Path("/{userId}/permission")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -113,9 +106,6 @@ public class SubAccountResource {
         }
         var perms = request.permissions().stream().map(SubAccountResource::perm).distinct().toList();
         subAccountService.setPermissions(projectId, userId, perms);
-        // The set just written, not a read-back: the permission cache is invalidated only once this
-        // transaction commits, so reading it here would answer with what the sub-account held before.
-        // Deduplicated above so it is the set that was stored, not the list as posted.
         return SubAccountView.of(subAccountService.require(projectId, userId), perms);
     }
 
@@ -130,7 +120,7 @@ public class SubAccountResource {
                 .orElseThrow(() -> new NotFoundException("no access token has been issued"));
     }
 
-    /** The plaintext, once. Every call replaces whatever the sub-account was using. */
+    /** Issues or regenerates an access token for the sub-account. */
     @PUT
     @Path("/{userId}/token")
     public IssuedTokenView issueToken(
@@ -140,7 +130,6 @@ public class SubAccountResource {
         return new IssuedTokenView(issued.token(), issued.issuedAt());
     }
 
-    /** Scoped to the project in the path, though a sub-account holds nothing outside it by construction. */
     private SubAccountView view(UUID projectId, SubAccount account) {
         return SubAccountView.of(account, userService.permissionsOf(account.getUserId(), projectId));
     }

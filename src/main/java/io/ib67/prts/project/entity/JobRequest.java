@@ -12,15 +12,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A create request as the domain keeps it: a template and what the caller asked to change about it.
- * It is what {@link Job} and {@link io.ib67.prts.pending.PendingJob} store and what
- * {@link JobLauncher} takes; the wire shape is {@code CreateJobRequest}.
+ * Internal representation of a job creation request.
  *
- * @param override      the fields to change on the template's spec, each gated on its own permission
- * @param resourceClass by name, resolved against the project on every use so the shadowing rule
- *                      applies then; {@code null} defers to the template's. Gated only when it
- *                      deviates from the template's — see {@link JobLauncher#authorize}, which pins
- *                      it to the resolved one.
+ * @param templateId    ID of the job template to instantiate
+ * @param override      optional field overrides for the template spec
+ * @param resourceClass optional name of the resource class to run on; if null, defaults to the template's class
  */
 @Embeddable
 public record JobRequest(

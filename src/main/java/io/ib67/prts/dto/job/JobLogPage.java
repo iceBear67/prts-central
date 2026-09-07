@@ -8,8 +8,7 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A window of log lines. {@code length} echoes the requested window, so fewer {@code items} than
- * that means the end has been reached — no total is computed, which would cost a second query.
+ * Paginated slice of job execution logs.
  */
 public record JobLogPage(
         List<JobLogView> items,

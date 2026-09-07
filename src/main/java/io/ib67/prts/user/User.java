@@ -20,11 +20,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A local account. Login credentials live in {@link OAuthIdentity}; this table only holds profile
- * data, so a user may be linked to several identity providers.
+ * Represents a local user account in the system.
  */
 @Entity
-// "user" is reserved in PostgreSQL, so the name stays quoted exactly as in import.sql.
 @Table(name = "prts_user")
 @Getter
 @Setter
@@ -49,11 +47,7 @@ public class User extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /**
-     * The schema does not declare {@code email} unique, so this deliberately returns the first
-     * match instead of failing on duplicates. A blank address is nobody: sub-accounts carry one
-     * because they have no address and the column is not null, and they must not be resolvable by it.
-     */
+    /** Finds a user by email address, ignoring blank emails. */
     public static Optional<User> findByEmail(String email) {
         return email == null || email.isBlank()
                 ? Optional.empty()

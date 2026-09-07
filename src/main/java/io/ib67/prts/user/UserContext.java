@@ -13,10 +13,7 @@ public class UserContext {
         return identity.getAttribute(User.class.getName());
     }
 
-    /**
-     * For endpoints that act on the caller themselves and so carry no {@code @RequirePermission} to
-     * refuse an identity with no local user.
-     */
+    /** Returns the authenticated user or throws {@link UnauthorizedException} if not logged in. */
     public User require() {
         var user = get();
         if (user == null) {

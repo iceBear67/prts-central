@@ -21,9 +21,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * The queue in front of the job launcher. Its whole point is where the authorization happens: a
- * request is cleared by the endpoint, in the call the requester made, and replayed later by
- * {@link PendingJobDispatcher} through the very path that cleared it.
+ * Service managing the lifecycle, queuing, and state transitions of pending jobs.
  */
 @ApplicationScoped
 public class PendingJobService {
@@ -36,17 +34,11 @@ public class PendingJobService {
     JobConfig jobConfig;
 
     /**
-     * Keeps a request the caller has already had authorized, which is only sound from the request it
-     * arrived in — what it may ask for has to be settled while the requester is still on the line,
-     * since nothing the dispatcher does later could ask them. Taken on trust: the type cannot tell an
-     * authorized request from any other.
+     * Enqueues an authorized job request to be dispatched when a worker is available.
      */
     public PendingJob enqueue(UUID projectId, JobRequest authorized) {
         var user = userContext.get();
         if (user == null) {
-            // Unreachable from the one caller today, which @RequirePermission has already refused an
-            // identity with no local user. Here so the first path that queues off a request without
-            // one fails at the seam instead of storing an entry nobody is holding.
             throw new IllegalStateException("enqueue needs a requester; no user on this context");
         }
         var config = jobConfig.pending();
@@ -72,16 +64,13 @@ public class PendingJobService {
         });
     }
 
-    /** Same rule as jobs: found by its own id, then kept only if it belongs to the project. */
     public Optional<PendingJob> findInProject(UUID projectId, UUID pendingId) {
         return PendingJob.<PendingJob>findByIdOptional(pendingId)
                 .filter(pending -> pending.getProject().getId().equals(projectId));
     }
 
     /**
-     * Drops a queued entry. Locked because {@link #claimDue} takes the same rows: an entry whose
-     * attempt is already in flight cannot be called back, so cancelling it is a conflict rather than
-     * a race — the job it produces is cancellable on its own.
+     * Cancels a queued pending job if it has not yet started dispatching.
      */
     @Transactional
     public PendingJob cancel(UUID projectId, UUID pendingId) {
@@ -98,9 +87,7 @@ public class PendingJobService {
     }
 
     /**
-     * Takes up to {@code limit} due entries off the queue for the dispatcher, marking them
-     * {@link PendingJobState#DISPATCHING} so nothing else acts on them, and answering with what an
-     * attempt needs — the entities do not outlive this transaction.
+     * Claims up to {@code limit} due pending jobs, transitioning them to DISPATCHING state.
      */
     @Transactional
     public List<Attempt> claimDue(int limit) {
@@ -116,10 +103,7 @@ public class PendingJobService {
                 .toList();
     }
 
-    /**
-     * A claimed entry, detached: the request as it was authorized, and who it was authorized for —
-     * the only place that survives, since the dispatcher runs on a thread with no requester of its own.
-     */
+    /** Value object representing a claimed pending job ready for a dispatch attempt. */
     public record Attempt(UUID id, UUID projectId, UUID requestedBy, JobRequest request) {
         public Attempt {
             Objects.requireNonNull(id, "id");
@@ -139,7 +123,7 @@ public class PendingJobService {
         });
     }
 
-    /** Back in line, later each time: an empty fleet must not cost a dispatch attempt per tick. */
+    /** Requeues a pending job with backoff after an unplaced attempt. */
     @Transactional
     public void requeue(UUID pendingId, String reason) {
         inFlight(pendingId).ifPresent(pending -> {
@@ -160,12 +144,7 @@ public class PendingJobService {
         });
     }
 
-    /**
-     * The entry an attempt may still conclude. Only {@link PendingJob#cancelActive} moves an entry off
-     * {@link PendingJobState#DISPATCHING} from outside its attempt, and that entry's project is being
-     * deleted: its outcome is not owed to anyone, and writing it would put a cancelled entry back in
-     * line if the delete then fails.
-     */
+    /** Finds a pending job that is currently in the DISPATCHING state. */
     private static Optional<PendingJob> inFlight(UUID pendingId) {
         return PendingJob.<PendingJob>findByIdOptional(pendingId)
                 .filter(pending -> pending.getState() == PendingJobState.DISPATCHING);
@@ -183,8 +162,6 @@ public class PendingJobService {
 
     private Duration backoff(int attempts) {
         var config = jobConfig.pending();
-        // Shifted, not raised to a power: attempts is unbounded and the doubling has to stop before
-        // the multiplication does.
         var doubled = config.backoff().multipliedBy(1L << Math.min(attempts - 1, 32));
         return doubled.compareTo(config.maxBackoff()) > 0 ? config.maxBackoff() : doubled;
     }

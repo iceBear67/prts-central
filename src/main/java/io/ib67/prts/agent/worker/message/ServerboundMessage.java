@@ -10,9 +10,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Every required component is checked in the canonical constructor, so a message that would carry a
- * hole into the database or the scheduler fails to decode instead. A decode failure reaches the
- * worker as a {@code Response} — see {@code WorkerWebSocket.onError}.
+ * Messages sent from workers to the central control plane over WebSocket.
  */
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
@@ -28,12 +26,6 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ServerboundMessage.UploadArtifactRequest.class, name = "uploadArtifactRequest"),
 })
 public sealed interface ServerboundMessage {
-    /**
-     * @param workerId not {@code id}: that name is taken by the type property above, which Jackson
-     *                 consumes to pick the subtype and — {@code visible} being false — never binds,
-     *                 so a component of that name would arrive null on every register.
-     * @param info     {@code null} means unbounded resources and no pending work we know of.
-     */
     record Register(UUID workerId, String name, @Nullable RegisteredWorker.Info info)
             implements ServerboundMessage {
         public Register {
@@ -42,7 +34,6 @@ public sealed interface ServerboundMessage {
         }
     }
 
-    /** Only the job is required: a line may carry no topic and no text, and an absent error is false. */
     record UpdateJobLog(UUID jobId, @Nullable String topic, @Nullable String message, @Nullable Boolean error)
             implements ServerboundMessage {
         public UpdateJobLog {
@@ -57,8 +48,7 @@ public sealed interface ServerboundMessage {
     }
 
     /**
-     * Acknowledges {@code ClientboundMessage.CreateJob}. Carries no job id: the job is identified by
-     * the one we sent, and {@code requestId} identifies which attempt is being acknowledged.
+     * Acknowledges receipt of a job creation request.
      */
     record JobCreated(UUID requestId) implements ServerboundMessage {
         public JobCreated {

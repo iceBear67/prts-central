@@ -25,7 +25,7 @@ public class WorkerWebSocket {
     @Inject
     ArtifactService artifactService;
 
-    /** Blocking: unregistering fails the jobs this worker owed us an outcome for, which touches the DB. */
+    // Disconnecting unregisters the worker and fails any orphaned running jobs.
     @OnClose
     @Blocking
     public void onClose() {
@@ -51,11 +51,7 @@ public class WorkerWebSocket {
         };
     }
 
-    /**
-     * A message whose required fields are missing fails in the decoder, before any handler runs —
-     * without this the connection would simply be closed, and a worker still sending {@code workerId}
-     * as {@code "id"} would never learn why. Also catches whatever escapes a handler.
-     */
+    // Handles decoding and handler errors, returning an error response to the worker.
     @OnError
     public ClientboundMessage onError(Throwable error) {
         LOG.errorf(error, "cannot handle a message from worker %s",

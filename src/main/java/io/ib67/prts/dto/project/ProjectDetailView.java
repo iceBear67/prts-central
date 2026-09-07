@@ -8,11 +8,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * One project in full, for a caller who may read it.
+ * Detailed view of a project including membership and job counts.
  *
- * @param role   the caller's own role, {@link ProjectRole#NONE} when they are not on the roster.
- * @param access what let the caller in — on the roster, or past it: an {@code admin:all} holder sees
- *               every project, and a {@code project:read} grant one they are not a member of.
+ * @param role   The caller's role in the project, or {@link ProjectRole#NONE} if not a direct member.
+ * @param access The authorization basis allowing the caller to view the project.
  */
 public record ProjectDetailView(
         UUID id,
@@ -34,9 +33,11 @@ public record ProjectDetailView(
     public enum Access { MEMBER, ADMIN, PERMISSION }
 
     /**
-     * @param total   jobs the caller would see listed.
-     * @param running of those, the ones not finished — handed to a worker, or running on one.
-     * @param queued  queue entries still waiting to become a job.
+     * Aggregated job statistics for the project.
+     *
+     * @param total   Total visible jobs.
+     * @param running Currently executing jobs.
+     * @param queued  Jobs pending dispatch in the queue.
      */
     public record Jobs(long total, long running, long queued) {
     }

@@ -28,9 +28,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * One named secret of one project, keyed by {@code (project_id, name)} — the name is unique within a
- * project and is the handle every endpoint addresses it by, so there is no surrogate id to publish.
- * The value is only ever here sealed by {@link SecretCipher}.
+ * An encrypted secret key-value pair belonging to a project, keyed by {@code (projectId, name)}.
  */
 @Entity
 @Table(name = "project_secret")
@@ -50,11 +48,10 @@ public class ProjectSecret extends PanacheEntityBase {
     @ToString.Exclude
     private Project project;
 
-    /** What the name is for, for whoever writes a job against it. Never the value. */
     @Column(name = "description", columnDefinition = "varchar")
     private String description;
 
-    /** Sealed, and excluded from {@code toString} so no log line can carry even the ciphertext. */
+    /** Ciphertext encrypted using {@link SecretCipher}. */
     @Column(name = "cipher_text", nullable = false, columnDefinition = "varchar")
     @ToString.Exclude
     private String cipherText;
@@ -76,7 +73,6 @@ public class ProjectSecret extends PanacheEntityBase {
         return secret;
     }
 
-    /** Ordered by name: the primary key is already {@code (project_id, name)}. */
     public static List<ProjectSecret> listByProject(UUID projectId) {
         return list("id.projectId", Sort.by("id.name"), projectId);
     }

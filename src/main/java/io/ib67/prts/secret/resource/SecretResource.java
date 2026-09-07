@@ -29,19 +29,13 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * A project's secrets. Listing them takes {@link ProjectRole#MEMBER}, since whoever writes a job has
- * to know which names exist and what they are for; creating, updating and deleting takes
- * {@link ProjectRole#OWNER}. Nothing here reads a value back — a stored secret is only reachable by
- * the dispatcher.
+ * REST endpoint managing project secret metadata and updates.
  */
 @Path("/project/{projectId}/secret")
 @Produces(MediaType.APPLICATION_JSON)
 public class SecretResource {
 
-    /**
-     * Secrets are destined for a job's environment, so a name is held to that shape rather than to
-     * whatever survives a URL path.
-     */
+    /** Valid environment variable style secret name pattern. */
     private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
 
     @Inject
@@ -70,7 +64,6 @@ public class SecretResource {
                 projectId, request.name(), description(request.description()), checkSecretForm(request.value())));
     }
 
-    /** Partial: a field left out stays as it is, so leaving both out asks for nothing. */
     @PATCH
     @Path("/{name}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -110,7 +103,6 @@ public class SecretResource {
         return value;
     }
 
-    /** Stripped and bounded; blank stays blank, which the service reads as no description. */
     @Nullable
     private String description(@Nullable String description) {
         if (description == null) {

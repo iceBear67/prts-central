@@ -8,13 +8,11 @@ import lombok.*;
 public class RegisteredWorker {
     protected final String name;
     protected final WorkerClient rpc;
-    /**
-     * {@code null} means this worker has unbounded resources and no pending work we know of.
-     */
+    /** Null indicates unbounded resources and no pending jobs. */
     @Setter
     @Nullable
     protected Info info;
-    /** Mirror of {@link io.ib67.prts.agent.worker.entity.Worker#isDisabled()}, so selection needs no read. */
+    /** Cached disabled state from the database. */
     @Setter
     protected volatile boolean disabled;
 
@@ -28,19 +26,16 @@ public class RegisteredWorker {
         return info == null ? 0 : info.getPending();
     }
 
-    /**
-     * Snapshot a worker reports about itself. {@link #current} and {@link #capacity} are siblings;
-     * {@link #pending} is the worker's own count so a reconnect can replace our view wholesale.
-     */
+    /** Resource snapshot reported by the worker. */
     @Data
     @Builder
     @NoArgsConstructor
     @AllArgsConstructor
     public static class Info {
-        /** Remaining resources. {@code null} together with a null {@link #capacity} means unbounded. */
+        /** Remaining available resources. */
         @Nullable
         protected Resources current;
-        /** Physical maximum. {@code null} means this worker accepts any {@link ResourceClass}. */
+        /** Total resource capacity. Null indicates unlimited. */
         @Nullable
         protected Resources capacity;
         protected int pending;

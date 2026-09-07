@@ -38,7 +38,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * One run of a project.
+ * Represents a single job execution within a project.
  */
 @Entity
 @Table(
@@ -56,7 +56,7 @@ import java.util.UUID;
                 )
         }
 )
-// @DynamicUpdate: writers touching different columns must not revert each other's field.
+// DynamicUpdate prevents concurrent field updates from overwriting each other.
 @DynamicUpdate
 @Getter
 @Setter
@@ -97,11 +97,7 @@ public class Job extends PanacheEntityBase {
     @ToString.Exclude
     private JobSpec spec;
 
-    /**
-     * What the job runs under, resolved at create time from the request or, failing that, the
-     * template. Eager because every view of a job publishes its name and callers map jobs after
-     * their transaction closed; the row is a tiny immutable lookup and the join is inner.
-     */
+    /** The resource class assigned to this job, resolved at creation time. */
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumns({
             @JoinColumn(name = "resource_class", referencedColumnName = "name", nullable = false),
@@ -111,20 +107,11 @@ public class Job extends PanacheEntityBase {
     @ToString.Exclude
     private ResourceClass resourceClass;
 
-    /**
-     * The template the job was made from, with {@link #createOverride} the part of the create request
-     * that is not recoverable from the job itself — see {@link #toRequest()}. Null means some other
-     * path made the job and there is nothing to replay.
-     */
+    /** Template ID used to create this job, or {@code null} if not created from a template. */
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
 
-    /**
-     * Who asked for the job, carried over from the queue entry that produced it — the dispatcher
-     * thread has no requester of its own, so not passing it here loses it for good. Kept by id
-     * without a FK, like {@link #worker}. Deliberately not part of {@link JobRequest}: a re-run is
-     * requested by whoever posts it back, and putting this in the request would let them say otherwise.
-     */
+    /** User ID of the requester. */
     @Column(name = "requested_by", nullable = false, updatable = false)
     private UUID requestedBy;
 
@@ -134,10 +121,7 @@ public class Job extends PanacheEntityBase {
     private JobSpecOverride createOverride;
 
     /**
-     * The request that reproduces this job, for the client to post back to {@code POST .../job} — how a
-     * re-run goes through the same gates as the original. The resource class is the one that actually
-     * ran, not what the requester typed: naming it pins the re-run to it even if the template has moved
-     * on since. {@code null} when there is nothing to replay. Reads only what a detached job carries.
+     * Constructs a {@link JobRequest} to re-run this job, or {@code null} if this job cannot be replayed.
      */
     @Nullable
     public JobRequest toRequest() {
@@ -145,8 +129,7 @@ public class Job extends PanacheEntityBase {
     }
 
     /**
-     * Moves the job to {@code next} and keeps {@link #completedAt} aligned with the check
-     * constraint: set on terminal states, cleared otherwise.
+     * Transitions the job to the specified state and updates {@link #completedAt} accordingly.
      */
     public void transitionTo(JobState next) {
         this.state = Objects.requireNonNull(next, "state");
@@ -157,15 +140,11 @@ public class Job extends PanacheEntityBase {
         return state != null && state.isTerminal();
     }
 
-    /**
-     * A {@code PENDING} job with no worker is an attempt still deciding where to put it — or one a
-     * crash left behind, see TODO.md — and either way not something to show a reader yet: the queue
-     * entry is what stands for it until {@code claimJob} hands it over.
-     */
+    // Only jobs that have been assigned to a worker or are no longer pending are visible to readers.
     private static final String VISIBLE_ROW = "(state <> :pending or worker is not null)";
     private static final String VISIBLE = "project.id = :project and " + VISIBLE_ROW;
 
-    /** Newest first. */
+    /** Lists visible jobs for a project in reverse chronological order. */
     public static List<Job> listVisibleByProject(UUID projectId, int limit) {
         return find(VISIBLE + " order by createdAt desc, id desc",
                 Map.of("project", projectId, "pending", JobState.PENDING))
@@ -173,13 +152,7 @@ public class Job extends PanacheEntityBase {
                 .list();
     }
 
-    /**
-     * Both counts a project view shows, off one pass: they walk the same rows of the same index, so
-     * two queries would read every one of them twice.
-     *
-     * @param visible jobs {@link #listVisibleByProject} would list.
-     * @param running of those, the ones not yet done: handed to a worker, or running on one.
-     */
+    /** Job count summary for a project. */
     public record Counts(long visible, long running) {
     }
 
@@ -195,12 +168,12 @@ public class Job extends PanacheEntityBase {
         return new Counts((long) row[0], (long) row[1]);
     }
 
-    /** Jobs still to be stopped before the project can go: not yet placed, or running somewhere. */
+    /** Lists all uncompleted (PENDING or RUNNING) jobs for a project. */
     public static List<Job> listOpenByProject(UUID projectId) {
         return list("project.id = ?1 and state in ?2", projectId, List.of(JobState.PENDING, JobState.RUNNING));
     }
 
-    /** Jobs a worker still owes us an outcome for; used to fail them when it disconnects. */
+    /** Lists all uncompleted jobs assigned to a worker. */
     public static List<Job> listOpenByWorker(UUID workerId) {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
     }
