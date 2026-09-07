@@ -96,7 +96,7 @@ public class JobLock extends PanacheEntityBase {
     }
 
     /**
-     * Releases any lock held by the given job.
+     * Releases the lock held by the given job, if any — at most one, since {@code job_id} is unique.
      */
     public static void releaseBy(UUID jobId) {
         delete("job.id", jobId);

@@ -17,6 +17,7 @@ import static io.ib67.prts.testing.Fixtures.inTx;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -137,15 +138,19 @@ class JobLockE2ETest {
         assertEquals(holder, holderOf("deploy"));
     }
 
+    /**
+     * {@code releaseBy} deletes by job and its javadoc says "any lock", which reads as if a job could
+     * hold several names. It cannot: {@code job_id} is unique, and {@code JobSpec.lock} is one name, so
+     * a second name for the same job is unreachable from {@code WorkerScheduler} and the schema is what
+     * says so. The bulk delete is still the right shape — it just always frees one row or none.
+     */
     @Test
-    void releasingFreesEveryNameTheJobHolds() {
+    void aJobHoldsAtMostOneName() {
         var holder = job(JobState.RUNNING);
-        acquire("deploy", holder);
-        acquire("publish", holder);
+        assertTrue(acquire("deploy", holder));
 
-        inTx(() -> JobLock.releaseBy(holder));
-
-        assertNull(holderOf("deploy"));
+        assertThrows(RuntimeException.class, () -> acquire("publish", holder));
+        assertEquals(holder, holderOf("deploy"));
         assertNull(holderOf("publish"));
     }
 

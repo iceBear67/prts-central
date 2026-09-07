@@ -130,7 +130,7 @@ opening, truncated and non-base64 envelopes).
 race), `PendingJobDispatcherTest`, `JobLauncherTest`. `JobLauncher.launch()` itself is out of reach —
 `job.persist()` is inherited — so the test covers `authorize()`, which is where the gating lives.
 
-**Tier C — 14 classes, 192 tests.** Two beans carry it: `io.ib67.prts.testing.DatabaseCleaner` (TRUNCATE,
+**Tier C — 14 classes, 193 tests.** Two beans carry it: `io.ib67.prts.testing.DatabaseCleaner` (TRUNCATE,
 since `@TestTransaction` cannot undo a `requiringNew()` commit) and `Fixtures` (actors with a PAT,
 projects, memberships, and a row for every entity a test needs). `ProjectResourceE2ETest` is the worked
 example — the permission matrix of one resource over the real PAT chain, `@BeforeEach` truncating.
