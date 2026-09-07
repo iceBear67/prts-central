@@ -31,6 +31,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/secrets.md](agent-docs/secrets.md) | project secrets, the seal format, key rotation |
 | [agent-docs/project-deletion.md](agent-docs/project-deletion.md) | `ProjectService.delete` or anything it tears down |
 | [agent-docs/transactions.md](agent-docs/transactions.md) | adding a transaction boundary around an RPC |
+| [agent-docs/testing.md](agent-docs/testing.md) | writing a test, or changing anything that decides which tier one can live in |
 | [TODO.md](TODO.md) | known gaps left open on purpose, and what closing each would take |
 
 ### Package map
@@ -57,6 +58,12 @@ These groupings move; **do not hand-build a path from this table**, look the cla
 
 **There is no JDK on the shell `PATH`**, so `./gradlew ...` fails from Bash — build and lint through
 the IntelliJ MCP tools. Details in [agent-docs/build-and-run.md](agent-docs/build-and-run.md).
+
+**Tier C (`@Tag("e2e")`) is not run locally — it is CI's job.** It needs containers, the container
+daemon here is rootful and the developer is deliberately not in the `docker` group, so there is no way
+to run it that does not involve `sudo`. Do not ask for one. `./gradlew test` (tiers A and B, no
+containers) is the local signal; write tier C tests, then let CI execute them. See
+[agent-docs/testing.md](agent-docs/testing.md).
 
 The agent also runs **sandboxed and isolated from the host environment**: a path the IDE can see is not
 necessarily readable from Bash, and Gradle caches, JDKs and dependency jars generally are not. **Prefer

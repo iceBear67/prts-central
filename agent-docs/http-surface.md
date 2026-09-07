@@ -2,8 +2,10 @@
 
 ## Paths and gating
 
-`quarkus.rest.path` is `/api` and the policies in `application.yml` match it (`/api/*` → authenticated
-OIDC; `/ws/worker` → `worker-token`). Measured: `/api/project` → 302, `/project` → 404. Note
+`quarkus.rest.path` is `/api` and the policies in `application.yml` match it (`/api/*` → authenticated,
+no mechanism pinned; `/ws/worker` → `worker-token`). Measured: `/project` → 404. What `/api/project`
+answers depends on which mechanism took it — 302 under OIDC, 401 for a bad token, 200 uncredentialed
+under dev auto-login ([authorization.md](authorization.md)). Note
 `@ApplicationPath` only counts on a `jakarta.ws.rs.core.Application` subclass — adding one with `"/"`
 would move every endpoint off `/api` and silently un-gate it.
 

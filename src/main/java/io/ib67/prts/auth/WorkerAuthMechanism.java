@@ -15,13 +15,15 @@ import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class WorkerAuthMechanism implements HttpAuthenticationMechanism {
+    static final String HEADER = "X-Worker-Token";
+
     @Inject
     WorkerConfig workerConfig;
 
     @Override
     public Uni<SecurityIdentity> authenticate(RoutingContext context, IdentityProviderManager identityProviderManager) {
         String token =
-                context.request().getHeader("X-Worker-Token");
+                context.request().getHeader(HEADER);
         if (token == null ){
             return Uni.createFrom().nullItem();
         }
@@ -50,7 +52,7 @@ public class WorkerAuthMechanism implements HttpAuthenticationMechanism {
     public Uni<HttpCredentialTransport> getCredentialTransport(RoutingContext context) {
         return Uni.createFrom().item(new HttpCredentialTransport(
                 HttpCredentialTransport.Type.OTHER_HEADER,
-                "X-Worker-Token",
+                HEADER,
                 "worker-token"
         ));
     }

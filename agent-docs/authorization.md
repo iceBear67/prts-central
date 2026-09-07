@@ -4,7 +4,10 @@
 
 See `application.yml` `quarkus.http.auth.permission`.
 
-- **Humans**: OIDC authorization-code flow against a Gitea instance. `UserIdentityAugmenter` resolves
+- **Humans**: OIDC authorization-code flow against a Gitea instance, configured entirely from the
+  environment — `application.yml` holds no `quarkus.oidc.*` outside the `enabled: false` that `%dev` and
+  `%test` pin, so a deployment supplies `auth-server-url`, `client-id` and the secret the way it
+  supplies `DB_URL`. `UserIdentityAugmenter` resolves
   `(issuer, subject)` to a local `User` via `OAuthIdentity` and stashes it as an identity attribute;
   `UserContext.get()` reads it back. **First login registers**: it reads `iss`/`sub` and the
   `email` / `name` / `preferred_username` claims off the ID token and calls `UserService.provision`.
@@ -33,6 +36,16 @@ See `application.yml` `quarkus.http.auth.permission`.
   `authenticated` with no mechanism pinned, while `/ws/worker` pins `worker-token`, so a PAT cannot
   reach it. There is no revoke, only the `PUT` that reissues: a token nobody knows is a locked-out
   account, not a safer one, and a sub-account has no other credential.
+- **Dev auto-login**: `DevAuthMechanism` (priority `1200`, under the PAT mechanism's `1500`, so a
+  presented credential still decides) logs a request carrying neither `Authorization` nor
+  `X-Worker-Token` in as the `ADMIN_OF_ALL` user `DevAdminSeeder` mints at startup — so `%dev` needs no
+  provider and no client secret in the repository. It authenticates by handing the seeded token to the
+  PAT chain rather than building an identity, which keeps the two indistinguishable and inherits the
+  provider's `runBlocking`. Both beans are gated on `@IfBuildProfile("dev")` **and**
+  `quarkus.oidc.enabled == false`, both build-time, so neither is built into `%prod` at all. `%dev`
+  carries no provider config — it pins OIDC off and leaves the real chain to a PAT — so the second
+  condition only bites if someone switches OIDC on to debug the browser flow, which is exactly when
+  auto-login would otherwise answer before the login redirect could.
 
 ## Layers
 

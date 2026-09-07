@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__idea__build_project"
+    ]
+  }
+}

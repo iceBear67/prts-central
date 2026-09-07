@@ -14,9 +14,6 @@ quarkus:
         maximum-size: 10000
   datasource:
     db-kind: postgresql
-    # Points at a local PostgreSQL, so Dev Services does not start one. S3 is left to Dev Services.
-    jdbc:
-      url: "jdbc:postgresql://localhost:5432/?user=postgres&password=12345aa"
   s3:
     # Dev Services starts LocalStack unless endpoint-override is set; create the default work bucket.
     devservices:
@@ -41,25 +38,23 @@ quarkus:
 
 "%dev":
   quarkus:
+    datasource:
+      # No jdbc.url on purpose — a URL is exactly what stops Dev Services from starting a container, and
+      # here it should start one. Everything below is pinned only so `psql -h localhost -U prts prts`
+      # keeps working; without it the port is random and the credentials are Quarkus' defaults.
+      devservices:
+        port: 5432
+        db-name: prts
+        username: prts
+        password: prts
+        # The container dies with the dev process, so `update` below always meets an empty schema. To
+        # keep data across restarts instead: `reuse: true` here plus `testcontainers.reuse.enable=true`
+        # in ~/.testcontainers.properties.
+    # No provider in dev: DevAuthMechanism logs uncredentialed requests in as the DevAdminSeeder admin,
+    # and a PAT exercises the real chain. Left enabled it would find no auth-server-url and Dev Services
+    # would pull a Keycloak container.
     oidc:
-      # The issuer base URL, not the authorization endpoint: Quarkus discovers the endpoints from
-      # <auth-server-url>/.well-known/openid-configuration.
-      auth-server-url: "https://git.sfclub.cc"
-      client-id: "df2b6625-6b4f-4c1a-829d-41e6861deb14"
-      credentials:
-          secret: "gto_5n2mulz7xzm5ylrgbczekgx2f3dup7xdjz2jmgudnseokmvhlhra"
-      # Server-side authorization code flow with a session cookie.
-      application-type: web-app
-      authentication:
-        # openid is always requested; these two populate the name/email claims that
-        # OidcUserProvisioner needs to register a new user.
-        scopes:
-          - profile
-          - email
-        # Must match the redirect URI registered on the Gitea OAuth application exactly.
-        redirect-path: /auth/callback
-        # Send the user back to the page they originally requested after login.
-        restore-path-after-redirect: true
+      enabled: false
     hibernate-orm:
       schema-management:
         strategy: update
@@ -74,6 +69,35 @@ quarkus:
     active-key: v1
     keys:
       v1: "pyyrg0gJ06CIW+ryutiDTJCNStt4b/kg/mKLkRnsb/o="
+
+# Tiers A and B never read this file. Everything here exists so a @QuarkusTest can boot; Postgres and
+# LocalStack come from Dev Services, so nothing is pinned and nothing is started by hand. See
+# agent-docs/testing.md.
+"%test":
+  quarkus:
+    # Neither the datasource nor S3 is configured here: a URL or an endpoint-override would be read as
+    # "something is already running", and Dev Services would then start nothing.
+    hibernate-orm:
+      schema-management:
+        strategy: drop-and-create
+    # No profile configures an auth-server-url any more, so the extension would fail startup. Tests
+    # authenticate with a personal access token; dev's auto-login is @IfBuildProfile("dev") and so is
+    # not built here, which is what keeps the permission matrix from passing as an admin.
+    oidc:
+      enabled: false
+    # user-permissions caches grants for 5 minutes, so a grant made mid-test would not be observed.
+    cache:
+      enabled: false
+  worker:
+    secret: "test-worker-secret"
+  secret:
+    active-key: v1
+    keys:
+      v1: "bWD/ecNZjAl4DWA6IGn8oB6DH8jpM508NP5zhzwTC/A="
+  job:
+    pending:
+      # Frozen: the dispatcher must not tick on its own during a test. Drive tick() by hand.
+      interval: PT24H
 
 "%prod":
   quarkus:

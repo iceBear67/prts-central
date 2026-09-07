@@ -30,6 +30,8 @@ dependencies {
     implementation 'io.quarkus:quarkus-hibernate-orm'
     testImplementation 'io.quarkus:quarkus-junit'
     testImplementation 'io.rest-assured:rest-assured'
+    // Brings mockito-core, whose default (inline) mock maker is what mockStatic needs.
+    testImplementation 'io.quarkus:quarkus-junit-mockito'
     implementation("io.quarkus:quarkus-websockets-next")
 }
 
@@ -48,4 +50,29 @@ compileJava {
 
 compileTestJava {
     options.encoding = 'UTF-8'
+    options.compilerArgs << '-parameters'
+}
+
+// Tier C is opted into either by running `e2eTest` or by passing -Pe2e; see agent-docs/testing.md.
+// The task names have to be read from the start parameter because the tag filter below is fixed at
+// configuration time, long before the task graph exists.
+def e2eRequested = project.hasProperty('e2e') ||
+        gradle.startParameter.taskNames.any { it.tokenize(':').last() == 'e2eTest' }
+
+test {
+    useJUnitPlatform {
+        if (!e2eRequested) {
+            excludeTags 'e2e'
+        }
+    }
+}
+
+/**
+ * Tier C on top of tiers A and B. Dev Services starts Postgres and LocalStack, so this needs a usable
+ * Docker daemon and nothing else; plain `test` stays container-free.
+ */
+tasks.register('e2eTest') {
+    group = 'verification'
+    description = 'Runs every tier, including the @QuarkusTest ones that need containers.'
+    dependsOn tasks.named('test')
 }

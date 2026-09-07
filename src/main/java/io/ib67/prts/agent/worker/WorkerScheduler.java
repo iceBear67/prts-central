@@ -168,7 +168,9 @@ final class WorkerScheduler {
         if (volumes.isEmpty()) {
             return workers.keySet();
         }
-        if (volumes.containsKey(null)) {
+        // Scanned rather than containsKey(null): a Map.of() throws NPE on a null lookup instead of
+        // answering false.
+        if (volumes.keySet().stream().anyMatch(Objects::isNull)) {
             return Set.of();
         }
         return QuarkusTransaction.requiringNew().call(() -> {
