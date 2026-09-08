@@ -97,9 +97,27 @@ and the entities both have been), so a path is the part that goes stale while th
   Jackson-round-trippable and backward-compatible with rows already in the database.
 - **A record's compact constructor `requireNonNull`s every reference component that is not
   `@Nullable`** — Jackson and Panache both build them by deserialization, where nothing else would
-  stop a hole. The exception is the inbound request DTOs (`CreateJobRequest`, `RenameProjectRequest`,
-  `CreateSecretRequest`, `SetMemberRoleRequest`): a throw there is a bodiless 400, so they only carry
-  the annotations and the resource keeps the check that returns a message.
+  stop a hole.
+- **An inbound request DTO states its rules as Bean Validation constraints**, each carrying the exact
+  `message` the caller should read (`@NotBlank(message = "name is required")`). The resource takes it as
+  `@NotNull(message = "a request body is required") @Valid XxxRequest`, and `ConstraintViolationMapper`
+  renders the failure as the usual `{"message": ...}`. Constraints reach the OpenAPI schema as
+  `required` / `pattern` / `minLength` / `minimum`, which is the point of doing it this way.
+  - **Braces are message-template syntax.** A message containing `{` or `}` must escape them
+    (`[A-Za-z0-9_]\\{0,63\\}`) or interpolation eats it.
+  - `@Valid` on a **component** is what reaches a nested record's own constraints
+    (`CreateTemplateRequest.spec`); without it only its presence is checked.
+  - A compact constructor still **normalizes** (`strip()`), null-safely, and never throws for shape.
+    Validation runs after construction, so a blank value arrives already stripped.
+  - Three things constraints cannot say, which stay as code:
+    - a rule **spanning components or naming one enum value** — `UpdateSecretRequest`'s "description or
+      value", `SetMemberRoleRequest`'s `NONE` — throws from the constructor, and `ClientErrorMapper`
+      recovers it from the deserialization cause chain;
+    - a limit that comes from **config** (`SecretConfig.maxValueLength`), which is no compile-time
+      constant and so cannot be a `@Size`;
+    - a **value lookup** rather than a shape check — `SetPermissionsRequest.resolved()`.
+  - A DTO also returned in a response is safe now: `CreateJobRequest` rides inside `JobView`, and a
+    constraint only fires when something hands the record to a `Validator`, never on the way out.
 - **Config via `@ConfigMapping` interfaces** (`StorageConfig`, `JobConfig`, `WorkerConfig`,
   `SecretConfig`, `AdminConfig`, `PermissionConfig`), not `@ConfigProperty`. These are **immutable
   snapshots** — SmallRye
@@ -113,6 +131,11 @@ and the entities both have been), so a path is the part that goes stale while th
   supplied field is gated.
 - **Authorization lives at the endpoint**, not in the services. Services take plain arguments or domain
   values (`JobRequest`), never wire DTOs; request-shape validation stays in the resource.
+- **Every endpoint that writes to a project calls `ProjectService.requireWritable(projectId)` first** —
+  an archived project answers 409 to everything but unarchive and delete. It is an explicit call rather
+  than an interceptor, so **a new mutating endpoint has to add it**; the worker report paths
+  (`JobService.applyState` / `appendLog`, `ArtifactService.record`) deliberately do not.
+  [agent-docs/http-surface.md](agent-docs/http-surface.md) lists the current call sites.
 - **Transactions do not span an RPC.** Commit in `QuarkusTransaction.requiringNew()`, make the call
   outside any transaction, compensate in another one.
 - `-parameters` is on for `compileJava`; REST/JSON parameter names depend on it.

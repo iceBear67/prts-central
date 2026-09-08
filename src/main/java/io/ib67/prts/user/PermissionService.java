@@ -27,7 +27,9 @@ public class PermissionService {
 
     public static final String CACHE_NAME = "user-permissions";
 
-    /** Resolved once from {@code permission.banned}; changing it means restarting the service. */
+    /**
+     * Resolved once from {@code permission.banned}; changing it means restarting the service.
+     */
     private Set<Perm> banned = Set.of();
 
     @Inject
@@ -48,7 +50,7 @@ public class PermissionService {
     @PostConstruct
     void resolveBans() {
         var resolved = EnumSet.noneOf(Perm.class);
-        for (var name : permissionConfig.banned()) {
+        for (var name : permissionConfig.banned().orElse(List.of())) {
             if (name.isBlank()) {
                 continue;
             }
@@ -64,7 +66,9 @@ public class PermissionService {
         banned = Set.copyOf(resolved);
     }
 
-    /** Returns all permission grants held by the user. */
+    /**
+     * Returns all permission grants held by the user.
+     */
     public Set<Permission.Id> grantsOf(UUID userId) {
         return cache.<UUID, Set<Permission.Id>>get(userId, this::loadGrants).await().indefinitely();
     }
@@ -153,7 +157,9 @@ public class PermissionService {
         return removed;
     }
 
-    /** Revokes all permissions held by a user within a specific project. */
+    /**
+     * Revokes all permissions held by a user within a specific project.
+     */
     @Transactional
     public long revokeAll(UUID userId, UUID projectId) {
         var removed = Permission.deleteByUserInProject(userId, projectId);
@@ -172,7 +178,9 @@ public class PermissionService {
         return removed;
     }
 
-    /** Whether the permission is switched off system-wide. Holds for every caller, admins included. */
+    /**
+     * Whether the permission is switched off system-wide. Holds for every caller, admins included.
+     */
     public boolean isBanned(Perm perm) {
         return banned.contains(perm);
     }

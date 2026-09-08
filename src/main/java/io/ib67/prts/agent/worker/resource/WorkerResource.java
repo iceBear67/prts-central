@@ -13,7 +13,8 @@ import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import jakarta.ws.rs.BadRequestException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -69,11 +70,10 @@ public class WorkerResource {
     @PATCH
     @Path("/{id}")
     @Consumes(MediaType.APPLICATION_JSON)
-    public WorkerView renameWorker(@PathParam("id") UUID id, RenameWorkerRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new BadRequestException("name is required");
-        }
-        return view(workerService.rename(id, request.name().strip()));
+    public WorkerView renameWorker(
+            @PathParam("id") UUID id,
+            @NotNull(message = "a request body is required") @Valid RenameWorkerRequest request) {
+        return view(workerService.rename(id, request.name()));
     }
 
     /**

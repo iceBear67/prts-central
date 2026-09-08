@@ -1,0 +1,163 @@
+package io.ib67.prts.admin.resource;
+
+import io.ib67.prts.Perm;
+import io.ib67.prts.Pages;
+import io.ib67.prts.admin.AdminConfig;
+import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.admin.UserDetailView;
+import io.ib67.prts.dto.admin.UserView;
+import io.ib67.prts.dto.request.SetPermissionsRequest;
+import io.ib67.prts.user.Permission;
+import io.ib67.prts.user.PermissionService;
+import io.ib67.prts.user.User;
+import io.ib67.prts.user.UserService;
+import jakarta.annotation.Nullable;
+import jakarta.inject.Inject;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+/**
+ * Cross-project account and permission administration.
+ */
+@Path("/admin/user")
+@Produces(MediaType.APPLICATION_JSON)
+@RequirePermission(Perm.ADMIN_OF_ALL)
+public class AdminUserResource {
+
+    @Inject
+    EntityManager entityManager;
+    @Inject
+    UserService userService;
+    @Inject
+    PermissionService permissionService;
+    @Inject
+    AdminConfig adminConfig;
+
+    @GET
+    @Transactional
+    public List<UserView> listUsers(
+            @QueryParam("query") @Nullable String query,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") @Nullable Integer length) {
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        var users = User.search(query, Pages.clampOffset(offset, window), window);
+        var owners = owningProjects(users.stream().map(User::getId).toList());
+        return users.stream().map(user -> UserView.of(user, owners.get(user.getId()))).toList();
+    }
+
+    /** Owning project of each sub-account in the batch; a user absent from the map is a person. */
+    private Map<UUID, UUID> owningProjects(List<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return entityManager
+                .createQuery("select s.userId, s.project.id from SubAccount s where s.userId in ?1",
+                        Object[].class)
+                .setParameter(1, userIds)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (UUID) row[1]));
+    }
+
+    @GET
+    @Path("/{userId}")
+    @Transactional
+    public UserDetailView getUser(@PathParam("userId") UUID userId) {
+        return detailOf(userId);
+    }
+
+    /** Replaces the user's system-wide grants. */
+    @PUT
+    @Path("/{userId}/permission/global")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public UserDetailView setGlobalPermissions(
+            @PathParam("userId") UUID userId,
+            @NotNull(message = "a request body is required") @Valid SetPermissionsRequest request) {
+        var perms = request.resolved();
+        requireUser(userId);
+        userService.setGlobalPermissions(userId, perms);
+        return detailOf(userId);
+    }
+
+    /** Replaces the user's grants within one project. */
+    @PUT
+    @Path("/{userId}/permission/project/{projectId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public UserDetailView setProjectPermissions(
+            @PathParam("userId") UUID userId,
+            @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid SetPermissionsRequest request) {
+        var perms = request.resolved();
+        requireUser(userId);
+        userService.setPermissions(userId, projectId, perms);
+        return detailOf(userId);
+    }
+
+    /** Revokes every grant the user holds, in any scope. */
+    @DELETE
+    @Path("/{userId}/permission")
+    public UserDetailView revokePermissions(@PathParam("userId") UUID userId) {
+        requireUser(userId);
+        userService.revokeAllPermissions(userId);
+        return detailOf(userId);
+    }
+
+    /**
+     * Reads the user back.
+     *
+     * <p>The mutating endpoints deliberately hold no transaction of their own: the grant cache is
+     * invalidated when the service's transaction completes, so a read inside it would still answer from
+     * the pre-change snapshot.
+     */
+    private UserDetailView detailOf(UUID userId) {
+        var user = requireUser(userId);
+        var grouped = byScope(permissionService.grantsOf(userId));
+        var global = grouped.remove(Permission.GLOBAL);
+        var memberships = userService.listMemberships(userId).stream()
+                .map(UserDetailView.Membership::of)
+                .sorted(Comparator.comparing(UserDetailView.Membership::projectName))
+                .toList();
+        return new UserDetailView(
+                UserView.of(user, owningProjects(List.of(userId)).get(userId)),
+                memberships,
+                global == null ? List.of() : global,
+                grouped);
+    }
+
+    /** Grants keyed by the scope they were granted in; {@link Permission#GLOBAL} holds system-wide ones. */
+    private static Map<UUID, List<String>> byScope(Collection<Permission.Id> grants) {
+        var grouped = new TreeMap<UUID, List<String>>();
+        grants.forEach(grant -> grouped
+                .computeIfAbsent(grant.getProjectId(), scope -> new ArrayList<>())
+                .add(grant.getPermission()));
+        grouped.values().forEach(Collections::sort);
+        return grouped;
+    }
+
+    private static User requireUser(UUID userId) {
+        return User.<User>findByIdOptional(userId)
+                .orElseThrow(() -> new NotFoundException("no such user: " + userId));
+    }
+}

@@ -20,7 +20,8 @@ import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import jakarta.ws.rs.BadRequestException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.ForbiddenException;
@@ -68,12 +69,10 @@ public class ProjectResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @ResponseStatus(RestResponse.StatusCode.CREATED)
     @RequirePermission(Perm.PROJECT_CREATE)
-    public ProjectView createProject(CreateProjectRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new BadRequestException("name is required");
-        }
-        var project = projectService.create(request.name().strip(), requireUser().getId());
-        return ProjectView.of(project, ProjectRole.OWNER);
+    public ProjectView createProject(
+            @NotNull(message = "a request body is required") @Valid CreateProjectRequest request) {
+        return ProjectView.of(
+                projectService.create(request.name(), requireUser().getId()), ProjectRole.OWNER);
     }
 
     /** Retrieves detailed project information, member roster, and job counts. */
@@ -101,12 +100,10 @@ public class ProjectResource {
     @Transactional
     @RequirePermission(value = Perm.PROJECT_UPDATE, defaultRole = ProjectRole.OWNER)
     public ProjectView renameProject(
-            @ProjectId @PathParam("projectId") UUID projectId, RenameProjectRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new BadRequestException("name is required");
-        }
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid RenameProjectRequest request) {
         projectService.requireWritable(projectId);
-        return ProjectView.of(projectService.rename(projectId, request.name().strip()), roleOf(projectId));
+        return ProjectView.of(projectService.rename(projectId, request.name()), roleOf(projectId));
     }
 
     /**
@@ -140,10 +137,8 @@ public class ProjectResource {
     @Transactional
     @RequirePermission(value = Perm.PROJECT_TRANSFER, defaultRole = ProjectRole.OWNER)
     public ProjectMemberView transferProject(
-            @ProjectId @PathParam("projectId") UUID projectId, TransferProjectRequest request) {
-        if (request == null || request.userId() == null) {
-            throw new BadRequestException("userId is required");
-        }
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid TransferProjectRequest request) {
         projectService.requireWritable(projectId);
         return ProjectMemberView.of(
                 userService.transferOwnership(requireUser().getId(), projectId, request.userId()));
@@ -168,13 +163,7 @@ public class ProjectResource {
     public ProjectMemberView setMemberRole(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("userId") UUID userId,
-            SetMemberRoleRequest request) {
-        if (request == null || request.role() == null) {
-            throw new BadRequestException("role is required");
-        }
-        if (request.role() == ProjectRole.NONE) {
-            throw new BadRequestException("NONE is the absence of a membership; delete the member instead");
-        }
+            @NotNull(message = "a request body is required") @Valid SetMemberRoleRequest request) {
         projectService.requireWritable(projectId);
         return ProjectMemberView.of(userService.grant(userId, projectId, request.role()));
     }

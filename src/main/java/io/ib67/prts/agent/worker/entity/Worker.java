@@ -1,6 +1,5 @@
 package io.ib67.prts.agent.worker.entity;
 
-import io.ib67.prts.agent.worker.RegisteredWorker;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -38,14 +37,6 @@ public class Worker extends PanacheEntityBase {
     /** Whether this worker is paused from receiving new jobs. */
     @Column(name = "disabled", nullable = false)
     private boolean disabled;
-
-    /** Registered worker count summary. */
-    public record Counts(long registered, long disabled) {
-    }
-
-    public static Counts counts() {
-        return new Counts(count(), count("disabled", true));
-    }
 
     public static Worker upsert(UUID id, String name) {
         Worker existing = findById(id);

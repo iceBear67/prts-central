@@ -51,17 +51,6 @@ public class Project extends PanacheEntityBase {
         return archivedAt != null;
     }
 
-    /** Project count summary. */
-    public record Counts(long total, long archived) {
-    }
-
-    public static Counts counts() {
-        var row = (Object[]) getEntityManager()
-                .createQuery("select count(p), count(p.archivedAt) from Project p")
-                .getSingleResult();
-        return new Counts((long) row[0], (long) row[1]);
-    }
-
     /** Lists projects whose name contains the query, newest first. */
     public static List<Project> search(@Nullable String query, int offset, int limit) {
         var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";

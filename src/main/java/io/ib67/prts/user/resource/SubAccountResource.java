@@ -6,7 +6,7 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.AccessTokenView;
 import io.ib67.prts.dto.request.CreateSubAccountRequest;
 import io.ib67.prts.dto.IssuedTokenView;
-import io.ib67.prts.dto.request.SetSubAccountPermissionsRequest;
+import io.ib67.prts.dto.request.SetPermissionsRequest;
 import io.ib67.prts.dto.project.SubAccountView;
 import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.project.ProjectService;
@@ -17,7 +17,8 @@ import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import jakarta.ws.rs.BadRequestException;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
@@ -58,13 +59,11 @@ public class SubAccountResource {
     @ResponseStatus(RestResponse.StatusCode.CREATED)
     @Transactional
     public SubAccountView createSubAccount(
-            @ProjectId @PathParam("projectId") UUID projectId, CreateSubAccountRequest request) {
-        if (request == null || request.name() == null || request.name().isBlank()) {
-            throw new BadRequestException("name is required");
-        }
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid CreateSubAccountRequest request) {
         projectService.requireWritable(projectId);
         var account = subAccountService.create(
-                projectId, request.name().strip(), userContext.require().getId());
+                projectId, request.name(), userContext.require().getId());
         return SubAccountView.of(account, List.of());
     }
 
@@ -101,12 +100,9 @@ public class SubAccountResource {
     public SubAccountView setPermissions(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("userId") UUID userId,
-            SetSubAccountPermissionsRequest request) {
-        if (request == null || request.permissions() == null) {
-            throw new BadRequestException("permissions is required, empty to hold none");
-        }
+            @NotNull(message = "a request body is required") @Valid SetPermissionsRequest request) {
+        var perms = request.resolved();
         projectService.requireWritable(projectId);
-        var perms = request.permissions().stream().map(SubAccountResource::perm).distinct().toList();
         subAccountService.setPermissions(projectId, userId, perms);
         return SubAccountView.of(subAccountService.require(projectId, userId), perms);
     }
@@ -135,10 +131,5 @@ public class SubAccountResource {
 
     private SubAccountView view(UUID projectId, SubAccount account) {
         return SubAccountView.of(account, userService.permissionsOf(account.getUserId(), projectId));
-    }
-
-    private static Perm perm(String permission) {
-        return Perm.byPermission(permission)
-                .orElseThrow(() -> new BadRequestException("unknown permission: " + permission));
     }
 }

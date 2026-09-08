@@ -81,9 +81,25 @@ Listing windows are capped by `admin.list.max-page-size` (`AdminConfig`), the sa
 
 ## DTO & Exception Architecture
 
-- **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
+- **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
+- **Request Validation**: An inbound record carries Bean Validation constraints, each with the `message` the caller reads; the resource takes it as `@NotNull(message = "a request body is required") @Valid`. The record's compact constructor only normalizes (`strip()`). What constraints cannot express stays as code: cross-component and enum-value rules throw from the constructor (`UpdateSecretRequest`, `SetMemberRoleRequest`), configured length ceilings stay in `SecretResource`, and `SetPermissionsRequest.resolved()` does the `Perm` lookup — which is why no resource carries a `perm(String)` helper. Constraints also land in the OpenAPI schema as `required` / `pattern` / `minLength` / `minimum`.
 - **Exception Mapping**:
   - `NoSuchElementException` -> mapped to 404 by `NotFoundMapper`.
   - `ClientErrorMapper` -> wraps 4xx exceptions with structured `{ "message": ... }` responses.
+  - **Constraint violations**: `ConstraintViolationMapper` renders them in that same shape, joining
+    several failures in property-path order so one payload always reads the same way. It takes
+    precedence over Quarkus' `ResteasyReactiveViolationExceptionMapper` — that one is registered for
+    `ValidationException`, the thrown `ResteasyReactiveViolationException` extends
+    `ConstraintViolationException`, and `RuntimeExceptionMapper.searchMapperInClassHierarchy` walks up
+    from the thrown class and stops at the first match, so the nearer registration wins. A violated
+    **return value** is rethrown rather than reported as a 400: that is this service breaking its own
+    contract, and the built-in makes the same carve-out.
+  - **Deserialization failures**: `ServerJacksonMessageBodyReader` catches Jackson's `DatabindException`
+    and rethrows a plain `WebApplicationException` fixed at 400, whose message is generated from that
+    status. `ClientErrorMapper` therefore walks the cause chain and, when it finds one, answers with the
+    `WebApplicationException` that was actually thrown — which is what lets a request record reject
+    itself in its constructor. The reader is the only source of a plain `WebApplicationException`, so
+    the unwrap is keyed on that exact type and leaves every subclass alone. Malformed JSON carries
+    nothing of ours and keeps the reader's 400.
 - **OpenAPI**: `PermissionOASFilter` runs at build time to document `@RequirePermission` rules, required roles, and 401/403 responses across the generated OpenAPI schema.
 

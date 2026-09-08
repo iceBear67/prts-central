@@ -1,7 +1,6 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.project.entity.Project;
-import io.ib67.prts.project.entity.ProjectRole;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -22,12 +21,9 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
-import java.util.Collection;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Represents a programmatic sub-account (service account) tied to a project rather than a human user.
@@ -88,18 +84,5 @@ public class SubAccount extends PanacheEntityBase {
 
     public static boolean isSubAccount(UUID userId) {
         return count("userId", userId) > 0;
-    }
-
-    /** Owning project of each sub-account in the batch; users absent from the map are not sub-accounts. */
-    public static Map<UUID, UUID> projectsOf(Collection<UUID> userIds) {
-        if (userIds.isEmpty()) {
-            return Map.of();
-        }
-        return getEntityManager()
-                .createQuery("select s.userId, s.project.id from SubAccount s where s.userId in ?1",
-                        Object[].class)
-                .setParameter(1, userIds)
-                .getResultList().stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (UUID) row[1]));
     }
 }

@@ -1,5 +1,6 @@
 package io.ib67.prts.project.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
@@ -26,6 +27,8 @@ import io.ib67.prts.storage.StorageService;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -100,16 +103,17 @@ public class JobResource {
     @Transactional
     @RequirePermission(value = Perm.JOB_TEMPLATE_MANAGE, defaultRole = ProjectRole.OWNER)
     public JobSpecTemplateView createTemplate(
-            @ProjectId @PathParam("projectId") UUID projectId, CreateTemplateRequest request) {
-        var checked = CreateTemplateRequest.check(request);
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid CreateTemplateRequest request) {
         var project = projectService.requireWritable(projectId);
-        checked.spec().requireVolumesIn(projectId);
+        var spec = request.spec().toSpec();
+        spec.requireVolumesIn(projectId);
         var template = JobSpecTemplate.builder()
-                .name(checked.name())
-                .spec(checked.spec())
-                .resourceClass(ResourceClass.findVisible(projectId, checked.resourceClass())
+                .name(request.name())
+                .spec(spec)
+                .resourceClass(ResourceClass.findVisible(projectId, request.resourceClass())
                         .orElseThrow(() -> new NotFoundException(
-                                "no such resource class: " + checked.resourceClass())))
+                                "no such resource class: " + request.resourceClass())))
                 .project(project)
                 .build();
         template.persist();
@@ -149,8 +153,8 @@ public class JobResource {
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
-        var window = clampLength(length, jobConfig.list().maxPageSize());
-        var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
+        var window = Pages.clampLength(length, jobConfig.list().maxPageSize());
+        var start = Pages.clampOffset(offset, window);
         var depth = start + window;
         var mayCreate = jobAccess.mayCreate(projectId);
         var jobs = jobService.listVisible(projectId, depth);
@@ -213,10 +217,8 @@ public class JobResource {
             content = @Content(schema = @Schema(implementation = JobStatusView.class)))
     @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
     public JobStatusView createJob(
-            @ProjectId @PathParam("projectId") UUID projectId, CreateJobRequest request) {
-        if (request == null || request.templateId() == null) {
-            throw new BadRequestException("templateId is required");
-        }
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid CreateJobRequest request) {
         projectService.requireWritable(projectId);
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
@@ -272,15 +274,8 @@ public class JobResource {
             @PathParam("jobId") UUID jobId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
-        var window = clampLength(length, jobConfig.log().maxPageSize());
-        var start = Math.clamp(offset, 0, Integer.MAX_VALUE - window);
+        var window = Pages.clampLength(length, jobConfig.log().maxPageSize());
+        var start = Pages.clampOffset(offset, window);
         return JobLogPage.of(jobService.listLogs(projectId, jobId, start, window), start, window);
-    }
-
-    private static int clampLength(@Nullable Integer length, int max) {
-        if (length == null || length <= 0) {
-            return max;
-        }
-        return Math.min(length, max);
     }
 }

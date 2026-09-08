@@ -1,4 +1,9 @@
 package io.ib67.prts.dto.request;
 
-public record RenameProjectRequest(String name) {
+import jakarta.validation.constraints.NotBlank;
+
+public record RenameProjectRequest(@NotBlank(message = "name is required") String name) {
+    public RenameProjectRequest {
+        name = name == null ? null : name.strip();
+    }
 }

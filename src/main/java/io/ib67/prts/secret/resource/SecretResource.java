@@ -13,6 +13,8 @@ import io.ib67.prts.secret.SecretService;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -27,7 +29,6 @@ import jakarta.ws.rs.core.MediaType;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 /**
  * REST endpoint managing project secret metadata and updates.
@@ -35,9 +36,6 @@ import java.util.regex.Pattern;
 @Path("/project/{projectId}/secret")
 @Produces(MediaType.APPLICATION_JSON)
 public class SecretResource {
-
-    /** Valid environment variable style secret name pattern. */
-    private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]{0,63}");
 
     @Inject
     SecretService secretService;
@@ -59,13 +57,11 @@ public class SecretResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @RequirePermission(value = Perm.PROJECT_SECRET_MANAGE, defaultRole = ProjectRole.OWNER)
     public SecretView createSecret(
-            @ProjectId @PathParam("projectId") UUID projectId, CreateSecretRequest request) {
-        if (request == null || request.name() == null || !NAME.matcher(request.name()).matches()) {
-            throw new BadRequestException("name must match " + NAME.pattern());
-        }
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @NotNull(message = "a request body is required") @Valid CreateSecretRequest request) {
         projectService.requireWritable(projectId);
         return SecretView.of(secretService.create(
-                projectId, request.name(), description(request.description()), checkSecretForm(request.value())));
+                projectId, request.name(), description(request.description()), value(request.value())));
     }
 
     @PATCH
@@ -75,12 +71,9 @@ public class SecretResource {
     public SecretView updateSecret(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("name") String name,
-            UpdateSecretRequest request) {
-        if (request == null || (request.description() == null && request.value() == null)) {
-            throw new BadRequestException("description or value is required; a blank description clears it");
-        }
+            @NotNull(message = "a request body is required") @Valid UpdateSecretRequest request) {
         projectService.requireWritable(projectId);
-        var value = request.value() == null ? null : checkSecretForm(request.value());
+        var value = request.value() == null ? null : value(request.value());
         return secretService.update(projectId, name, description(request.description()), value)
                 .map(SecretView::of)
                 .orElseThrow(() -> new NotFoundException(
@@ -98,10 +91,8 @@ public class SecretResource {
         }
     }
 
-    private String checkSecretForm(@Nullable String value) {
-        if (value == null || value.isEmpty()) {
-            throw new BadRequestException("value is required");
-        }
+    /** The request records reject an absent value; the configured ceiling is only knowable here. */
+    private String value(String value) {
         if (value.length() > secretConfig.maxValueLength()) {
             throw new BadRequestException(
                     "value must be at most " + secretConfig.maxValueLength() + " characters");
