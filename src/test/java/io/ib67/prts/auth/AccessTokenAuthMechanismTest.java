@@ -47,7 +47,7 @@ class AccessTokenAuthMechanismTest {
         return mechanism.authenticate(context, identityProviders).await().indefinitely();
     }
 
-    /** A null identity hands the request to the next mechanism, which is how OIDC still gets its turn. */
+    /** Requests without valid PRTS tokens are ignored so subsequent mechanisms can handle them. */
     @Test
     void aRequestWithoutOurTokenIsNotOurs() {
         assertNull(authenticate(null));
@@ -82,7 +82,6 @@ class AccessTokenAuthMechanismTest {
         assertEquals(TOKEN, ((AccessTokenAuthenticationRequest) captor.getValue()).getToken());
     }
 
-    /** ChallengeSender looks the mechanism back up from the context to build the 401. */
     @Test
     void theMechanismRecordsItselfOnTheContext() {
         authenticate("Bearer " + TOKEN);
@@ -106,7 +105,7 @@ class AccessTokenAuthMechanismTest {
         assertNull(mechanism.getChallenge(context).await().indefinitely());
     }
 
-    /** Must outrank quarkus-oidc (1001), or a browser redirect would win over a personal access token. */
+    /** Priority must be higher than quarkus-oidc (1001) so tokens take precedence over redirects. */
     @Test
     void theMechanismOutranksOidc() {
         assertTrue(mechanism.getPriority() > 1001, "priority: " + mechanism.getPriority());

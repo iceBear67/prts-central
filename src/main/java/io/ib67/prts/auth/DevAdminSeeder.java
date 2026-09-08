@@ -15,12 +15,7 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 /**
- * Dev only: mints an {@link Perm#ADMIN_OF_ALL} user and the access token {@link DevAuthMechanism}
- * logs uncredentialed requests in as.
- *
- * <p>Both conditions are build-time, so neither this nor the mechanism is built into {@code %prod} at
- * all — a guarantee no runtime switch could give. {@code %dev} pins OIDC off, so the second only bites
- * when someone turns it back on to debug the real login, which is when a stray admin would be in the way.
+ * Seeds a default admin user and access token for local development when OIDC is disabled.
  */
 @Startup
 @ApplicationScoped
@@ -42,7 +37,7 @@ public class DevAdminSeeder {
     @Nullable
     private volatile String token;
 
-    /** The dev user's token plaintext, or null if seeding failed. */
+    /** Returns the dev user's access token, or null if seeding failed. */
     @Nullable
     String token() {
         return token;
@@ -50,13 +45,11 @@ public class DevAdminSeeder {
 
     @PostConstruct
     void seed() {
-        // Startup runs outside any request, so the session has to be opened by hand; the @Transactional
-        // collaborators join this one.
+        // Open a transaction manually during application startup.
         var issued = QuarkusTransaction.requiringNew().call(() -> {
             var user = userService.findByEmail(EMAIL)
                     .orElseGet(() -> userService.register(NAME, EMAIL));
             permissionService.grant(user.getId(), Perm.ADMIN_OF_ALL, null);
-            // Rerolled every boot: nothing outside this process has to survive a restart.
             return accessTokenService.issue(user.getId());
         });
         token = issued.token();

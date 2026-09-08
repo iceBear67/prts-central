@@ -26,7 +26,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 /**
- * The permission matrix of {@link SubAccountResource}, whose every route is an owner's.
+ * Permission and lifecycle tests for {@link SubAccountResource}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -42,10 +42,8 @@ class SubAccountResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
+        project = fixtures.createProject("mine");
     }
-
-    // ---- reaching the resource at all ----
 
     @Test
     void anUncredentialedRequestIsRejected() {
@@ -54,14 +52,14 @@ class SubAccountResourceE2ETest {
 
     @Test
     void aStrangerCannotListSubAccounts() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/subaccount", project)
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/subaccount", project)
                 .then().statusCode(403);
     }
 
-    /** The binding sits on the class with {@code defaultRole = OWNER}, so a member is one rung short. */
+    /** Access requires OWNER role; project members cannot list sub-accounts. */
     @Test
     void aMemberCannotListSubAccounts() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).get("/api/project/{p}/subaccount", project).then().statusCode(403);
@@ -69,7 +67,7 @@ class SubAccountResourceE2ETest {
 
     @Test
     void anOwnerCanListSubAccounts() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).get("/api/project/{p}/subaccount", project).then()
@@ -79,54 +77,50 @@ class SubAccountResourceE2ETest {
 
     @Test
     void aProjectThatDoesNotExistLooksLikeOneIAmNotIn() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/subaccount", UUID.randomUUID())
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/subaccount", UUID.randomUUID())
                 .then().statusCode(403);
     }
 
-    /** The interceptor cannot tell absent from forbidden; only an admin gets past it to the 404. */
+    /** Non-members receive 403 on non-existent projects, while admins receive 404. */
     @Test
     void onlyAnAdminReachesTheNotFound() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).get("/api/project/{p}/subaccount", UUID.randomUUID()).then()
                 .statusCode(404)
-                // NotFoundMapper answers projectService.require's NoSuchElementException without a body.
                 .body(emptyString());
     }
 
-    // ---- creating ----
-
     @Test
     void anOwnerCanCreateASubAccount() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "  ci  "))
                 .post("/api/project/{p}/subaccount", project).then()
-                // @ResponseStatus(CREATED).
                 .statusCode(201)
                 .body("userId", notNullValue())
-                // The resource strips before storing.
+                // Name is trimmed before storing.
                 .body("name", equalTo("ci"))
-                // A fresh sub-account holds nothing until setPermissions says otherwise.
+                // Newly created sub-accounts have no permissions granted by default.
                 .body("permissions", empty())
                 .body("createdBy", equalTo(alice.id().toString()));
     }
 
     @Test
     void aMemberCannotCreateASubAccount() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "ci"))
                 .post("/api/project/{p}/subaccount", project).then().statusCode(403);
     }
 
-    /** PROJECT_SUBACCOUNT_MANAGE granted outright stands in for the owner role. */
+    /** Explicit PROJECT_SUBACCOUNT_MANAGE grant allows managing sub-accounts without the OWNER role. */
     @Test
     void anExplicitGrantManagesWithoutTheOwnerRole() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.grant(alice, Perm.PROJECT_SUBACCOUNT_MANAGE, project);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "ci"))
@@ -140,7 +134,7 @@ class SubAccountResourceE2ETest {
 
     @Test
     void aNamelessSubAccountIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of())
@@ -149,16 +143,14 @@ class SubAccountResourceE2ETest {
                 .body("message", equalTo("name is required"));
     }
 
-    // ---- reading one ----
-
     @Test
     void theListHoldsOnlyThisProjectsSubAccounts() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(alice, other, ProjectRole.OWNER);
-        fixtures.subAccount(project, "mine-ci", alice);
-        fixtures.subAccount(other, "theirs-ci", alice);
+        fixtures.createSubAccount(project, "mine-ci", alice);
+        fixtures.createSubAccount(other, "theirs-ci", alice);
 
         as(alice).get("/api/project/{p}/subaccount", project).then()
                 .statusCode(200)
@@ -167,27 +159,23 @@ class SubAccountResourceE2ETest {
 
     @Test
     void anOwnerCanReadOneSubAccount() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then()
                 .statusCode(200)
                 .body("name", equalTo("ci"));
     }
 
-    /**
-     * {@code getSubAccount} scopes its lookup by project, so another project's sub-account is absent
-     * rather than someone else's. The message comes from a {@code jakarta.ws.rs.NotFoundException},
-     * which {@code ClientErrorMapper} does give a body.
-     */
+    /** Sub-accounts are scoped to their project; looking up another project's sub-account returns 404. */
     @Test
     void aSubAccountOfAnotherProjectIsNotFoundHere() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(alice, other, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(other, "theirs-ci", alice);
+        var ci = fixtures.createSubAccount(other, "theirs-ci", alice);
 
         as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then()
                 .statusCode(404)
@@ -199,24 +187,24 @@ class SubAccountResourceE2ETest {
 
     @Test
     void anOwnerCanSetPermissions() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("permissions", List.of("job:read", "job:create")))
                 .put("/api/project/{p}/subaccount/{u}/permission", project, ci.id()).then()
                 .statusCode(200)
-                // SubAccountView sorts the identifiers, so the order is the alphabet's, not the request's.
+                // SubAccountView sorts permissions alphabetically.
                 .body("permissions", contains("job:create", "job:read"));
     }
 
-    /** The route replaces the grants rather than adding to them. */
+    /** Setting permissions replaces all existing grants. */
     @Test
     void settingPermissionsDropsTheOnesLeftOut() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
         setPermissions(alice, ci, "job:read", "job:create");
 
         setPermissions(alice, ci, "job:read");
@@ -226,12 +214,12 @@ class SubAccountResourceE2ETest {
                 .body("permissions", contains("job:read"));
     }
 
-    /** A sub-account minting further sub-accounts would let a project's rights escape it. */
+    /** Sub-accounts cannot be granted sub-account management permissions. */
     @Test
     void aSubAccountMayNotHoldSubAccountManagement() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("permissions", List.of("project:subaccount:manage")))
@@ -240,12 +228,12 @@ class SubAccountResourceE2ETest {
                 .body("message", equalTo("a sub-account may not hold project:subaccount:manage"));
     }
 
-    /** ADMIN_OF_ALL is global, so no project owner is in a position to hand it out. */
+    /** Global permissions like admin:all cannot be granted at the project level. */
     @Test
     void aGlobalPermissionIsNotAProjectsToGrant() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("permissions", List.of("admin:all")))
@@ -256,9 +244,9 @@ class SubAccountResourceE2ETest {
 
     @Test
     void anUnknownPermissionIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("permissions", List.of("job:fly")))
@@ -267,12 +255,12 @@ class SubAccountResourceE2ETest {
                 .body("message", equalTo("unknown permission: job:fly"));
     }
 
-    /** An absent list is a mistake; an empty one is a deliberate revocation, and the message says so. */
+    /** Omitting the permissions array is rejected, while an empty array clears all permissions. */
     @Test
     void anAbsentPermissionListIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON).body(Map.of())
                 .put("/api/project/{p}/subaccount/{u}/permission", project, ci.id()).then()
@@ -282,11 +270,11 @@ class SubAccountResourceE2ETest {
 
     @Test
     void aMemberCannotSetPermissions() {
-        var alice = fixtures.actor("alice");
-        var bob = fixtures.actor("bob");
+        var alice = fixtures.createActor("alice");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(bob).contentType(ContentType.JSON)
                 .body(Map.of("permissions", List.of("job:read")))
@@ -294,15 +282,10 @@ class SubAccountResourceE2ETest {
                 .statusCode(403);
     }
 
-    // ---- tokens ----
-
-    /**
-     * {@code Fixtures.subAccount} issues one, so this uses a sub-account created over the wire to
-     * observe the state before any token exists.
-     */
+    /** Verifies that a newly created sub-account has no access token until one is explicitly generated. */
     @Test
     void aSubAccountHasNoTokenUntilOneIsIssued() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
         var ci = as(alice).contentType(ContentType.JSON).body(Map.of("name", "ci"))
                 .post("/api/project/{p}/subaccount", project)
@@ -315,9 +298,9 @@ class SubAccountResourceE2ETest {
 
     @Test
     void anOwnerCanIssueASubAccountsToken() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         var token = as(alice).put("/api/project/{p}/subaccount/{u}/token", project, ci.id()).then()
                 .statusCode(200)
@@ -325,17 +308,17 @@ class SubAccountResourceE2ETest {
                 .body("issuedAt", notNullValue())
                 .extract().path("token").toString();
 
-        // The plaintext is handed out once and must authenticate; a sub-account is in no project of its own.
+        // The returned plaintext token can authenticate immediately.
         given().header("Authorization", "Bearer " + token)
                 .get("/api/project").then().statusCode(200).body("$", empty());
     }
 
-    /** Issuing again replaces the hash, so whatever was handed out before stops working. */
+    /** Regenerating a token invalidates the previously issued token. */
     @Test
     void issuingAgainRetiresTheOldToken() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).put("/api/project/{p}/subaccount/{u}/token", project, ci.id())
                 .then().statusCode(200);
@@ -345,51 +328,48 @@ class SubAccountResourceE2ETest {
 
     @Test
     void afterIssuingTheOwnerSeesOnlyTheTimestamp() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).get("/api/project/{p}/subaccount/{u}/token", project, ci.id()).then()
                 .statusCode(200)
-                // AccessTokenView carries no plaintext; only the issuing call ever returns one.
+                // AccessTokenView excludes plaintext token values.
                 .body("issuedAt", notNullValue())
                 .body("token", nullValue());
     }
 
     @Test
     void aMemberCannotIssueASubAccountsToken() {
-        var alice = fixtures.actor("alice");
-        var bob = fixtures.actor("bob");
+        var alice = fixtures.createActor("alice");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(bob).put("/api/project/{p}/subaccount/{u}/token", project, ci.id())
                 .then().statusCode(403);
     }
 
-    // ---- deleting ----
-
     @Test
     void anOwnerCanDeleteASubAccount() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
-        // The endpoint returns void, so RESTEasy answers 204.
         as(alice).delete("/api/project/{p}/subaccount/{u}", project, ci.id())
                 .then().statusCode(204);
         as(alice).get("/api/project/{p}/subaccount", project).then()
                 .statusCode(200)
                 .body("$", empty());
         as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then().statusCode(404);
-        // The user row goes with it, so the token it held no longer resolves to anyone.
+        // Deleting the sub-account also deletes its user record and invalidates its token.
         as(ci).get("/api/project").then().statusCode(401);
     }
 
     @Test
     void deletingASubAccountThatDoesNotExistIsNotFound() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
         var stranger = UUID.randomUUID();
 
@@ -401,18 +381,18 @@ class SubAccountResourceE2ETest {
 
     @Test
     void aMemberCannotDeleteASubAccount() {
-        var alice = fixtures.actor("alice");
-        var bob = fixtures.actor("bob");
+        var alice = fixtures.createActor("alice");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(bob).delete("/api/project/{p}/subaccount/{u}", project, ci.id()).then().statusCode(403);
     }
 
     @Test
     void anAdminManagesAProjectTheyAreNotIn() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).contentType(ContentType.JSON).body(Map.of("name", "ci"))

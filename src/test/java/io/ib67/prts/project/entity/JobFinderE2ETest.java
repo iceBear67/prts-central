@@ -17,8 +17,7 @@ import static io.ib67.prts.testing.Fixtures.inTx;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * {@link Job}'s finders, and above all the rule they share: a job that is still {@code PENDING} and has
- * no worker has not been placed anywhere yet, so nobody is shown it.
+ * Tests query finders and visibility filtering on {@link Job}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -38,47 +37,46 @@ class JobFinderE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
-        alice = fixtures.actor("alice");
-        small = fixtures.resourceClass("small", null);
+        project = fixtures.createProject("mine");
+        alice = fixtures.createActor("alice");
+        small = fixtures.createResourceClass("small", null);
     }
 
     @Test
     void anUnplacedJobIsHidden() {
-        fixtures.job(project, alice, small, JobState.PENDING, null);
+        fixtures.createJob(project, alice, small, JobState.PENDING, null);
 
         assertEquals(List.of(), visible());
     }
 
     @Test
     void aPendingJobThatHasAWorkerIsVisible() {
-        var job = fixtures.job(project, alice, small, JobState.PENDING, UUID.randomUUID());
+        var job = fixtures.createJob(project, alice, small, JobState.PENDING, UUID.randomUUID());
 
         assertEquals(List.of(job), visible());
     }
 
-    /** Once it has left PENDING the worker no longer matters: a job that failed to place is still news. */
+    /** Settled jobs (e.g. FAILED) without a worker remain visible. */
     @Test
     void aSettledJobWithNoWorkerIsVisible() {
-        var job = fixtures.job(project, alice, small, JobState.FAILED, null);
+        var job = fixtures.createJob(project, alice, small, JobState.FAILED, null);
 
         assertEquals(List.of(job), visible());
     }
 
     @Test
     void theListIsNewestFirst() {
-        var first = fixtures.job(project, alice, small, JobState.SUCCESS, null);
-        var second = fixtures.job(project, alice, small, JobState.SUCCESS, null);
-        var third = fixtures.job(project, alice, small, JobState.SUCCESS, null);
+        var first = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+        var second = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+        var third = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
 
-        // createdAt then id, both descending; the ids are UUIDv7 and so ascend with time either way.
         assertEquals(List.of(third, second, first), visible());
     }
 
     @Test
     void theLimitCapsTheList() {
-        fixtures.job(project, alice, small, JobState.SUCCESS, null);
-        var second = fixtures.job(project, alice, small, JobState.SUCCESS, null);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+        var second = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
 
         assertEquals(List.of(second),
                 inTx(() -> Job.listVisibleByProject(project, 1).stream().map(Job::getId).toList()));
@@ -86,23 +84,22 @@ class JobFinderE2ETest {
 
     @Test
     void theListHoldsOnlyThisProject() {
-        var other = fixtures.project("theirs");
-        var mine = fixtures.job(project, alice, small, JobState.SUCCESS, null);
-        fixtures.job(other, alice, small, JobState.SUCCESS, null);
+        var other = fixtures.createProject("theirs");
+        var mine = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+        fixtures.createJob(other, alice, small, JobState.SUCCESS, null);
 
         assertEquals(List.of(mine), visible());
     }
 
     /**
-     * The two counts differ in what they ignore: {@code visible} skips the unplaced,
-     * {@code running} skips everything that is not on a worker and still open.
+     * Verifies that countByProject accurately counts visible vs running jobs.
      */
     @Test
     void theCountsSeparateVisibleFromRunning() {
-        fixtures.job(project, alice, small, JobState.PENDING, null);
-        fixtures.job(project, alice, small, JobState.PENDING, UUID.randomUUID());
-        fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID());
-        fixtures.job(project, alice, small, JobState.SUCCESS, null);
+        fixtures.createJob(project, alice, small, JobState.PENDING, null);
+        fixtures.createJob(project, alice, small, JobState.PENDING, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.RUNNING, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
 
         var counts = inTx(() -> Job.countByProject(project));
 
@@ -112,8 +109,8 @@ class JobFinderE2ETest {
 
     @Test
     void theCountsIgnoreOtherProjects() {
-        var other = fixtures.project("theirs");
-        fixtures.job(other, alice, small, JobState.RUNNING, UUID.randomUUID());
+        var other = fixtures.createProject("theirs");
+        fixtures.createJob(other, alice, small, JobState.RUNNING, UUID.randomUUID());
 
         var counts = inTx(() -> Job.countByProject(project));
 
@@ -121,16 +118,15 @@ class JobFinderE2ETest {
         assertEquals(0, counts.running());
     }
 
-    /** Open means uncompleted, whether or not anything is carrying it. */
+    /** Open jobs include only PENDING and RUNNING states. */
     @Test
     void theOpenListHoldsPendingAndRunningOnly() {
-        var pending = fixtures.job(project, alice, small, JobState.PENDING, null);
-        var running = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID());
-        fixtures.job(project, alice, small, JobState.SUCCESS, null);
-        fixtures.job(project, alice, small, JobState.FAILED, null);
-        fixtures.job(project, alice, small, JobState.CANCELLED, null);
+        var pending = fixtures.createJob(project, alice, small, JobState.PENDING, null);
+        var running = fixtures.createJob(project, alice, small, JobState.RUNNING, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+        fixtures.createJob(project, alice, small, JobState.FAILED, null);
+        fixtures.createJob(project, alice, small, JobState.CANCELLED, null);
 
-        // No order by on the finder, so only membership is asserted.
         var open = inTx(() -> Job.listOpenByProject(project).stream().map(Job::getId).toList());
 
         assertEquals(Set.of(pending, running), Set.copyOf(open));
@@ -139,21 +135,21 @@ class JobFinderE2ETest {
     @Test
     void theOpenListOfAWorkerIgnoresOtherWorkers() {
         var worker = UUID.randomUUID();
-        var mine = fixtures.job(project, alice, small, JobState.RUNNING, worker);
-        fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID());
-        fixtures.job(project, alice, small, JobState.SUCCESS, worker);
+        var mine = fixtures.createJob(project, alice, small, JobState.RUNNING, worker);
+        fixtures.createJob(project, alice, small, JobState.RUNNING, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, worker);
 
         assertEquals(List.of(mine),
                 inTx(() -> Job.listOpenByWorker(worker).stream().map(Job::getId).toList()));
     }
 
-    /** A worker's open jobs are its own across every project, since that is what a disconnect fails. */
+    /** listOpenByWorker returns open jobs for the given worker across all projects. */
     @Test
     void theOpenListOfAWorkerCrossesProjects() {
-        var other = fixtures.project("theirs");
+        var other = fixtures.createProject("theirs");
         var worker = UUID.randomUUID();
-        fixtures.job(project, alice, small, JobState.RUNNING, worker);
-        fixtures.job(other, alice, small, JobState.PENDING, worker);
+        fixtures.createJob(project, alice, small, JobState.RUNNING, worker);
+        fixtures.createJob(other, alice, small, JobState.PENDING, worker);
 
         assertEquals(2, inTx(() -> Job.listOpenByWorker(worker).size()).intValue());
     }

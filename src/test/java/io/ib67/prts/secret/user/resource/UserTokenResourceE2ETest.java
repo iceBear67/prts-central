@@ -17,12 +17,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 /**
- * {@link UserTokenResource} carries no {@code @RequirePermission}: a caller may manage their own token
- * and nobody else's, and a sub-account may not manage even that.
- *
- * <p>Its "no access token has been issued" branch is unreachable here. Reaching the route at all means
- * authenticating, and with OIDC off under {@code %test} the only way in is the token whose absence the
- * branch reports.
+ * Tests for {@link UserTokenResource}, which allows authenticated users to manage their personal access token.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -45,16 +40,16 @@ class UserTokenResourceE2ETest {
 
     @Test
     void aTokenHolderSeesWhenItWasIssuedAndNothingElse() {
-        as(fixtures.actor("alice")).get("/api/user/token").then()
+        as(fixtures.createActor("alice")).get("/api/user/token").then()
                 .statusCode(200)
                 .body("issuedAt", notNullValue())
-                // AccessTokenView holds the timestamp alone; the plaintext is never recoverable.
+                // AccessTokenView exposes the issue timestamp and excludes the raw token.
                 .body("token", nullValue());
     }
 
     @Test
     void issuingReturnsAWorkingToken() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
 
         var token = as(alice).put("/api/user/token").then()
                 .statusCode(200)
@@ -66,10 +61,10 @@ class UserTokenResourceE2ETest {
                 .get("/api/user/token").then().statusCode(200);
     }
 
-    /** One hash per user, so rotating leaves whoever holds the previous plaintext locked out. */
+    /** Generating a new token invalidates the previously issued token. */
     @Test
     void issuingRetiresTheOldToken() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
 
         as(alice).put("/api/user/token").then().statusCode(200);
 
@@ -77,16 +72,14 @@ class UserTokenResourceE2ETest {
     }
 
     /**
-     * A sub-account's token belongs to the project that minted it, so it cannot rotate itself out of
-     * its owner's reach. Unlike the interceptor's bodiless 403 this is a
-     * {@code jakarta.ws.rs.ForbiddenException}, so {@code ClientErrorMapper} explains it.
+     * Sub-accounts cannot read or manage their tokens directly; they are managed by the project owner.
      */
     @Test
     void aSubAccountCannotReadItsOwnToken() {
-        var alice = fixtures.actor("alice");
-        var project = fixtures.project("mine");
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(ci).get("/api/user/token").then()
                 .statusCode(403)
@@ -95,10 +88,10 @@ class UserTokenResourceE2ETest {
 
     @Test
     void aSubAccountCannotRotateItsOwnToken() {
-        var alice = fixtures.actor("alice");
-        var project = fixtures.project("mine");
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(ci).put("/api/user/token").then()
                 .statusCode(403)

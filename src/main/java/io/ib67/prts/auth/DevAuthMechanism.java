@@ -16,22 +16,17 @@ import jakarta.inject.Inject;
 import java.util.Set;
 
 /**
- * Dev only: authenticates every request that presents no credential of its own as the
- * {@link DevAdminSeeder} user, so {@code %dev} needs no OIDC provider and no client secret in the
- * repository. Not built into {@code %prod}; see {@link DevAdminSeeder}.
+ * Development-only authentication mechanism that authenticates uncredentialed requests
+ * as the seeded dev admin user when OIDC is disabled.
  *
- * <p>A request that does present one is left to the real chain, so a personal access token — and the
- * 401 a bad one earns — stays exercisable without switching profiles.
- *
- * <p>Auto-login is a substitute for a provider, not a companion to one: switch OIDC back on and this
- * bean is not built, or it would answer every browser request before the login redirect could.
+ * <p>Requests with explicit credentials (e.g. Bearer tokens) pass through to the standard authentication chain.
  */
 @ApplicationScoped
 @IfBuildProfile("dev")
 @IfBuildProperty(name = "quarkus.oidc.enabled", stringValue = "false")
 public class DevAuthMechanism implements HttpAuthenticationMechanism {
 
-    // Below AccessTokenAuthMechanism.PRIORITY: a presented token is the one that decides.
+    // Lower priority than AccessTokenAuthMechanism (1500) so explicit tokens take precedence.
     private static final int PRIORITY = 1200;
 
     @Inject
@@ -45,12 +40,10 @@ public class DevAuthMechanism implements HttpAuthenticationMechanism {
             return Uni.createFrom().nullItem();
         }
         context.put(HttpAuthenticationMechanism.class.getName(), this);
-        // Going through the token chain rather than building an identity here keeps the two
-        // indistinguishable, and inherits its runBlocking so the lookup stays off the event loop.
+        // Delegate to the access token authentication flow.
         return identityProviderManager.authenticate(new AccessTokenAuthenticationRequest(token));
     }
 
-    /** Nothing to challenge for: this mechanism asks for no credential. */
     @Override
     public Uni<ChallengeData> getChallenge(RoutingContext context) {
         return Uni.createFrom().nullItem();
@@ -66,7 +59,7 @@ public class DevAuthMechanism implements HttpAuthenticationMechanism {
         return PRIORITY;
     }
 
-    /** Whether the request presents a credential of its own, sound or not. */
+    /** Checks if the request already contains an authorization header. */
     private static boolean credentialed(RoutingContext context) {
         return context.request().getHeader(HttpHeaders.AUTHORIZATION) != null
                 || context.request().getHeader(WorkerAuthMechanism.HEADER) != null;

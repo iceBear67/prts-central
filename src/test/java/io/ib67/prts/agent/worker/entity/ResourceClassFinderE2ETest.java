@@ -16,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link ResourceClass#findVisible} resolves a name in two steps, and the order of the two is the rule:
- * a project's own definition shadows the global one of the same name.
+ * Tests resolution order for {@link ResourceClass#findVisible}:
+ * project-scoped definitions shadow global ones.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -34,14 +34,14 @@ class ResourceClassFinderE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        mine = fixtures.project("mine");
-        theirs = fixtures.project("theirs");
+        mine = fixtures.createProject("mine");
+        theirs = fixtures.createProject("theirs");
     }
 
     @Test
     void aProjectsOwnDefinitionShadowsTheGlobalOne() {
-        fixtures.resourceClass("small", null);
-        fixtures.resourceClass("small", mine);
+        fixtures.createResourceClass("small", null);
+        fixtures.createResourceClass("small", mine);
 
         var found = inTx(() -> ResourceClass.findVisible(mine, "small")).orElseThrow();
 
@@ -51,7 +51,7 @@ class ResourceClassFinderE2ETest {
 
     @Test
     void theGlobalDefinitionIsTheFallback() {
-        fixtures.resourceClass("small", null);
+        fixtures.createResourceClass("small", null);
 
         var found = inTx(() -> ResourceClass.findVisible(mine, "small")).orElseThrow();
 
@@ -60,15 +60,15 @@ class ResourceClassFinderE2ETest {
 
     @Test
     void anotherProjectsDefinitionIsInvisible() {
-        fixtures.resourceClass("small", theirs);
+        fixtures.createResourceClass("small", theirs);
 
         assertTrue(inTx(() -> ResourceClass.findVisible(mine, "small")).isEmpty());
     }
 
-    /** A null project is already the global scope, so there is nothing further to fall back to. */
+    /** Global scope queries do not look into project scopes. */
     @Test
     void theGlobalScopeDoesNotFallBackToAProject() {
-        fixtures.resourceClass("small", mine);
+        fixtures.createResourceClass("small", mine);
 
         assertTrue(inTx(() -> ResourceClass.findVisible(null, "small")).isEmpty());
     }
@@ -80,9 +80,9 @@ class ResourceClassFinderE2ETest {
 
     @Test
     void deletingAProjectsClassesLeavesTheGlobalOnesStanding() {
-        fixtures.resourceClass("small", null);
-        fixtures.resourceClass("small", mine);
-        fixtures.resourceClass("small", theirs);
+        fixtures.createResourceClass("small", null);
+        fixtures.createResourceClass("small", mine);
+        fixtures.createResourceClass("small", theirs);
 
         assertEquals(1L, (long) inTx(() -> ResourceClass.deleteByProject(mine)));
 

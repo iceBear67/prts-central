@@ -1,35 +1,30 @@
-# Transaction style
+# Transaction Management & Boundaries
 
-Services do **not** rely on a single `@Transactional` boundary for the multi-step flows, because
-scheduling makes a blocking RPC that must not run inside an open transaction. The recurring shape is:
+PRTS-Central avoids long-lived `@Transactional` boundaries because worker scheduling and S3 transfers involve blocking network I/O.
 
-1. `QuarkusTransaction.requiringNew().call(...)` to prepare and persist (`JobLauncher.prepare`,
-   `JobService.prepareCancel`),
-2. do the RPC / scheduling *outside* any transaction,
-3. compensate in another `requiringNew()` on failure (mark `FAILED`, release the lock).
+## Standard Multi-Step Pattern
 
-Because entities are read in a closed transaction and used afterwards, associations are pulled in
-explicitly by `join fetch` finders — hence the `...Fetched` naming (`Job.findByIdFetched`,
-`JobSpecTemplate.listAllFetched`). Use `LockModeType.PESSIMISTIC_WRITE` when reading a job you are
-about to claim or cancel.
+1. **Prepare & Persist**: Use `QuarkusTransaction.requiringNew()` to commit state before external I/O (`JobLauncher.prepare`, `JobService.prepareCancel`).
+2. **External I/O**: Execute blocking RPCs or network calls outside of any active transaction (`WorkerClient.createJob`, S3 operations).
+3. **Compensation**: On failure or timeout, open a new `requiringNew()` transaction to transition state (`applyState(FAILED)`, release `JobLock`, requeue).
 
-`@Transactional` does not apply to a bean calling its own method, which is why the launcher and the
-services open `QuarkusTransaction` blocks explicitly instead of annotating private helpers.
+### Entity Fetching & Locking Rules
+- **Closed Contexts**: Because entities outlive their persistence context, eager associations must be loaded via explicit `join fetch` queries (`...Fetched`, e.g., `Job.findByIdFetched`).
+- **Pessimistic Locking**: Use `LockModeType.PESSIMISTIC_WRITE` when checking and transitioning mutable entities (job state updates, lock acquisition, pending queue claims).
+- **Self-Invocation**: Because `@Transactional` interceptors do not intercept same-class method calls, services invoke `QuarkusTransaction.requiringNew()` explicitly.
 
-## Boundaries, per step
+## Transaction Boundaries
 
-| Step | Boundary | Why |
+| Operation | Boundary | Purpose |
 | --- | --- | --- |
-| `JobLauncher.authorize` → `resolve` | `requiringNew` | reads only; nothing persisted |
-| `JobLauncher.prepare` | `requiringNew` | the row must be committed before a worker is asked |
-| `WorkerScheduler` `isSchedulable` / `acquireLock` / `claimJob` / `releaseLock` | `requiringNew` each | the 30s ack wait sits between them |
-| `WorkerClient.createJob` / `cancelJob` | none | blocking I/O |
-| `JobLauncher.dispatch` → `JobService.applyState` | `@Transactional` | compensation, on a throw only |
-| `JobService.discard` | `requiringNew` | compensation |
-| `JobService.cancel` | `prepareCancel` in `requiringNew`, RPC, `logCancelOutcome` in `requiringNew` | state first, so a late worker report is ignored |
-| `PendingJobService.enqueue` | `requiringNew` | the caller has already authorized; this only persists |
-| `PendingJobService.claimDue` / `mark*` / `requeue` | `@Transactional` each | the replay in between makes RPCs |
-| `ArtifactService.begin` → `reserve` | `requiringNew` | presign happens after the reservation is committed |
+| `JobLauncher.authorize` | `requiringNew` | Read-only validation; nothing persisted. |
+| `JobLauncher.prepare` | `requiringNew` | Persists `PENDING` job before scheduling begins. |
+| `WorkerScheduler` operations | `requiringNew` (each) | Short transactions for `tryAcquire`, `claimJob`, and lock release. |
+| `WorkerClient` calls | None | Blocking network I/O. |
+| `JobService.discard` | `requiringNew` | Cleanup compensation for unplaceable jobs. |
+| `JobService.cancel` | `requiringNew` (`prepareCancel`), RPC, then `requiringNew` (logging) | Commits `CANCELLED` state before sending non-blocking worker notification. |
+| `PendingJobService.enqueue` | `requiringNew` | Persists queue entry. |
+| `PendingJobService.claimDue` / `mark*` | `@Transactional` (each) | Discrete state updates between dispatch attempts. |
+| `ArtifactService.begin` | `requiringNew` (`reserve`) | Commits quota reservation before presigning S3 URL. |
+| `ProjectService.delete` | None (`deleteRows` uses `requiringNew`) | External stopWork and S3 deletions precede database row deletion. |
 
-`ProjectService.delete` is the other shape — see [project-deletion.md](project-deletion.md): it is
-deliberately **not** `@Transactional` at all, and only its row half opens one.

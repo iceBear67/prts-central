@@ -19,8 +19,7 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
 /**
- * {@link WorkerResource} is administrative throughout: its binding is {@link io.ib67.prts.Perm#ADMIN_OF_ALL},
- * which is global, so no project standing reaches it.
+ * Tests permission checks and administrative operations on {@link WorkerResource}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -43,16 +42,16 @@ class WorkerResourceE2ETest {
 
     @Test
     void anOrdinaryUserCannotListWorkers() {
-        as(fixtures.actor("alice")).get("/api/worker").then()
+        as(fixtures.createActor("alice")).get("/api/worker").then()
                 .statusCode(403)
                 .body(emptyString());
     }
 
-    /** Owning a project buys nothing here; the permission is not project-scoped to begin with. */
+    /** Project-level roles do not grant global worker management permissions. */
     @Test
     void aProjectOwnerIsStillNoAdmin() {
-        var alice = fixtures.actor("alice");
-        var project = fixtures.project("mine");
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).get("/api/worker").then().statusCode(403);
@@ -60,24 +59,24 @@ class WorkerResourceE2ETest {
 
     @Test
     void anAdminListsWorkers() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
-        fixtures.worker("w1");
+        fixtures.createWorker("w1");
 
         as(admin).get("/api/worker").then()
                 .statusCode(200)
                 .body("name", contains("w1"))
                 .body("[0].disabled", equalTo(false))
-                // The row is all there is: nothing holds a WebSocket session, so there is no live half.
+                // No active WebSocket session exists, so connected is false.
                 .body("[0].connected", equalTo(false))
                 .body("[0].info", nullValue());
     }
 
     @Test
     void anAdminReadsOneWorker() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
-        var worker = fixtures.worker("w1");
+        var worker = fixtures.createWorker("w1");
 
         as(admin).get("/api/worker/{id}", worker).then()
                 .statusCode(200)
@@ -87,7 +86,7 @@ class WorkerResourceE2ETest {
 
     @Test
     void aWorkerThatDoesNotExistIsNotFound() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).get("/api/worker/{id}", UUID.randomUUID()).then().statusCode(404);
@@ -95,9 +94,9 @@ class WorkerResourceE2ETest {
 
     @Test
     void anAdminCanDisableAndEnableAWorker() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
-        var worker = fixtures.worker("w1");
+        var worker = fixtures.createWorker("w1");
 
         as(admin).post("/api/worker/{id}/disable", worker).then()
                 .statusCode(200)
@@ -109,10 +108,9 @@ class WorkerResourceE2ETest {
                 .body("disabled", equalTo(false));
     }
 
-    /** {@code WorkerService.setDisabled} raises a {@code NoSuchElementException}, which has no body. */
     @Test
     void disablingAWorkerThatDoesNotExistIsNotFound() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).post("/api/worker/{id}/disable", UUID.randomUUID()).then()
@@ -122,9 +120,9 @@ class WorkerResourceE2ETest {
 
     @Test
     void anOrdinaryUserCannotDisableAWorker() {
-        var worker = fixtures.worker("w1");
+        var worker = fixtures.createWorker("w1");
 
-        as(fixtures.actor("alice")).post("/api/worker/{id}/disable", worker)
+        as(fixtures.createActor("alice")).post("/api/worker/{id}/disable", worker)
                 .then().statusCode(403);
     }
 }

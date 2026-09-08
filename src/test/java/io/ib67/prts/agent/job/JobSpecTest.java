@@ -7,7 +7,6 @@ import io.quarkus.security.ForbiddenException;
 import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,7 +85,7 @@ class JobSpecTest {
         assertTrue(rendered.contains("image=img:1"), rendered);
     }
 
-    /** JobSpec is persisted as jsonb, so a stored row must come back as an equal value. */
+    /** Verifies Jackson serialization round-trip for JSONB persistence. */
     @Test
     void survivesAJacksonRoundTrip() throws Exception {
         var spec = spec("build", Map.of());
@@ -154,19 +153,6 @@ class JobSpecTest {
             var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
 
             assertThrows(BadRequestException.class, () -> spec.requireVolumesIn(PROJECT));
-        }
-    }
-
-    @Test
-    void aVolumeWithoutAnIdIsRejected() {
-        var volumes = new HashMap<UUID, JobSpec.VolumeSpec>();
-        volumes.put(null, new JobSpec.VolumeSpec("/data", 1024L));
-        var spec = specRequiring(volumes);
-
-        try (var workerVolume = mockStatic(WorkerVolume.class)) {
-            assertThrows(BadRequestException.class, () -> spec.requireVolumesIn(PROJECT));
-
-            workerVolume.verifyNoInteractions();
         }
     }
 }

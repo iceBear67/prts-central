@@ -6,11 +6,10 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 
 /**
- * Empties every table between tests.
+ * Truncates database tables between test executions.
  *
- * <p>{@code @TestTransaction} cannot do this job: the services commit inside
- * {@link io.quarkus.narayana.jta.QuarkusTransaction#requiringNew()}, whose writes outlive the outer
- * rollback. See agent-docs/testing.md.
+ * <p>Services commit their own transactions via {@code QuarkusTransaction.requiringNew()},
+ * so standard test transaction rollback cannot be used.
  */
 @ApplicationScoped
 public class DatabaseCleaner {
@@ -20,8 +19,7 @@ public class DatabaseCleaner {
 
     @Transactional
     public void clean() {
-        // One TRUNCATE over all tables at once, so CASCADE settles the foreign-key ordering. The names
-        // come back from pg_tables through %I, which is Postgres quoting its own identifiers.
+        // Truncate all tables in the current schema in a single command with CASCADE to handle foreign keys.
         var tables = (String) entityManager.createNativeQuery("""
                 select string_agg(format('%I.%I', schemaname, tablename), ', ')
                 from pg_tables

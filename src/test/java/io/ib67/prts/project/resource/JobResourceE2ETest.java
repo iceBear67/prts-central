@@ -30,7 +30,7 @@ import static org.hamcrest.Matchers.nullValue;
 import static org.hamcrest.Matchers.startsWith;
 
 /**
- * The permission matrix of {@link JobResource}, over the real authentication chain.
+ * Tests permission checks and endpoints of {@link JobResource}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -50,12 +50,10 @@ class JobResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
-        small = fixtures.resourceClass("small", null);
-        template = fixtures.template("build", project, small);
+        project = fixtures.createProject("mine");
+        small = fixtures.createResourceClass("small", null);
+        template = fixtures.createTemplate("build", project, small);
     }
-
-    // ---- reading ----
 
     @Test
     void anUncredentialedRequestIsRejected() {
@@ -64,24 +62,20 @@ class JobResourceE2ETest {
 
     @Test
     void aStrangerCannotListJobs() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/job", project).then().statusCode(403);
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/job", project).then().statusCode(403);
     }
 
-    /** JOB_READ defaults to VIEWER, so a stranger is refused before the project is ever looked up. */
+    /** Non-members receive 403 even if the project does not exist. */
     @Test
     void aProjectThatDoesNotExistLooksLikeOneIAmNotIn() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/job", UUID.randomUUID())
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/job", UUID.randomUUID())
                 .then().statusCode(403);
     }
 
-    /**
-     * Past the permission check the non-disclosure rule no longer applies, and both listings have to say
-     * so: neither queries a project row of its own, so an absent project would otherwise read as 200 —
-     * empty for jobs, and the global templates for templates.
-     */
+    /** Admins receive 404 when querying a nonexistent project. */
     @Test
     void anAdminIsToldWhenTheProjectDoesNotExist() {
-        var root = fixtures.actor("root");
+        var root = fixtures.createActor("root");
         fixtures.makeAdmin(root);
         var absent = UUID.randomUUID();
 
@@ -91,7 +85,7 @@ class JobResourceE2ETest {
 
     @Test
     void aViewerCanListJobs() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
 
         as(alice).get("/api/project/{p}/job", project).then()
@@ -99,13 +93,13 @@ class JobResourceE2ETest {
                 .body("$", empty());
     }
 
-    /** A job still PENDING with no worker is not visible; Job.VISIBLE_ROW is what hides it. */
+    /** Unplaced PENDING jobs without a worker are hidden from listings. */
     @Test
     void anUnplacedJobIsNotListed() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        fixtures.job(project, alice, small, JobState.PENDING, null);
-        fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.PENDING, null);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
@@ -114,12 +108,12 @@ class JobResourceE2ETest {
                 .body("type", contains("job"));
     }
 
-    /** The listing merges queue entries with jobs; an entry that has no job yet reads as itself. */
+    /** Pending job queue entries are listed alongside jobs. */
     @Test
     void aQueueEntryIsListedAlongsideJobs() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        fixtures.queued(project, alice, template, "small");
+        fixtures.createQueuedJob(project, alice, template, "small");
 
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
@@ -130,34 +124,34 @@ class JobResourceE2ETest {
 
     @Test
     void theListingHoldsOnlyThisProject() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.VIEWER);
         fixtures.join(alice, other, ProjectRole.VIEWER);
-        fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(alice).get("/api/project/{p}/job", other).then()
                 .statusCode(200)
                 .body("$", empty());
     }
 
-    /** A job of another project must not be readable through this project's path. */
+    /** Jobs belonging to other projects return 404. */
     @Test
     void aJobOfAnotherProjectIsNotFound() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var elsewhere = fixtures.job(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var elsewhere = fixtures.createJob(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(alice).get("/api/project/{p}/job/{j}", project, elsewhere).then().statusCode(404);
     }
 
-    /** JOB_CREATE is a MEMBER's, so a viewer is not handed the payload to re-run the job. */
+    /** Viewers can view jobs but do not see createRequest payloads. */
     @Test
     void aViewerReadsOneJobWithoutItsCreateRequest() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
+        var job = fixtures.createJob(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
 
         as(alice).get("/api/project/{p}/job/{j}", project, job).then()
                 .statusCode(200)
@@ -169,9 +163,9 @@ class JobResourceE2ETest {
 
     @Test
     void aMemberReadsOneJobWithItsCreateRequest() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        var job = fixtures.job(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
+        var job = fixtures.createJob(project, alice, small, JobState.RUNNING, UUID.randomUUID(), template);
 
         as(alice).get("/api/project/{p}/job/{j}", project, job).then()
                 .statusCode(200)
@@ -185,7 +179,7 @@ class JobResourceE2ETest {
     /** PROJECT_READ gets the list; the spec inside needs JOB_TEMPLATE_READ on top. */
     @Test
     void aViewerSeesTemplatesWithoutTheirSpec() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
 
         as(alice).get("/api/project/{p}/job/template", project).then()
@@ -197,7 +191,7 @@ class JobResourceE2ETest {
 
     @Test
     void aTemplateReaderSeesTheSpec() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
         fixtures.grant(alice, Perm.JOB_TEMPLATE_READ, project);
 
@@ -208,16 +202,15 @@ class JobResourceE2ETest {
                 .body("resourceClass", equalTo("small"));
     }
 
-    /** Global templates are visible everywhere; another project's are visible nowhere else. */
+    /** Global templates are visible to any project, but another project's templates are not. */
     @Test
     void theTemplateListIsThisProjectsAndTheGlobalOnes() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        fixtures.template("shared", null, small);
-        fixtures.template("theirs-only", other, small);
+        fixtures.createTemplate("shared", null, small);
+        fixtures.createTemplate("theirs-only", other, small);
 
-        // listVisibleFetched has no order by, so only the membership of the list is asserted.
         as(alice).get("/api/project/{p}/job/template", project).then()
                 .statusCode(200)
                 .body("name", containsInAnyOrder("build", "shared"));
@@ -225,10 +218,10 @@ class JobResourceE2ETest {
 
     @Test
     void aTemplateOfAnotherProjectIsNotFound() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var elsewhere = fixtures.template("theirs-only", other, small);
+        var elsewhere = fixtures.createTemplate("theirs-only", other, small);
 
         as(alice).get("/api/project/{p}/job/template/{t}", project, elsewhere)
                 .then().statusCode(404);
@@ -236,20 +229,16 @@ class JobResourceE2ETest {
 
     @Test
     void aStrangerCannotListTemplates() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/job/template", project)
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/job/template", project)
                 .then().statusCode(403);
     }
 
-    // ---- creating ----
-
     /**
-     * The 403 carries no body: {@code io.quarkus.security.ForbiddenException} is no
-     * {@code WebApplicationException}, so Quarkus' own mapper answers and never sees
-     * {@code ClientErrorMapper}. A denial says nothing about what was missing.
+     * Quarkus ForbiddenException produces an empty 403 response without invoking ClientErrorMapper.
      */
     @Test
     void aViewerCannotCreateAJob() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template))
@@ -258,10 +247,10 @@ class JobResourceE2ETest {
                 .body(emptyString());
     }
 
-    /** JOB_CREATE granted outright is the sub-account's route in, without any membership role. */
+    /** An explicit JOB_CREATE grant allows job creation without project membership. */
     @Test
     void anExplicitGrantCreatesWithoutMembership() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.grant(alice, Perm.JOB_CREATE, project);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template))
@@ -273,7 +262,7 @@ class JobResourceE2ETest {
 
     @Test
     void aMemberCanCreateAJob() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template))
@@ -282,14 +271,14 @@ class JobResourceE2ETest {
                 .body("type", equalTo("pending"))
                 .body("state", equalTo("QUEUED"))
                 .body("requestedBy", equalTo(alice.id().toString()))
-                // The queue entry pins the class the launcher resolved, not the one asked for.
+                // Queue entry records the resolved resource class.
                 .body("request.resourceClass", equalTo("small"))
                 .body("jobId", nullValue());
     }
 
     @Test
     void creatingWithoutATemplateIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of())
@@ -300,10 +289,10 @@ class JobResourceE2ETest {
 
     @Test
     void creatingFromATemplateOfAnotherProjectIsNotFound() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        var elsewhere = fixtures.template("theirs-only", other, small);
+        var elsewhere = fixtures.createTemplate("theirs-only", other, small);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", elsewhere))
                 .post("/api/project/{p}/job", project).then()
@@ -315,18 +304,18 @@ class JobResourceE2ETest {
 
     @Test
     void aViewerCannotCancel() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.RUNNING, null);
+        var job = fixtures.createJob(project, alice, small, JobState.RUNNING, null);
 
         as(alice).post("/api/project/{p}/job/{j}/cancel", project, job).then().statusCode(403);
     }
 
     @Test
     void aMemberCanCancelARunningJob() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        var job = fixtures.job(project, alice, small, JobState.RUNNING, null);
+        var job = fixtures.createJob(project, alice, small, JobState.RUNNING, null);
 
         as(alice).post("/api/project/{p}/job/{j}/cancel", project, job).then()
                 .statusCode(200)
@@ -337,9 +326,9 @@ class JobResourceE2ETest {
 
     @Test
     void cancellingACompletedJobConflicts() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(alice).post("/api/project/{p}/job/{j}/cancel", project, job).then()
                 .statusCode(409)
@@ -348,41 +337,39 @@ class JobResourceE2ETest {
 
     @Test
     void aMemberCanCancelAQueueEntry() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
 
         as(alice).post("/api/project/{p}/job/{j}/cancel", project, entry).then()
                 .statusCode(200)
                 .body("type", equalTo("pending"))
                 .body("state", equalTo("CANCELLED"))
-                // PendingJobView blanks nextAttemptAt once the state is settled.
+                // Settled pending jobs have no next attempt scheduled.
                 .body("nextAttemptAt", nullValue());
     }
 
-    // ---- logs and artifacts ----
-
     @Test
     void aViewerCanReadJobLogs() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
-        fixtures.log(job, "state", "first");
-        fixtures.log(job, "state", "second");
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createLog(job, "state", "first");
+        fixtures.createLog(job, "state", "second");
 
         as(alice).get("/api/project/{p}/job/{j}/log", project, job).then()
                 .statusCode(200)
                 .body("items.message", contains("first", "second"))
-                // No length asked for, so the window is the maximum.
+                // Defaults to maxPageSize when length is not specified.
                 .body("length", equalTo(jobConfig.log().maxPageSize()))
                 .body("offset", equalTo(0));
     }
 
     @Test
     void aLogWindowIsCappedAtTheConfiguredMaximum() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
         var max = jobConfig.log().maxPageSize();
 
         as(alice).queryParam("length", max + 1).get("/api/project/{p}/job/{j}/log", project, job).then()
@@ -392,21 +379,21 @@ class JobResourceE2ETest {
 
     @Test
     void aStrangerCannotReadJobLogs() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
-        as(fixtures.actor("mallory")).get("/api/project/{p}/job/{j}/log", project, job)
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/job/{j}/log", project, job)
                 .then().statusCode(403);
     }
 
-    /** Presigning is local crypto, so this asserts the URL was minted, not that the object exists. */
+    /** Presigning generates a signed URL locally without verifying object existence in storage. */
     @Test
     void aViewerCanPresignAnArtifact() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
-        var artifact = fixtures.artifact(job, "out.txt");
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
 
         as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact).then()
                 .statusCode(200)
@@ -416,24 +403,22 @@ class JobResourceE2ETest {
 
     @Test
     void anArtifactOfAnotherProjectIsNotFound() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.VIEWER);
-        var job = fixtures.job(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
-        var artifact = fixtures.artifact(job, "out.txt");
+        var job = fixtures.createJob(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
 
         as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact)
                 .then().statusCode(404);
     }
 
-    // ---- admin ----
-
     @Test
     void anAdminReadsAProjectTheyAreNotIn() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
-        var alice = fixtures.actor("alice");
-        fixtures.job(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var alice = fixtures.createActor("alice");
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(admin).get("/api/project/{p}/job", project).then()
                 .statusCode(200)

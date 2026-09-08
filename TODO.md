@@ -36,24 +36,11 @@ predicate goes with it.
 
 ## Test gaps
 
-What `agent-docs/testing.md` does not cover, and why each is still open.
+Remaining testing gaps and current constraints:
 
-- **The worker's half of the protocol** — `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`,
-  `JobCreated` — and with it `JobLauncher.launch()` end to end (tier B only reaches `authorize()`;
-  `job.persist()` is inherited). `WorkerWebSocketE2ETest` drives `Register` and `UpdateResourceInfo` with
-  a hand-rolled client; the rest waits for the real worker, so the test speaks the protocol the worker
-  actually speaks rather than one written to pass.
-- **The artifact path** — upload quota, presigned hand-off, and the S3 delete inside
-  `ProjectService.delete` — against LocalStack. Same dependency: the upload is a worker's request.
-- **`ProjectService`'s `Rows.BUSY` branch.** Reachable only by opening a job in the window between
-  `stopWork` and the row lock `deleteRows` takes, which a test cannot hold open.
-- **The worker socket's `@OnError` reply.** Its routing through websockets-next was not established
-  without executing it.
-- **Re-registering a worker on a second connection.** The claim worth testing — that closing the
-  displaced connection leaves the live one registered — is a negative with nothing on the client side
-  to wait on.
-- **Two first-acquires racing for one `JobLock` name.** `JobLockE2ETest` covers the sequential takeover
-  semantics. When no row exists yet there is nothing for `PESSIMISTIC_WRITE` to lock, so two
-  concurrent callers both reach `persistAndFlush` and the primary key decides: the loser gets a
-  constraint violation, which `WorkerScheduler.acquireLock` folds into `false`. That fold is the
-  untested claim, and provoking it needs two transactions held open across threads.
+- **Worker WebSocket protocol messages**: `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`, and `JobCreated` are not covered end-to-end, as well as full `JobLauncher.launch()` execution. `WorkerWebSocketE2ETest` tests `Register` and `UpdateResourceInfo` with a mock client; remaining messages should be tested against a real worker implementation.
+- **Artifact upload and storage**: Upload quotas, presigned URL flow, and S3 object deletion in `ProjectService.delete` against LocalStack (requires worker-side upload requests).
+- **`ProjectService` concurrent deletion (`Rows.BUSY`)**: Triggering the race condition between `stopWork` and table locking in `deleteRows` requires precise multi-threaded transaction coordination.
+- **Worker WebSocket `@OnError` handling**: Error reply behavior through websockets-next needs further verification.
+- **Worker reconnection / re-registration**: Verifying that closing an old connection does not unregister a newly re-registered worker session.
+- **Concurrent `JobLock` acquisition on new lock names**: Concurrent first-time acquisition races rely on database unique constraint violation handling in `WorkerScheduler.acquireLock`, which requires multi-threaded concurrent transaction testing.

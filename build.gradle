@@ -30,7 +30,7 @@ dependencies {
     implementation 'io.quarkus:quarkus-hibernate-orm'
     testImplementation 'io.quarkus:quarkus-junit'
     testImplementation 'io.rest-assured:rest-assured'
-    // Brings mockito-core, whose default (inline) mock maker is what mockStatic needs.
+    // Provides Mockito support for Quarkus tests, including static mocking.
     testImplementation 'io.quarkus:quarkus-junit-mockito'
     implementation("io.quarkus:quarkus-websockets-next")
 }
@@ -52,9 +52,8 @@ compileTestJava {
     options.encoding = 'UTF-8'
 }
 
-// Tier C is opted into either by running `e2eTest` or by passing -Pe2e; see agent-docs/testing.md.
-// The task names have to be read from the start parameter because the tag filter below is fixed at
-// configuration time, long before the task graph exists.
+// Enable E2E tests when running the e2eTest task or when passing -Pe2e.
+// Checks startParameter so this can be evaluated at configuration time.
 def e2eRequested = project.hasProperty('e2e') ||
         gradle.startParameter.taskNames.any { it.tokenize(':').last() == 'e2eTest' }
 
@@ -65,20 +64,15 @@ test {
         }
     }
     if (!e2eRequested) {
-        // The tag filter alone is not enough. It is a post-discovery filter, and by the time it runs
-        // JUnit has already *loaded* the class — which for a @QuarkusTest means Quarkus' FacadeClassLoader
-        // boots the application, Dev Services looks for a Docker daemon, and the build fails before a
-        // single tier A test reports. Excluding the class files keeps them out of the scan entirely.
+        // Exclude E2E test classes during standard test runs to prevent
+        // Quarkus from starting Dev Services containers prematurely.
         exclude '**/*E2ETest*'
     }
 }
 
-/**
- * Tier C on top of tiers A and B. Dev Services starts Postgres and LocalStack, so this needs a usable
- * Docker daemon and nothing else; plain `test` stays container-free.
- */
+// Runs all tests including container-based E2E tests.
 tasks.register('e2eTest') {
     group = 'verification'
-    description = 'Runs every tier, including the @QuarkusTest ones that need containers.'
+    description = 'Runs all tests including container-based E2E tests.'
     dependsOn tasks.named('test')
 }

@@ -36,10 +36,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
 /**
- * Builds the actors, projects and rows a tier C test needs.
+ * Test fixtures for creating actors, projects, and entities for E2E tests.
  *
- * <p>Authentication goes through a real personal access token rather than {@code @TestSecurity},
- * which yields a bare principal that {@code UserIdentityAugmenter} cannot map to a {@code User}.
+ * <p>Authentication uses real Personal Access Tokens to exercise the full authentication chain.
  */
 @ApplicationScoped
 public class Fixtures {
@@ -60,13 +59,13 @@ public class Fixtures {
     SecretService secretService;
 
     /** Registers a user and issues them a token. */
-    public Actor actor(String name) {
-        // Emails are unique per user; the counter keeps two actors of the same name apart.
+    public Actor createActor(String name) {
+        // Ensure unique emails per generated actor.
         var user = userService.register(name, name + COUNTER.incrementAndGet() + "@example.test");
         return new Actor(user.getId(), accessTokenService.issue(user.getId()).token());
     }
 
-    public UUID project(String name) {
+    public UUID createProject(String name) {
         return projectService.create(name).getId();
     }
 
@@ -74,12 +73,12 @@ public class Fixtures {
         userService.grant(actor.id(), projectId, role);
     }
 
-    /** Grants {@link Perm#ADMIN_OF_ALL}, which is global and so takes no project. */
+    /** Grants {@link Perm#ADMIN_OF_ALL} globally to the actor. */
     public void makeAdmin(Actor actor) {
         permissionService.grant(actor.id(), Perm.ADMIN_OF_ALL, null);
     }
 
-    /** Grants one project-scoped permission, the way a sub-account holds its rights. */
+    /** Grants a project-scoped permission to the actor. */
     public void grant(Actor actor, Perm perm, UUID projectId) {
         permissionService.grant(actor.id(), perm, projectId);
     }
@@ -88,19 +87,19 @@ public class Fixtures {
         permissionService.revoke(actor.id(), perm, projectId);
     }
 
-    /** Mints a sub-account of the project and issues it a token, so it can be an {@link Actor}. */
-    public Actor subAccount(UUID projectId, String name, Actor createdBy) {
+    /** Creates a sub-account for the project and returns an Actor with its token. */
+    public Actor createSubAccount(UUID projectId, String name, Actor createdBy) {
         var account = subAccountService.create(projectId, name, createdBy.id());
         return new Actor(account.getUserId(), accessTokenService.issue(account.getUserId()).token());
     }
 
-    public void secret(UUID projectId, String name, String value) {
+    public void createSecret(UUID projectId, String name, String value) {
         secretService.create(projectId, name, null, value);
     }
 
-    /** A resource class of the project, or a global one when {@code projectId} is null. */
+    /** Creates a project-scoped or global resource class. */
     @Transactional
-    public ResourceClass resourceClass(String name, @Nullable UUID projectId) {
+    public ResourceClass createResourceClass(String name, @Nullable UUID projectId) {
         var klass = ResourceClass.builder()
                 .name(name)
                 .projectId(ResourceClass.scopeOf(projectId))
@@ -112,9 +111,9 @@ public class Fixtures {
         return klass;
     }
 
-    /** A template of the project, or a global one when {@code projectId} is null. */
+    /** Creates a project-scoped or global template. */
     @Transactional
-    public UUID template(String name, @Nullable UUID projectId, ResourceClass klass) {
+    public UUID createTemplate(String name, @Nullable UUID projectId, ResourceClass klass) {
         var template = JobSpecTemplate.builder()
                 .name(name)
                 .spec(spec("alpine"))
@@ -125,32 +124,32 @@ public class Fixtures {
         return template.getId();
     }
 
-    /** A job with no template, so {@code Job.toRequest()} is null for it. */
+    /** Creates a job without a template. */
     @Transactional
-    public UUID job(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
-                    @Nullable UUID worker) {
-        return job(projectId, requestedBy, klass, state, worker, null);
+    public UUID createJob(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
+                          @Nullable UUID workerId) {
+        return createJob(projectId, requestedBy, klass, state, workerId, null);
     }
 
     @Transactional
-    public UUID job(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
-                    @Nullable UUID worker, @Nullable UUID templateId) {
+    public UUID createJob(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
+                          @Nullable UUID workerId, @Nullable UUID templateId) {
         var job = Job.builder()
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
                 .resourceClass(attach(klass))
                 .spec(spec("alpine"))
-                .worker(worker)
+                .worker(workerId)
                 .templateId(templateId)
                 .build();
-        // Through transitionTo, so completed_at satisfies the job_completion_consistency check.
+        // Update state via transitionTo to ensure timestamps are set properly.
         job.transitionTo(state);
         job.persistAndFlush();
         return job.getId();
     }
 
     @Transactional
-    public UUID artifact(UUID jobId, String name) {
+    public UUID createArtifact(UUID jobId, String name) {
         var artifact = Artifact.builder()
                 .name(name)
                 .objectKey("test/" + jobId + "/" + name)
@@ -162,7 +161,7 @@ public class Fixtures {
     }
 
     @Transactional
-    public void log(UUID jobId, String topic, String message) {
+    public void createLog(UUID jobId, String topic, String message) {
         JobLog.builder()
                 .job(Job.<Job>findById(jobId))
                 .topic(topic)
@@ -172,24 +171,23 @@ public class Fixtures {
                 .persistAndFlush();
     }
 
-    /** A queue entry that is due now and expires in an hour. */
-    public UUID queued(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass) {
+    /** Creates a queued pending job. */
+    public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass) {
         var now = Instant.now();
-        return queued(projectId, requestedBy, templateId, resourceClass,
+        return createQueuedJob(projectId, requestedBy, templateId, resourceClass,
                 now.plus(Duration.ofHours(1)), now);
     }
 
     /**
-     * Built here rather than through {@code PendingJobService.enqueue}, which needs a
-     * {@code UserContext} and so only exists inside a request.
+     * Creates a pending job directly in the database without requiring an active {@code UserContext}.
      */
     @Transactional
-    public UUID queued(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass,
-                       Instant expiresAt, Instant nextAttemptAt) {
+    public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass,
+                                Instant expiresAt, Instant nextAttemptAt) {
         var pending = PendingJob.builder()
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
-                // resource_class is not null on pending_job, whatever JobRequest allows elsewhere.
+                // resource_class is required on pending_job.
                 .request(new JobRequest(templateId, null, resourceClass))
                 .state(PendingJobState.QUEUED)
                 .expiresAt(expiresAt)
@@ -199,17 +197,17 @@ public class Fixtures {
         return pending.getId();
     }
 
-    /** A worker row, as a connecting worker would leave behind; nothing is registered as live. */
+    /** Creates a worker record in the database. */
     @Transactional
-    public UUID worker(String name) {
+    public UUID createWorker(String name) {
         var id = UUID.randomUUID();
         Worker.upsert(id, name);
         return id;
     }
 
-    /** A volume the project holds on a worker. */
+    /** Creates a worker volume record. */
     @Transactional
-    public UUID volume(UUID projectId, UUID workerId, String name) {
+    public UUID createVolume(UUID projectId, UUID workerId, String name) {
         var volume = WorkerVolume.builder()
                 .name(name)
                 .worker(Worker.<Worker>findById(workerId))
@@ -221,20 +219,19 @@ public class Fixtures {
         return volume.getId();
     }
 
-    /** A request carrying the actor's bearer token, which is the only way into an authenticated route. */
+    /** Returns a RestAssured RequestSpecification with the actor's bearer token. */
     public static RequestSpecification as(Actor actor) {
         return RestAssured.given().header("Authorization", "Bearer " + actor.token());
     }
 
     /**
-     * Calls a finder in a transaction of its own, which is what Panache needs and a test method has not
-     * got. Read what the assertion wants inside the body: what comes back out is detached.
+     * Executes a supplier within a new transaction and returns the result.
      */
     public static <T> T inTx(Supplier<T> body) {
         return QuarkusTransaction.requiringNew().call(body::get);
     }
 
-    /** {@link #inTx(Supplier)} for a write that yields nothing. */
+    /** Executes a runnable within a new transaction. */
     public static void inTx(Runnable body) {
         QuarkusTransaction.requiringNew().run(body);
     }
@@ -243,14 +240,11 @@ public class Fixtures {
         return new JobSpec(image, null, null, null, null, 0, "", null);
     }
 
-    /** Fixtures hand out detached rows; a builder needs one this persistence context owns. */
+    /** Re-attaches a detached entity to the current persistence context. */
     private static ResourceClass attach(ResourceClass klass) {
         return ResourceClass.findById(klass.key());
     }
 
-    /**
-     * @param token the plaintext token, to be sent as {@code Authorization: Bearer <token>}
-     */
     public record Actor(UUID id, String token) {
     }
 }

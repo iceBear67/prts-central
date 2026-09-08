@@ -23,7 +23,7 @@ import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
- * The permission matrix of {@link ProjectResource}, over the real authentication chain.
+ * Permission and access control tests for {@link ProjectResource}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -40,15 +40,12 @@ class ProjectResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
-        alice = fixtures.actor("alice");
+        project = fixtures.createProject("mine");
+        alice = fixtures.createActor("alice");
     }
 
-    // ---- authentication ----
-
     /**
-     * Also the guard on dev auto-login: {@code DevAuthMechanism} is {@code @IfBuildProfile("dev")}, so it
-     * is not built here. Were that ever loosened, every case below would pass as an admin instead.
+     * Verifies that requests without credentials are rejected when dev auth is inactive.
      */
     @Test
     void anUncredentialedRequestIsRejected() {
@@ -68,11 +65,9 @@ class ProjectResourceE2ETest {
                 .body("$", empty());
     }
 
-    // ---- reading ----
-
     @Test
     void theListHoldsOnlyMyMemberships() {
-        fixtures.project("theirs");
+        fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).get("/api/project").then()
@@ -83,7 +78,7 @@ class ProjectResourceE2ETest {
 
     @Test
     void aViewerCanReadTheProject() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.VIEWER);
         fixtures.join(bob, project, ProjectRole.OWNER);
 
@@ -107,7 +102,7 @@ class ProjectResourceE2ETest {
                 .body("access", equalTo("MEMBER"));
     }
 
-    /** The interceptor's 403 carries no body: nothing in it may hint at what was refused. */
+    /** Verifies that non-members receive an empty 403 Forbidden. */
     @Test
     void aStrangerCannotReadTheProject() {
         as(alice).get("/api/project/{id}", project).then()
@@ -115,13 +110,13 @@ class ProjectResourceE2ETest {
                 .body(emptyString());
     }
 
-    /** A stranger must not be able to tell an existing project from one that never existed. */
+    /** Non-members receive 403 for non-existent projects to prevent project enumeration. */
     @Test
     void aProjectThatDoesNotExistLooksLikeOneIAmNotIn() {
         as(alice).get("/api/project/{id}", UUID.randomUUID()).then().statusCode(403);
     }
 
-    /** ADMIN_OF_ALL is the bypass @RequirePermission grants, and it reports itself as the basis. */
+    /** Admins bypass project membership checks and report ADMIN access level. */
     @Test
     void anAdminCanReadAProjectTheyAreNotIn() {
         fixtures.makeAdmin(alice);
@@ -132,7 +127,7 @@ class ProjectResourceE2ETest {
                 .body("access", equalTo("ADMIN"));
     }
 
-    /** Past the permission check the non-disclosure rule no longer applies. */
+    /** Admins receive 404 when a project does not exist. */
     @Test
     void anAdminIsToldWhenTheProjectDoesNotExist() {
         fixtures.makeAdmin(alice);
@@ -141,8 +136,7 @@ class ProjectResourceE2ETest {
     }
 
     /**
-     * Grants are cached per user for minutes, and both {@code grant} and {@code revoke} invalidate the
-     * entry once their transaction commits. Warmed first, so a stale cache would be caught either way.
+     * Verifies that permission grants and revocations take effect immediately by invalidating user permission caches.
      */
     @Test
     void aGrantTakesEffectAtOnceAndSoDoesItsRevocation() {
@@ -157,8 +151,6 @@ class ProjectResourceE2ETest {
         fixtures.revoke(alice, Perm.PROJECT_READ, project);
         as(alice).get("/api/project/{id}", project).then().statusCode(403);
     }
-
-    // ---- renaming ----
 
     @Test
     void anOwnerCanRenameTheProject() {
@@ -191,16 +183,13 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("name is required"));
     }
 
-    // ---- deleting ----
-
-    /** The membership rows go with the project, so afterwards even the owner is a stranger to it. */
+    /** Deleting a project cascades to its memberships. */
     @Test
     void anOwnerCanDeleteTheProject() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
         fixtures.join(alice, project, ProjectRole.OWNER);
 
-        // The endpoint returns void, so RESTEasy answers 204.
         as(alice).delete("/api/project/{id}", project).then().statusCode(204);
 
         as(alice).get("/api/project").then().body("$", empty());
@@ -226,11 +215,9 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("no such project: " + absent));
     }
 
-    // ---- member roles ----
-
     @Test
     void anOwnerAddsAMemberAndChangesTheirRole() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("role", "MEMBER"))
@@ -252,7 +239,7 @@ class ProjectResourceE2ETest {
 
     @Test
     void aMemberCannotManageRoles() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("role", "MEMBER"))
@@ -261,7 +248,7 @@ class ProjectResourceE2ETest {
 
     @Test
     void aRoleIsRequired() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of())
@@ -272,7 +259,7 @@ class ProjectResourceE2ETest {
 
     @Test
     void noneIsNotARoleToSet() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
 
@@ -293,11 +280,11 @@ class ProjectResourceE2ETest {
         as(alice).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
     }
 
-    /** A sub-account holds permissions, never a role; the roster is for people. */
+    /** Sub-accounts can only hold permissions, not project roles. */
     @Test
     void aSubAccountCannotBeGivenARole() {
         fixtures.join(alice, project, ProjectRole.OWNER);
-        var ci = fixtures.subAccount(project, "ci", alice);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("role", "MEMBER"))
                 .put("/api/project/{p}/member/{u}", project, ci.id()).then()
@@ -305,11 +292,9 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("a sub-account cannot hold a project role: " + ci.id()));
     }
 
-    // ---- removing members ----
-
     @Test
     void anOwnerCanRemoveAMember() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
 
@@ -319,10 +304,10 @@ class ProjectResourceE2ETest {
         as(bob).get("/api/project/{id}", project).then().statusCode(403);
     }
 
-    /** Leaving needs no permission of its own: {@code defaultValue = true} lets anyone in this far. */
+    /** Any member can remove themselves from a project without administrative permissions. */
     @Test
     void aMemberCanLeave() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
 
@@ -332,12 +317,11 @@ class ProjectResourceE2ETest {
     }
 
     /**
-     * The same route, so the check moves into the method; this one is a {@code jakarta.ws.rs}
-     * ForbiddenException and so does carry a message, unlike the interceptor's.
+     * Removing other members requires PROJECT_MEMBER_MANAGE permission, failing with an error message on denial.
      */
     @Test
     void aMemberCannotRemoveAnotherMember() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.MEMBER);
         fixtures.join(bob, project, ProjectRole.MEMBER);
 
@@ -349,7 +333,7 @@ class ProjectResourceE2ETest {
 
     @Test
     void removingSomeoneWhoIsNotAMemberIsNotFound() {
-        var bob = fixtures.actor("bob");
+        var bob = fixtures.createActor("bob");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).delete("/api/project/{p}/member/{u}", project, bob.id()).then()

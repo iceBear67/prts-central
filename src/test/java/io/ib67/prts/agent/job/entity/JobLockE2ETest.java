@@ -22,12 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link JobLock#tryAcquire}: who holds a name after a sequence of attempts, and when a holder's name
- * may be taken over.
- *
- * <p>Each attempt runs in a committed transaction of its own, which is how {@code JobLauncher} calls it
- * and the only way the second attempt can see what the first left behind. The attempts are sequential:
- * two first-acquires racing for the same name is not covered here (see TODO.md).
+ * Tests {@link JobLock#tryAcquire} and lock takeover semantics.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -45,12 +40,12 @@ class JobLockE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
-        alice = fixtures.actor("alice");
-        small = fixtures.resourceClass("small", null);
+        project = fixtures.createProject("mine");
+        alice = fixtures.createActor("alice");
+        small = fixtures.createResourceClass("small", null);
     }
 
-    /** Re-entrant on purpose: a retry of the same job must not deadlock itself out. */
+    /** A job that already holds a lock can re-acquire it. */
     @Test
     void aFreeNameIsAcquiredAndTheHolderAskingAgainStillHoldsIt() {
         var job = job(JobState.RUNNING);
@@ -73,14 +68,12 @@ class JobLockE2ETest {
     }
 
     /**
-     * A holder that finished without releasing — a crash between completion and cleanup — must not
-     * wedge the name forever, so the next comer takes it over rather than waiting.
+     * A lock held by a finished job (e.g. after a crash without cleanup) can be taken over by another job.
      */
     @Test
     void aNameHeldByAFinishedJobIsTakenOverWhateverItFinishedAs() {
         for (var state : new JobState[]{JobState.SUCCESS, JobState.FAILED, JobState.CANCELLED}) {
-            // Acquired while running and then ended, so the lock outlives its holder the way it would
-            // after a crash: nothing between the completion and here ever called releaseBy.
+            // Simulate a completed job whose lock was not released.
             var holder = job(JobState.RUNNING);
             var contender = job(JobState.PENDING);
             acquire(state.name(), holder);
@@ -91,10 +84,10 @@ class JobLockE2ETest {
         }
     }
 
-    /** The key is (project, name), so two projects deploying at once do not queue behind each other. */
+    /** Locks are scoped to (project_id, name), allowing different projects to use the same lock name. */
     @Test
     void theSameNameInAnotherProjectIsFree() {
-        var other = fixtures.project("theirs");
+        var other = fixtures.createProject("theirs");
         var mine = job(JobState.RUNNING);
         var theirs = jobIn(other, JobState.RUNNING);
         acquire("deploy", mine);
@@ -116,7 +109,6 @@ class JobLockE2ETest {
         assertTrue(acquire("deploy", contender));
     }
 
-    /** Release is by job, not by name: a job holding nothing releases nothing. */
     @Test
     void releasingByAJobThatHoldsNothingLeavesTheLockStanding() {
         var holder = job(JobState.RUNNING);
@@ -129,9 +121,7 @@ class JobLockE2ETest {
     }
 
     /**
-     * {@code JobSpec.lock} is one name, so a second acquire for the same job is unreachable from
-     * {@code WorkerScheduler}; the unique {@code job_id} is what says so at the schema, and it is also
-     * what lets {@code releaseBy} free at most one row.
+     * Verifies the unique constraint on job_id ensuring a job holds at most one lock.
      */
     @Test
     void aJobHoldsAtMostOneName() {
@@ -153,7 +143,6 @@ class JobLockE2ETest {
         return false;
     }
 
-    /** There is no project to scope the key to, so the attempt fails rather than guessing one. */
     @Test
     void aJobThatDoesNotExistAcquiresNothing() {
         assertFalse(acquire("deploy", UUID.randomUUID()));
@@ -169,7 +158,7 @@ class JobLockE2ETest {
     }
 
     private UUID jobIn(UUID projectId, JobState state) {
-        return fixtures.job(projectId, alice, small, state, UUID.randomUUID());
+        return fixtures.createJob(projectId, alice, small, state, UUID.randomUUID());
     }
 
     private void end(UUID jobId, JobState terminal) {

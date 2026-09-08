@@ -67,8 +67,7 @@ public class JobResource {
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
     public List<JobSpecTemplateView> listTemplates(@ProjectId @PathParam("projectId") UUID projectId) {
-        // The listing below queries no project row of its own — global templates match any id — so
-        // without this a caller who passes the permission check on a nonexistent project gets 200.
+        // Ensure the project exists before listing templates.
         projectService.require(projectId);
         var withSpec = jobAccess.mayReadTemplate(projectId);
         return JobSpecTemplate.listVisibleFetched(projectId).stream()

@@ -31,7 +31,7 @@ class JobSpecOverrideTest {
             "base-lock",
             Map.of("TOKEN", "s3cr3t"));
 
-    /** Returns whatever it is handed, so a test observes merging rather than the authorizer. */
+    /** Pass-through authorizer that returns arguments directly to test merge behavior. */
     private final JobSpecOverrideAuthorizer authorizer =
             mock(JobSpecOverrideAuthorizer.class, invocation -> invocation.getArgument(0));
 
@@ -100,8 +100,7 @@ class JobSpecOverrideTest {
         override(null, Map.of("C", "3"), null, List.of("extra"), null, null, null)
                 .applyTo(BASE, authorizer);
 
-        // Never the merged result: gating a merged map would make the caller answer for template
-        // values they never supplied, and gating it afterwards would let a denied key slip in.
+        // Verify that only the user-supplied override values are validated.
         verify(authorizer).environment(Map.of("C", "3"));
         verify(authorizer).command(List.of("extra"));
         verify(authorizer, never()).image(any());

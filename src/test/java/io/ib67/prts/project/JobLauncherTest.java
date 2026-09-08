@@ -45,13 +45,12 @@ class JobLauncherTest {
     private final WorkerService workerService = mock(WorkerService.class);
     private final SecretService secretService = mock(SecretService.class);
 
-    // Pass-through: every gated value is accepted, so a verify() shows what was submitted for gating.
+    // Pass-through mock authorizer that returns arguments directly.
     private final JobSpecOverrideAuthorizer authorizer =
             mock(JobSpecOverrideAuthorizer.class, invocation -> invocation.getArgument(0));
 
     private final JobLauncher launcher = new JobLauncher();
 
-    // Built here, not inside a test: ResourceClass.builder() is itself a static that mockStatic would stub out.
     private final Project project = Project.builder().id(PROJECT).name("p").build();
     private final ResourceClass small = resourceClass("small", PROJECT);
     private final ResourceClass big = resourceClass("big", PROJECT);
@@ -76,7 +75,7 @@ class JobLauncherTest {
         return new JobRequest(TEMPLATE, null, resourceClass);
     }
 
-    /** Opens the statics {@code resolve()} reaches, with the happy-path template already stubbed. */
+    /** Helper context mocking static entity methods and managing transactions for authorize() tests. */
     private final class Scope implements AutoCloseable {
         final InlineTransactions transactions = new InlineTransactions();
         final MockedStatic<JobSpecTemplate> templates = mockStatic(JobSpecTemplate.class);
@@ -102,7 +101,7 @@ class JobLauncherTest {
 
             assertEquals("small", authorized.resourceClass());
             assertEquals(TEMPLATE, authorized.templateId());
-            // The template's own class is not an override, so it is neither gated nor looked up.
+            // The template's default resource class is not considered an override.
             verifyNoInteractions(authorizer);
             scope.classes.verifyNoInteractions();
         }
@@ -188,7 +187,7 @@ class JobLauncherTest {
         }
     }
 
-    /** A template may only be scoped to its own project or to the global scope. */
+    /** Resource classes referenced by a template must belong to the template's project or be global. */
     @Test
     void aTemplateNamingAnotherProjectsResourceClassIsRejected() {
         var foreign = JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec)
@@ -216,7 +215,7 @@ class JobLauncherTest {
         }
     }
 
-    /** Volumes are checked against the merged spec, so an override cannot smuggle one past the check. */
+    /** Volumes introduced via override must belong to the project. */
     @Test
     void aVolumeAddedByAnOverrideIsStillCheckedAgainstTheProject() {
         var override = new JobSpecOverride(null, null, null, null,
@@ -233,7 +232,7 @@ class JobLauncherTest {
         }
     }
 
-    /** authorize() only validates: nothing may be persisted or dispatched. */
+    /** authorize() performs validation only and does not persist entities or schedule jobs. */
     @Test
     void authorizingNeitherPersistsNorSchedules() {
         try (var ignored = new Scope()) {

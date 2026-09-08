@@ -26,22 +26,13 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link PendingJobService}: claiming an entry, settling the attempt that followed, and the backoff
- * that decides when the next one may run.
- *
- * <p>A worker is connected only while {@code WorkerWebSocketE2ETest} runs, so a claimed entry is
- * settled here by hand rather than by {@link PendingJobDispatcher}, which would find nothing to place
- * it on.
+ * Tests {@link PendingJobService} operations: claiming entries, finalizing attempts, and exponential backoff.
  */
 @QuarkusTest
 @Tag("e2e")
 class PendingJobServiceE2ETest {
 
     private static final int NO_LIMIT = 100;
-    /**
-     * Enough doublings to reach any ceiling worth configuring: the delay grows by 2^(n-1), so the cap
-     * is reached by the eighth attempt unless maxBackoff is more than 128 times backoff.
-     */
     private static final int ROUNDS_TO_THE_CEILING = 8;
 
     @Inject
@@ -64,17 +55,15 @@ class PendingJobServiceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
-        alice = fixtures.actor("alice");
-        template = fixtures.template("build", null, fixtures.resourceClass("small", null));
+        project = fixtures.createProject("mine");
+        alice = fixtures.createActor("alice");
+        template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small", null));
     }
-
-    // ---- claiming ----
 
     @Test
     void claimingTakesTheDueOnesAndMarksThemInFlight() {
-        var first = fixtures.queued(project, alice, template, "small");
-        var second = fixtures.queued(project, alice, template, "small");
+        var first = fixtures.createQueuedJob(project, alice, template, "small");
+        var second = fixtures.createQueuedJob(project, alice, template, "small");
 
         var claimed = pendingJobService.claimDue(NO_LIMIT);
 
@@ -83,10 +72,10 @@ class PendingJobServiceE2ETest {
         assertEquals(PendingJobState.DISPATCHING, stateOf(second));
     }
 
-    /** The attempt is detached, so everything the launch needs has to be copied out of the row. */
+    /** Verifies that all required fields are copied into the Attempt record. */
     @Test
     void anAttemptCarriesWhatTheLaunchNeeds() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
 
         var attempt = pendingJobService.claimDue(NO_LIMIT).getFirst();
 
@@ -98,10 +87,10 @@ class PendingJobServiceE2ETest {
         assertNull(attempt.request().override());
     }
 
-    /** Leaving QUEUED is what stops a second tick from placing the same request twice. */
+    /** In-flight DISPATCHING entries cannot be claimed by another pass. */
     @Test
     void claimingTwiceDoesNotHandTheSameOneOut() {
-        fixtures.queued(project, alice, template, "small");
+        fixtures.createQueuedJob(project, alice, template, "small");
         pendingJobService.claimDue(NO_LIMIT);
 
         assertEquals(List.of(), pendingJobService.claimDue(NO_LIMIT));
@@ -109,8 +98,8 @@ class PendingJobServiceE2ETest {
 
     @Test
     void aTickTakesNoMoreThanItsBatch() {
-        var first = fixtures.queued(project, alice, template, "small");
-        var second = fixtures.queued(project, alice, template, "small");
+        var first = fixtures.createQueuedJob(project, alice, template, "small");
+        var second = fixtures.createQueuedJob(project, alice, template, "small");
 
         var claimed = pendingJobService.claimDue(1);
 
@@ -121,7 +110,7 @@ class PendingJobServiceE2ETest {
     @Test
     void oneWhoseTurnHasNotComeIsLeftAlone() {
         var now = Instant.now();
-        var later = fixtures.queued(project, alice, template, "small",
+        var later = fixtures.createQueuedJob(project, alice, template, "small",
                 now.plus(Duration.ofHours(1)), now.plus(Duration.ofMinutes(5)));
 
         assertEquals(List.of(), pendingJobService.claimDue(NO_LIMIT));
@@ -132,7 +121,7 @@ class PendingJobServiceE2ETest {
 
     @Test
     void aDispatchedAttemptRecordsTheJobItBecame() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         var job = UUID.randomUUID();
         inFlight(entry);
 
@@ -147,7 +136,7 @@ class PendingJobServiceE2ETest {
 
     @Test
     void aFailedAttemptKeepsTheReasonItGaveUpFor() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         inFlight(entry);
 
         pendingJobService.markFailed(entry, "no such template");
@@ -159,14 +148,13 @@ class PendingJobServiceE2ETest {
     }
 
     /**
-     * A delete cancels the queue while an attempt may still be in flight, and the finalizer that lands
-     * afterwards must not put the entry back in line. Each one writes only to a DISPATCHING row.
+     * Ensures attempts cancelled mid-execution remain CANCELLED when settled.
      */
     @Test
     void anEntryCancelledMidAttemptStaysCancelled() {
-        var dispatched = fixtures.queued(project, alice, template, "small");
-        var requeued = fixtures.queued(project, alice, template, "small");
-        var failed = fixtures.queued(project, alice, template, "small");
+        var dispatched = fixtures.createQueuedJob(project, alice, template, "small");
+        var requeued = fixtures.createQueuedJob(project, alice, template, "small");
+        var failed = fixtures.createQueuedJob(project, alice, template, "small");
         pendingJobService.claimDue(NO_LIMIT);
         inTx(() -> PendingJob.cancelActive(project));
 
@@ -180,11 +168,9 @@ class PendingJobServiceE2ETest {
         assertEquals(0, read(dispatched).getAttempts());
     }
 
-    // ---- the backoff ----
-
     @Test
     void requeueingPutsItBackInLineBehindTheBackoff() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         inFlight(entry);
 
         var waited = requeue(entry, "no worker could take the job yet");
@@ -196,10 +182,10 @@ class PendingJobServiceE2ETest {
         waited.assertIs(jobConfig.pending().backoff());
     }
 
-    /** An entry put back in line is not due again until its wait is over. */
+    /** Requeued entries are not immediately due. */
     @Test
     void aRequeuedEntryIsNotClaimedStraightBack() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         inFlight(entry);
         pendingJobService.requeue(entry, "no worker could take the job yet");
 
@@ -208,7 +194,7 @@ class PendingJobServiceE2ETest {
 
     @Test
     void eachAttemptWaitsLongerThanTheLast() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
 
         inFlight(entry);
         var first = requeue(entry, "again").atMost();
@@ -220,7 +206,7 @@ class PendingJobServiceE2ETest {
 
     @Test
     void theBackoffStopsAtItsCeiling() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
 
         Wait waited = null;
         for (var round = 0; round < ROUNDS_TO_THE_CEILING; round++) {
@@ -231,21 +217,19 @@ class PendingJobServiceE2ETest {
         waited.assertIs(jobConfig.pending().maxBackoff());
     }
 
-    // ---- cancelling ----
-
     @Test
     void aQueuedEntryCanBeCancelled() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
 
         pendingJobService.cancel(project, entry);
 
         assertEquals(PendingJobState.CANCELLED, stateOf(entry));
     }
 
-    /** Once claimed it is the dispatcher's to settle; a cancel here would race its finalizer. */
+    /** In-flight entries cannot be cancelled (returns 409 Conflict). */
     @Test
     void oneAlreadyInFlightCannotBeCancelled() {
-        var entry = fixtures.queued(project, alice, template, "small");
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         inFlight(entry);
 
         var thrown = assertThrows(ClientErrorException.class,
@@ -257,8 +241,8 @@ class PendingJobServiceE2ETest {
 
     @Test
     void anotherProjectsEntryCannotBeCancelledFromHere() {
-        var other = fixtures.project("theirs");
-        var entry = fixtures.queued(other, alice, template, "small");
+        var other = fixtures.createProject("theirs");
+        var entry = fixtures.createQueuedJob(other, alice, template, "small");
 
         assertThrows(NotFoundException.class, () -> pendingJobService.cancel(project, entry));
         assertEquals(PendingJobState.QUEUED, stateOf(entry));
@@ -266,20 +250,18 @@ class PendingJobServiceE2ETest {
 
     @Test
     void anEntryIsOnlyFoundThroughItsOwnProject() {
-        var other = fixtures.project("theirs");
-        var entry = fixtures.queued(other, alice, template, "small");
+        var other = fixtures.createProject("theirs");
+        var entry = fixtures.createQueuedJob(other, alice, template, "small");
 
         assertTrue(inTx(() -> pendingJobService.findInProject(other, entry)).isPresent());
         assertTrue(inTx(() -> pendingJobService.findInProject(project, entry)).isEmpty());
     }
 
-    // ---- a tick with nothing to place ----
-
-    /** Expiry runs before the dispatcher gives up on the tick, so a queue ages out either way. */
+    /** Overdue entries expire even when no workers are connected. */
     @Test
     void theQueueStillAgesOutWhileNoWorkerIsConnected() {
         var now = Instant.now();
-        var overdue = fixtures.queued(project, alice, template, "small",
+        var overdue = fixtures.createQueuedJob(project, alice, template, "small",
                 now.minus(Duration.ofMinutes(1)), now);
 
         dispatcher.tick();
@@ -289,9 +271,7 @@ class PendingJobServiceE2ETest {
 
     @Test
     void nothingIsClaimedWhileNoWorkerIsConnected() {
-        var entry = fixtures.queued(project, alice, template, "small");
-        // Stated rather than assumed: the roster is JVM-wide, so a test that left a session open would
-        // otherwise turn this into a dispatch attempt and fail somewhere else entirely.
+        var entry = fixtures.createQueuedJob(project, alice, template, "small");
         assertFalse(workerService.hasSchedulableWorker());
 
         dispatcher.tick();
@@ -299,15 +279,11 @@ class PendingJobServiceE2ETest {
         assertEquals(PendingJobState.QUEUED, stateOf(entry));
     }
 
-    /** Where {@code claimDue} would have left it, without needing the entry to be due again. */
     private void inFlight(UUID id) {
         inTx(() -> PendingJob.<PendingJob>findById(id).setState(PendingJobState.DISPATCHING));
     }
 
-    /** Requeues the entry and returns the window the wait it imposed must lie in. */
     private Wait requeue(UUID id, String reason) {
-        // Truncated down, so the microsecond precision of a timestamp column cannot round the stored
-        // next_attempt_at below this bound.
         var before = Instant.now().truncatedTo(ChronoUnit.MILLIS);
         pendingJobService.requeue(id, reason);
         var after = Instant.now();
@@ -316,7 +292,6 @@ class PendingJobServiceE2ETest {
         return new Wait(Duration.between(after, next), Duration.between(before, next));
     }
 
-    /** The service read its own clock between the two readings, so the wait it applied lies between. */
     private record Wait(Duration atLeast, Duration atMost) {
         void assertIs(Duration expected) {
             assertTrue(atLeast.compareTo(expected) <= 0 && atMost.compareTo(expected) >= 0,

@@ -60,7 +60,7 @@ class PendingJobDispatcherTest {
                 .thenReturn(new JobLauncher.CreatedJob(Job.builder().id(jobId).build(), scheduled));
     }
 
-    /** Expiry must not wait on a worker, or a queue with no workers would never drain. */
+    /** Overdue pending jobs expire even when no workers are available. */
     @Test
     void overdueEntriesExpireEvenWithNoWorkerToDispatchTo() {
         when(workerService.hasSchedulableWorker()).thenReturn(false);
@@ -72,7 +72,7 @@ class PendingJobDispatcherTest {
         verifyNoInteractions(jobLauncher);
     }
 
-    /** The request was authorized when it was enqueued; re-checking it here would use the wrong identity. */
+    /** Queued requests are launched using PRE_AUTHORIZED since authorization was checked during enqueue. */
     @Test
     void aQueuedRequestIsLaunchedPreAuthorized() {
         var attempt = anAttempt();
@@ -99,7 +99,7 @@ class PendingJobDispatcherTest {
         verifyNoInteractions(jobService);
     }
 
-    /** An unplaced job leaves a row behind; it must be discarded or the project's job list fills with ghosts. */
+    /** Jobs that could not be placed are discarded and their pending entries are requeued. */
     @Test
     void anUnplacedJobIsDiscardedAndRequeued() {
         var attempt = anAttempt();
@@ -142,7 +142,7 @@ class PendingJobDispatcherTest {
         verify(pendingJobService).markDispatched(eq(fine.id()), any());
     }
 
-    /** The tick runs on a scheduleWithFixedDelay ticker: one escaped throwable would stop it forever. */
+    /** Exceptions thrown during a tick are caught to prevent cancelling scheduled execution. */
     @Test
     void aFailureInTheQueueItselfDoesNotKillTheTicker() {
         when(pendingJobService.expireOverdue()).thenThrow(new IllegalStateException("database is down"));

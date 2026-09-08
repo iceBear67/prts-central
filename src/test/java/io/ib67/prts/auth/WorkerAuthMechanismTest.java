@@ -18,8 +18,7 @@ import static org.mockito.Mockito.when;
 
 class WorkerAuthMechanismTest {
 
-    // The literal on purpose, not WorkerAuthMechanism.HEADER: workers send this exact name, so a change
-    // to the constant should fail here rather than follow along.
+    // Header literal used to ensure protocol compatibility.
     private static final String HEADER = "X-Worker-Token";
     private static final String SECRET = "correct-horse-battery-staple";
 
@@ -43,7 +42,7 @@ class WorkerAuthMechanismTest {
                 .await().indefinitely();
     }
 
-    /** A null identity means "not mine" and lets the next mechanism try, rather than failing the request. */
+    /** Requests without the worker header return null so other mechanisms can process them. */
     @Test
     void aRequestWithoutTheHeaderIsNotOurs() {
         assertNull(authenticate(null));
@@ -75,7 +74,6 @@ class WorkerAuthMechanismTest {
         assertEquals(0, challenge.getHeaders().size());
     }
 
-    /** application.yml names this scheme in the worker_ws permission policy. */
     @Test
     void theSchemeIsNamedWorkerToken() {
         var transport = mechanism.getCredentialTransport(context).await().indefinitely();

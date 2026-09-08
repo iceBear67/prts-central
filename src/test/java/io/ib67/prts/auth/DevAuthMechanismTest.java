@@ -58,7 +58,7 @@ class DevAuthMechanismTest {
         assertEquals(TOKEN, ((AccessTokenAuthenticationRequest) captor.getValue()).getToken());
     }
 
-    /** Auto-login must never override a credential someone deliberately sent, sound or not. */
+    /** Explicit credentials take precedence over dev auto-login. */
     @Test
     void aPresentedCredentialIsLeftToTheRealChain() {
         when(request.getHeader(HttpHeaders.AUTHORIZATION)).thenReturn("Bearer prts_somebodyelse");
@@ -70,7 +70,7 @@ class DevAuthMechanismTest {
         verifyNoInteractions(identityProviders);
     }
 
-    /** A worker's own credential likewise, so nothing on that path is silently upgraded to admin. */
+    /** Worker tokens take precedence over dev auto-login. */
     @Test
     void aWorkerTokenIsLeftToTheRealChain() {
         when(request.getHeader(WorkerAuthMechanism.HEADER)).thenReturn("allo");
@@ -87,26 +87,23 @@ class DevAuthMechanismTest {
         verifyNoInteractions(identityProviders);
     }
 
-    /** Under AccessTokenAuthMechanism, so a presented token is the one that decides. */
+    /** DevAuthMechanism priority is lower than AccessTokenAuthMechanism. */
     @Test
     void itYieldsToTheAccessTokenMechanism() {
         assertTrue(mechanism.getPriority() < AccessTokenAuthMechanism.PRIORITY,
                 "priority: " + mechanism.getPriority());
     }
 
-    /** It asks for no credential, so it has nothing to challenge for. */
     @Test
     void itChallengesForNothing() {
         assertNull(mechanism.getChallenge(context).await().indefinitely());
     }
 
-    /** Quarkus validates at startup that a provider exists for every type a mechanism delegates. */
     @Test
     void itDeclaresTheTypeItDelegates() {
         assertTrue(mechanism.getCredentialTypes().contains(AccessTokenAuthenticationRequest.class));
     }
 
-    /** ChallengeSender looks the mechanism back up from the context. */
     @Test
     void theMechanismRecordsItselfOnTheContext() {
         authenticate();

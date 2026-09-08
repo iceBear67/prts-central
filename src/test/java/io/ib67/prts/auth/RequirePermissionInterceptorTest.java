@@ -140,7 +140,7 @@ class RequirePermissionInterceptorTest {
         assertThrows(ForbiddenException.class, () -> interceptor.check(context));
     }
 
-    /** A project-scoped permission with nothing to scope it to is a wiring mistake, not a 403. */
+    /** Project-scoped permissions without a target project throw IllegalStateException. */
     @Test
     void aProjectScopedPermissionWithoutAProjectFailsLoudly() throws Exception {
         var context = invocationOf("unscoped");

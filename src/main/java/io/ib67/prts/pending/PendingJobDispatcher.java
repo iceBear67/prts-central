@@ -57,7 +57,7 @@ public class PendingJobDispatcher {
         ticker.shutdownNow();
     }
 
-    // Package-private so a test can drive a single pass instead of waiting on the ticker.
+    // Visible for testing to trigger a single dispatch pass manually.
     void tick() {
         try {
             pendingJobService.expireOverdue();

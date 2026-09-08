@@ -26,7 +26,7 @@ import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.nullValue;
 
 /**
- * The permission matrix of {@link SecretResource}: reading names is a member's, managing is an owner's.
+ * Permission and access control tests for {@link SecretResource}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -42,10 +42,8 @@ class SecretResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.project("mine");
+        project = fixtures.createProject("mine");
     }
-
-    // ---- reading ----
 
     @Test
     void anUncredentialedRequestIsRejected() {
@@ -54,14 +52,14 @@ class SecretResourceE2ETest {
 
     @Test
     void aStrangerCannotListSecrets() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/secret", project)
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/secret", project)
                 .then().statusCode(403);
     }
 
-    /** PROJECT_SECRET_READ defaults to MEMBER, so a viewer is one rung short. */
+    /** PROJECT_SECRET_READ requires MEMBER role or above; viewers cannot list secrets. */
     @Test
     void aViewerCannotListSecrets() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
 
         as(alice).get("/api/project/{p}/secret", project).then().statusCode(403);
@@ -69,26 +67,26 @@ class SecretResourceE2ETest {
 
     @Test
     void aMemberListsNamesButNeverValues() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
                 .body("name", contains("TOKEN"))
-                // SecretView projects the metadata only; the sealed value has no field to leak into.
+                // SecretView only exposes metadata and excludes secret values.
                 .body("[0]", not(hasKey("value")))
                 .body("[0].description", nullValue());
     }
 
     @Test
     void theListHoldsOnlyThisProjectsSecrets() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.MEMBER);
         fixtures.join(alice, other, ProjectRole.MEMBER);
-        fixtures.secret(project, "MINE", "a");
-        fixtures.secret(other, "THEIRS", "b");
+        fixtures.createSecret(project, "MINE", "a");
+        fixtures.createSecret(other, "THEIRS", "b");
 
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
@@ -97,27 +95,24 @@ class SecretResourceE2ETest {
 
     @Test
     void aProjectThatDoesNotExistLooksLikeOneIAmNotIn() {
-        as(fixtures.actor("mallory")).get("/api/project/{p}/secret", UUID.randomUUID())
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/secret", UUID.randomUUID())
                 .then().statusCode(403);
     }
 
-    /** The interceptor cannot tell absent from forbidden; only an admin gets past it to the 404. */
+    /** Non-members receive 403 on non-existent projects, while admins receive 404. */
     @Test
     void onlyAnAdminReachesTheNotFound() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).get("/api/project/{p}/secret", UUID.randomUUID()).then()
                 .statusCode(404)
-                // NotFoundMapper answers the service's NoSuchElementException without a body.
                 .body(emptyString());
     }
 
-    // ---- managing ----
-
     @Test
     void aMemberCannotCreateASecret() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
 
         as(alice).contentType(ContentType.JSON)
@@ -127,7 +122,7 @@ class SecretResourceE2ETest {
 
     @Test
     void anOwnerCanCreateASecret() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON)
@@ -135,14 +130,14 @@ class SecretResourceE2ETest {
                 .post("/api/project/{p}/secret", project).then()
                 .statusCode(200)
                 .body("name", equalTo("TOKEN"))
-                // The resource strips before storing.
+                // Description is trimmed before saving.
                 .body("description", equalTo("the token"));
     }
 
-    /** PROJECT_SECRET_MANAGE granted outright stands in for the owner role a sub-account has not got. */
+    /** Explicit PROJECT_SECRET_MANAGE grant allows managing secrets without the OWNER role. */
     @Test
     void anExplicitGrantManagesWithoutTheOwnerRole() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.grant(alice, Perm.PROJECT_SECRET_MANAGE, project);
 
         as(alice).contentType(ContentType.JSON)
@@ -154,7 +149,7 @@ class SecretResourceE2ETest {
 
     @Test
     void aNameThatIsNoEnvironmentVariableIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON)
@@ -166,7 +161,7 @@ class SecretResourceE2ETest {
 
     @Test
     void anEmptyValueIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON)
@@ -178,9 +173,9 @@ class SecretResourceE2ETest {
 
     @Test
     void aDuplicateNameConflicts() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("name", "TOKEN", "value", "other"))
@@ -189,14 +184,14 @@ class SecretResourceE2ETest {
                 .body("message", equalTo("project " + project + " already has a secret named TOKEN"));
     }
 
-    /** The same name in another project is a different secret; nothing is shared across projects. */
+    /** Secret names are scoped to individual projects. */
     @Test
     void theSameNameInAnotherProjectIsFree() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.MEMBER);
         fixtures.join(alice, other, ProjectRole.OWNER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).contentType(ContentType.JSON)
                 .body(Map.of("name", "TOKEN", "value", "other"))
@@ -204,7 +199,6 @@ class SecretResourceE2ETest {
                 .statusCode(200)
                 .body("name", equalTo("TOKEN"));
 
-        // One row each: the create landed in `other` and left `project`'s untouched.
         as(alice).get("/api/project/{p}/secret", other).then()
                 .statusCode(200)
                 .body("name", contains("TOKEN"));
@@ -215,9 +209,9 @@ class SecretResourceE2ETest {
 
     @Test
     void anOwnerCanUpdateASecret() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).contentType(ContentType.JSON).body(Map.of("description", "rotated"))
                 .patch("/api/project/{p}/secret/{n}", project, "TOKEN").then()
@@ -225,14 +219,14 @@ class SecretResourceE2ETest {
                 .body("description", equalTo("rotated"));
     }
 
-    /** Both fields absent means the caller asked for nothing, which is not the same as clearing. */
+    /** Rejects requests where both description and value are omitted. */
     @Test
     void anEmptyUpdateIsRejected() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
-        // HashMap, not Map.of: the nulls are the point.
+        // Use HashMap because Map.of does not permit null values.
         var body = new HashMap<String, String>();
         body.put("description", null);
         body.put("value", null);
@@ -246,7 +240,7 @@ class SecretResourceE2ETest {
 
     @Test
     void updatingASecretThatDoesNotExistIsNotFound() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("value", "s3cret"))
@@ -257,20 +251,19 @@ class SecretResourceE2ETest {
 
     @Test
     void aMemberCannotDeleteASecret() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).delete("/api/project/{p}/secret/{n}", project, "TOKEN").then().statusCode(403);
     }
 
     @Test
     void anOwnerCanDeleteASecret() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.secret(project, "TOKEN", "s3cret");
+        fixtures.createSecret(project, "TOKEN", "s3cret");
 
-        // The endpoint returns void, so RESTEasy answers 204.
         as(alice).delete("/api/project/{p}/secret/{n}", project, "TOKEN").then().statusCode(204);
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
@@ -279,7 +272,7 @@ class SecretResourceE2ETest {
 
     @Test
     void deletingASecretThatDoesNotExistIsNotFound() {
-        var alice = fixtures.actor("alice");
+        var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.OWNER);
 
         as(alice).delete("/api/project/{p}/secret/{n}", project, "TOKEN").then()
@@ -287,20 +280,20 @@ class SecretResourceE2ETest {
                 .body("message", equalTo("no such secret in project " + project + ": TOKEN"));
     }
 
-    /** A secret of another project must not be reachable through this project's path. */
+    /** Secrets belonging to other projects cannot be accessed or modified across project boundaries. */
     @Test
     void aSecretOfAnotherProjectIsNotFoundHere() {
-        var alice = fixtures.actor("alice");
-        var other = fixtures.project("theirs");
+        var alice = fixtures.createActor("alice");
+        var other = fixtures.createProject("theirs");
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.secret(other, "THEIRS", "s3cret");
+        fixtures.createSecret(other, "THEIRS", "s3cret");
 
         as(alice).delete("/api/project/{p}/secret/{n}", project, "THEIRS").then().statusCode(404);
     }
 
     @Test
     void anAdminManagesAProjectTheyAreNotIn() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         as(admin).contentType(ContentType.JSON)

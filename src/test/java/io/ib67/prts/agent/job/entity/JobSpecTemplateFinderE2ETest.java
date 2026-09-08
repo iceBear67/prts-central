@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * What {@link JobSpecTemplate}'s visibility clause lets through, and what it keeps out.
+ * Tests visibility rules for {@link JobSpecTemplate}.
  *
- * <p>A template belongs to one project or to none, and a project sees its own plus every global one.
+ * <p>A project can access its own templates and global templates.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -35,30 +35,30 @@ class JobSpecTemplateFinderE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        mine = fixtures.project("mine");
-        theirs = fixtures.project("theirs");
+        mine = fixtures.createProject("mine");
+        theirs = fixtures.createProject("theirs");
     }
 
     @Test
     void aProjectSeesItsOwnAndTheGlobalOnes() {
-        var small = fixtures.resourceClass("small", null);
-        fixtures.template("ours", mine, small);
-        fixtures.template("shared", null, small);
-        fixtures.template("theirs", theirs, small);
+        var small = fixtures.createResourceClass("small", null);
+        fixtures.createTemplate("ours", mine, small);
+        fixtures.createTemplate("shared", null, small);
+        fixtures.createTemplate("theirs", theirs, small);
 
         var names = inTx(() -> JobSpecTemplate.listVisibleFetched(mine).stream()
                 .map(JobSpecTemplate::getName)
                 .sorted()
                 .toList());
 
-        // No order by on the finder, so only membership is asserted.
+        // Sort results since listVisibleFetched does not guarantee ordering.
         assertEquals(List.of("ours", "shared"), names);
     }
 
     @Test
     void aProjectWithNoTemplatesOfItsOwnStillSeesTheGlobalOnes() {
-        var small = fixtures.resourceClass("small", null);
-        fixtures.template("shared", null, small);
+        var small = fixtures.createResourceClass("small", null);
+        fixtures.createTemplate("shared", null, small);
 
         var names = inTx(() -> JobSpecTemplate.listVisibleFetched(theirs).stream()
                 .map(JobSpecTemplate::getName)
@@ -69,36 +69,35 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void oneOfAnothersIsNotVisible() {
-        var small = fixtures.resourceClass("small", null);
-        var id = fixtures.template("theirs", theirs, small);
+        var small = fixtures.createResourceClass("small", null);
+        var id = fixtures.createTemplate("theirs", theirs, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isEmpty());
     }
 
     @Test
     void aGlobalOneIsVisibleById() {
-        var small = fixtures.resourceClass("small", null);
-        var id = fixtures.template("shared", null, small);
+        var small = fixtures.createResourceClass("small", null);
+        var id = fixtures.createTemplate("shared", null, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isPresent());
     }
 
     @Test
     void aProjectFindsItsOwnById() {
-        var small = fixtures.resourceClass("small", null);
-        var id = fixtures.template("ours", mine, small);
+        var small = fixtures.createResourceClass("small", null);
+        var id = fixtures.createTemplate("ours", mine, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isPresent());
     }
 
     /**
-     * The {@code Fetched} in the name is the point: {@code resourceClass} is lazy, so reading it after
-     * the transaction has closed only works because the finder joined it in.
+     * Verifies that the lazy {@code resourceClass} association is eagerly fetched.
      */
     @Test
     void theResourceClassComesBackAlreadyLoaded() {
-        var small = fixtures.resourceClass("small", null);
-        var id = fixtures.template("ours", mine, small);
+        var small = fixtures.createResourceClass("small", null);
+        var id = fixtures.createTemplate("ours", mine, small);
 
         var template = inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).orElseThrow();
 

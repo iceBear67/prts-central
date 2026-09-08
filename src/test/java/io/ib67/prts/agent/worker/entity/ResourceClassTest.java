@@ -7,8 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class ResourceClassTest {
 
     /**
-     * The sentinel is a key value, not a project; wiping it would take every project's fallback. The
-     * guard fires before any query is built, which is what keeps this out of tier C.
+     * Prevents deletion of the global resource class scope.
      */
     @Test
     void theGlobalScopeCannotBeDeletedAsIfItWereAProject() {

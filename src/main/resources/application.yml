@@ -14,20 +14,16 @@ quarkus:
         maximum-size: 10000
   datasource:
     db-kind: postgresql
-  # How the browser login behaves; the same for every deployment, so it lives here. What names the
-  # provider — auth-server-url, client-id, credentials.secret — comes from the environment, and %dev
-  # and %test disable the extension outright.
+  # OIDC web-app configuration. Provider settings (auth-server-url, client-id, secret) are configured per environment.
   oidc:
-    # Server-side authorization code flow with a session cookie; the default (`service`) takes only a
-    # bearer token, and no login page exists.
+    # Authorization code flow with session cookie for browser-based login.
     application-type: web-app
     authentication:
-      # openid is always requested; these two populate the name/email claims UserIdentityAugmenter
-      # needs to register a first-time user.
+      # Additional scopes required to populate user profile and email claims.
       scopes:
         - profile
         - email
-      # Must match the redirect URI registered on the OAuth application exactly.
+      # Must match the redirect URI registered in the OAuth application.
       redirect-path: /auth/callback
       restore-path-after-redirect: true
   s3:
@@ -42,8 +38,7 @@ quarkus:
           paths:
             - "/api/*"
           policy: "authenticated"
-        # Only the socket takes the shared secret; /api/worker/* is an admin's, authenticated like
-        # the rest of the API.
+        # Only the worker WebSocket uses the shared secret; API endpoints require standard authentication.
         worker_ws:
           paths:
             - "/ws/worker"
@@ -55,50 +50,35 @@ quarkus:
 "%dev":
   quarkus:
     datasource:
-      # No jdbc.url on purpose — a URL is exactly what stops Dev Services from starting a container, and
-      # here it should start one. Everything below is pinned only so `psql -h localhost -U prts prts`
-      # keeps working; without it the port is random and the credentials are Quarkus' defaults.
+      # Fixed port and credentials for local PostgreSQL access via Dev Services.
       devservices:
         port: 5432
         db-name: prts
         username: prts
         password: prts
-        # The container dies with the dev process, so `update` below always meets an empty schema. To
-        # keep data across restarts instead: `reuse: true` here plus `testcontainers.reuse.enable=true`
-        # in ~/.testcontainers.properties.
-    # No provider in dev: DevAuthMechanism logs uncredentialed requests in as the DevAdminSeeder admin,
-    # and a PAT exercises the real chain. Left enabled it would find no auth-server-url and Dev Services
-    # would pull a Keycloak container.
+        # Set reuse: true (and testcontainers.reuse.enable=true) to keep data across restarts.
+    # Disable OIDC in dev mode; DevAuthMechanism provides automatic admin authentication.
     oidc:
       enabled: false
     hibernate-orm:
       schema-management:
         strategy: update
-  # Deliberately no default outside %dev and %test, so a deployment that forgets to set worker.secret
-  # fails to start rather than accepting a token from the repository.
+  # Secret for worker authentication in dev/test. Must be configured explicitly in production.
   worker:
     secret: "allo"
-  # Same reason. Rotating means adding a key here (`python scripts/secrets.py genkey`), pointing
-  # active-key at it and running `python scripts/secrets.py rotate` offline; the old key may only be
-  # dropped once that reports nothing left, since each row names the key it is sealed under.
+  # Encryption keys for secrets in dev. Production keys must be configured via environment.
   secret:
     active-key: v1
     keys:
       v1: "pyyrg0gJ06CIW+ryutiDTJCNStt4b/kg/mKLkRnsb/o="
 
-# Tiers A and B never read this file. Everything here exists so a @QuarkusTest can boot; Postgres and
-# LocalStack come from Dev Services, so nothing is pinned and nothing is started by hand. See
-# agent-docs/testing.md.
+# Configuration for @QuarkusTest (E2E tests using Dev Services).
 "%test":
   quarkus:
-    # Neither the datasource nor S3 is configured here: a URL or an endpoint-override would be read as
-    # "something is already running", and Dev Services would then start nothing.
     hibernate-orm:
       schema-management:
         strategy: drop-and-create
-    # No profile configures an auth-server-url any more, so the extension would fail startup. Tests
-    # authenticate with a personal access token; dev's auto-login is @IfBuildProfile("dev") and so is
-    # not built here, which is what keeps the permission matrix from passing as an admin.
+    # Disable OIDC in tests; authentication uses personal access tokens.
     oidc:
       enabled: false
   worker:
@@ -109,7 +89,7 @@ quarkus:
       v1: "bWD/ecNZjAl4DWA6IGn8oB6DH8jpM508NP5zhzwTC/A="
   job:
     pending:
-      # Frozen: the dispatcher must not tick on its own during a test. Drive tick() by hand.
+      # Disable automatic dispatcher ticks; ticks are driven manually in tests.
       interval: PT24H
 
 "%prod":

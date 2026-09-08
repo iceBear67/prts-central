@@ -10,8 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Proves the tier B toolkit works: without this, {@code requiringNew()} needs a TransactionManager
- * and every service that opens its own transaction would be stuck in the e2e tier.
+ * Unit tests for {@link InlineTransactions}.
  */
 class InlineTransactionsTest {
 

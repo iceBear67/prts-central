@@ -49,14 +49,14 @@ class DevAdminSeederTest {
                 .thenReturn(new AccessTokenService.Issued(token, Instant.EPOCH));
     }
 
-    /** @PostConstruct runs outside a request, so seed() opens its own transaction. */
+    // Execute seed() within an inline transaction.
     private void seed() {
         try (var ignored = new InlineTransactions()) {
             seeder.seed();
         }
     }
 
-    /** DevAuthMechanism authenticates nobody while this is null, so it must not start out set. */
+    /** Token is null before seeding has executed. */
     @Test
     void thereIsNoTokenBeforeSeeding() {
         assertNull(seeder.token());
@@ -72,7 +72,7 @@ class DevAdminSeederTest {
         assertEquals("prts_first", seeder.token());
     }
 
-    /** %dev runs Hibernate with `update`, so the database outlives a restart and this must not re-register. */
+    /** Existing dev user accounts are reused across restarts without re-registering. */
     @Test
     void anExistingDevUserIsReused() {
         when(userService.findByEmail(DevAdminSeeder.EMAIL)).thenReturn(Optional.of(user));
@@ -83,18 +83,17 @@ class DevAdminSeederTest {
         verify(accessTokenService).issue(USER);
     }
 
-    /** Re-granted every boot, so revoking it by hand does not quietly lock dev out. */
+    /** Ensures admin permissions are granted globally to the dev user on startup. */
     @Test
     void theAdminGrantIsGlobalAndUnconditional() {
         when(userService.findByEmail(DevAdminSeeder.EMAIL)).thenReturn(Optional.of(user));
 
         seed();
 
-        // A null project: ADMIN_OF_ALL is global, and PermissionService rejects a scoped grant of one.
         verify(permissionService).grant(USER, Perm.ADMIN_OF_ALL, null);
     }
 
-    /** Rerolled rather than reused, so a token leaked from a boot log dies with that process. */
+    /** A new token is issued on each startup. */
     @Test
     void theTokenIsRerolledEveryBoot() {
         when(userService.findByEmail(DevAdminSeeder.EMAIL)).thenReturn(Optional.of(user));

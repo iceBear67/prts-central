@@ -15,13 +15,8 @@ import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 /**
- * Runs {@link QuarkusTransaction#requiringNew()} bodies on the calling thread, so a container-free
- * test can exercise a service that opens its own transaction.
- *
- * <p>Only the happy path is modelled: a body that throws propagates as-is, with no rollback to
- * observe. A test that turns on compensation belongs in the e2e tier.
- *
- * <p>Static mocking is thread-local — close this on the thread that opened it.
+ * Mocks {@link QuarkusTransaction#requiringNew()} to execute runnables and callables
+ * synchronously on the calling thread in unit tests without requiring a transaction manager.
  */
 public final class InlineTransactions implements AutoCloseable {
 
@@ -29,7 +24,7 @@ public final class InlineTransactions implements AutoCloseable {
 
     @SuppressWarnings("unchecked")
     public InlineTransactions() {
-        // RETURNS_SELF keeps option chaining (timeout, exceptionHandler, ...) from yielding null.
+        // RETURNS_SELF supports method chaining on TransactionRunnerOptions.
         var runner = mock(TransactionRunnerOptions.class, withSettings().defaultAnswer(RETURNS_SELF));
         when(runner.call(any())).thenAnswer(invocation ->
                 invocation.getArgument(0, Callable.class).call());

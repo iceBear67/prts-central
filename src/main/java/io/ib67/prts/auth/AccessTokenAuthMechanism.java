@@ -24,8 +24,7 @@ public class AccessTokenAuthMechanism implements HttpAuthenticationMechanism {
 
     private static final String BEARER = "Bearer ";
 
-    // Above quarkus-oidc's 1001, so a personal access token is decided here and never answered with
-    // a browser redirect. Package-private: DevAuthMechanism must sort below it.
+    // Higher priority than quarkus-oidc (1001) to evaluate bearer tokens before browser redirects.
     static final int PRIORITY = 1500;
 
     @Override

@@ -44,32 +44,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
- * The worker socket: who gets through the handshake, and what the protocol answers once they are in.
+ * End-to-end tests for worker WebSocket connections (/ws/worker).
  *
- * <p>{@link WorkerWebSocket} carries no security annotation, so the enforcement is invisible from the
- * class: {@code quarkus.http.auth.permission.worker_ws} pins {@code /ws/worker} to the
- * {@code worker-token} mechanism alone, so nothing but the shared secret is even consulted. That is
- * the claim the rejection tests below are here to keep true.
- *
- * <p>Not covered: re-registering the same worker on a second connection. The interesting half is that
- * closing the *displaced* connection must not unregister the live one, and a negative like that cannot
- * be observed from the client — the server's close handling is asynchronous and offers no handle to
- * wait on. Likewise the {@code @OnError} reply to an undecodable message, whose routing through
- * websockets-next could not be established from the sources.
+ * <p>Tests handshake authentication, registration, resource reporting, and disconnect handling.
  */
 @QuarkusTest
 @Tag("e2e")
 class WorkerWebSocketE2ETest {
 
-    /** {@code worker.secret} under {@code %test} in application.yml. */
     private static final String SECRET = "test-worker-secret";
     private static final String WORKER_TOKEN = "X-Worker-Token";
 
     private static final Duration REPLY = Duration.ofSeconds(10);
-    /** For what the server does after a close, which no client-side future covers. */
     private static final Duration SETTLE = Duration.ofSeconds(10);
 
-    // Its threads are daemons, so there is nothing to close: the test JVM is free to exit over them.
     private static final HttpClient CLIENT = HttpClient.newHttpClient();
 
     @TestHTTPResource
@@ -94,12 +82,9 @@ class WorkerWebSocketE2ETest {
     @AfterEach
     void disconnect() {
         sessions.forEach(Session::closeQuietly);
-        // The roster is a field on an @ApplicationScoped bean and so outlives the test class. A session
-        // left registered would still count as schedulable in whatever runs next.
+        // Ensure active workers are cleared before the next test runs.
         await(() -> workerService.getActiveWorkers().isEmpty(), "a worker session outlived its test");
     }
-
-    // ---- the handshake ----
 
     @Test
     void anUncredentialedHandshakeIsRejected() {
@@ -111,23 +96,23 @@ class WorkerWebSocketE2ETest {
         assertEquals(401, rejectedStatus(builder -> builder.header(WORKER_TOKEN, "test-worker-secreT")));
     }
 
-    /** The mechanism compares lengths before contents; both refusals must look the same. */
+    /** Invalid secret lengths are rejected. */
     @Test
     void aSecretOfTheWrongLengthIsRejected() {
         assertEquals(401, rejectedStatus(builder -> builder.header(WORKER_TOKEN, "test-worker")));
     }
 
-    /** {@code worker_ws} names one mechanism, so the token that opens every /api route is not read here. */
+    /** Personal access tokens cannot be used to authenticate worker WebSocket connections. */
     @Test
     void aPersonalAccessTokenIsNotAWorkersCredential() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
         assertEquals(401, rejectedStatus(builder ->
                 builder.header("Authorization", "Bearer " + admin.token())));
     }
 
-    /** Opening the socket is not registering: only a {@code register} message sets the worker id. */
+    /** Connecting to the WebSocket does not register the worker until a Register message is received. */
     @Test
     void theSharedSecretOpensTheSocketWithoutRegisteringAnything() {
         var session = connect();
@@ -150,7 +135,7 @@ class WorkerWebSocketE2ETest {
 
     @Test
     void registeringAnnouncesTheWorker() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
         var workerId = UUID.randomUUID();
 
@@ -166,12 +151,12 @@ class WorkerWebSocketE2ETest {
                 .body("[0].disabled", equalTo(false));
     }
 
-    /** {@code Worker.upsert} keeps the row across reconnects and takes the name it comes back under. */
+    /** Re-registering with a new name updates the worker record. */
     @Test
     void registeringUnderANewNameRenamesTheRow() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
-        var workerId = fixtures.worker("old-name");
+        var workerId = fixtures.createWorker("old-name");
 
         assertTrue(connect().send(new ServerboundMessage.Register(workerId, "new-name", null)).ok());
 
@@ -191,11 +176,9 @@ class WorkerWebSocketE2ETest {
         assertEquals("already registered on this connection", response.message());
     }
 
-    // ---- what a registered worker may say ----
-
     @Test
     void aRegisteredWorkerReportsItsResources() {
-        var admin = fixtures.actor("root");
+        var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
         var session = connect();
         assertTrue(session.send(new ServerboundMessage.Register(UUID.randomUUID(), "w1", null)).ok());
@@ -208,27 +191,23 @@ class WorkerWebSocketE2ETest {
                 .body("[0].info.current.numCpus", equalTo(2));
     }
 
-    /** Nobody is left to finish them, so a disconnect is what closes out a worker's open jobs. */
+    /** Disconnecting a worker marks its open jobs as FAILED. */
     @Test
     void disconnectingFailsOnlyTheJobsThatWorkerWasRunning() {
-        var alice = fixtures.actor("alice");
-        var project = fixtures.project("mine");
-        var klass = fixtures.resourceClass("small", null);
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small", null);
         var workerId = UUID.randomUUID();
         var session = connect();
         assertTrue(session.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
-        var mine = fixtures.job(project, alice, klass, JobState.RUNNING, workerId);
-        var elsewhere = fixtures.job(project, alice, klass, JobState.RUNNING, fixtures.worker("w2"));
+        var mine = fixtures.createJob(project, alice, klass, JobState.RUNNING, workerId);
+        var elsewhere = fixtures.createJob(project, alice, klass, JobState.RUNNING, fixtures.createWorker("w2"));
 
         session.close();
 
         await(() -> stateOf(mine) == JobState.FAILED, "the running job was never failed");
-        // listOpenByWorker selects its set up front and this one was not in it, so a job already failed
-        // means the pass that could have touched the other is over.
         assertEquals(JobState.RUNNING, stateOf(elsewhere));
     }
-
-    // ---- the client side ----
 
     private Session connect() {
         var session = new Session(CLIENT.newWebSocketBuilder().header(WORKER_TOKEN, SECRET));
@@ -236,7 +215,6 @@ class WorkerWebSocketE2ETest {
         return session;
     }
 
-    /** The handshake status a refused connection came back with. */
     private int rejectedStatus(UnaryOperator<WebSocket.Builder> credentials) {
         var builder = credentials.apply(CLIENT.newWebSocketBuilder());
         var failure = assertThrows(CompletionException.class,
@@ -247,12 +225,11 @@ class WorkerWebSocketE2ETest {
         return handshake.getResponse().statusCode();
     }
 
-    /** The path is fixed by {@link WorkerWebSocket}; only the port the test server took has to be read off. */
     private URI socketUri() {
         return URI.create("ws://" + baseUri.getAuthority() + "/ws/worker");
     }
 
-    /** A worker's end of the socket: one request, one reply, in the order they were sent. */
+    /** Helper for managing test WebSocket sessions. */
     private final class Session {
         private final WebSocket socket;
         private final Inbox inbox = new Inbox();
@@ -289,7 +266,7 @@ class WorkerWebSocketE2ETest {
         }
     }
 
-    /** Reassembles text frames and holds the messages until a test asks for one. */
+    /** WebSocket listener that buffers incoming text messages. */
     private static final class Inbox implements WebSocket.Listener {
         private final BlockingQueue<String> messages = new LinkedBlockingQueue<>();
         private final StringBuilder partial = new StringBuilder();
@@ -301,7 +278,6 @@ class WorkerWebSocketE2ETest {
                 messages.add(partial.toString());
                 partial.setLength(0);
             }
-            // The default onOpen requests one message; each one after it has to be asked for.
             socket.request(1);
             return null;
         }
@@ -318,8 +294,6 @@ class WorkerWebSocketE2ETest {
             return message;
         }
     }
-
-    // ---- reading the outcome ----
 
     private static JobState stateOf(UUID jobId) {
         return inTx(() -> Job.<Job>findById(jobId).getState());

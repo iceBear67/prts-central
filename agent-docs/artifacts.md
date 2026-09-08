@@ -1,15 +1,8 @@
-# Artifact upload flow
+# Artifact Upload Flow
 
-Uploads never pass through this service:
+Artifact uploads bypass the central API and transfer directly from workers to S3 via presigned URLs.
 
-1. Worker sends `UploadArtifactRequest`.
-2. `ArtifactService.begin` (in `storage`) checks the limits, reserves a slot and an in-memory quota entry, then
-   returns a presigned `PUT` (`ClientboundMessage.PresignedUpload`). The quota check and the
-   reservation happen under a `PESSIMISTIC_WRITE` on the job row (`reserve`), which is why the DB half
-   and the cache half of the quota live in one bean.
-3. Worker `PUT`s directly to S3.
-4. A 2s sweeper `HEAD`s each pending key; on a size match it promotes the upload to an `Artifact`
-   row, on a mismatch it deletes the object.
+## Upload Lifecycle
 
 ```mermaid
 sequenceDiagram
@@ -21,39 +14,45 @@ sequenceDiagram
 
     W->>WS: UploadArtifactRequest(jobId, name, sizeBytes)
     WS->>A: begin(workerId, jobId, name, sizeBytes)
-    A->>A: sizeBytes ≤ maxFileSize · reserveSlot ≤ maxPendingUploads
+    A->>A: sizeBytes <= maxFileSize · reserveSlot <= maxPendingUploads
     rect rgb(235, 245, 255)
-        Note over A: tx · requiringNew · reserve
+        Note over A: tx requiringNew (reserve)
         A->>A: lockAssignedOpen(job, worker) PESSIMISTIC_WRITE
-        A->>A: used(rows) + reserved(pending cache) + sizeBytes ≤ maxJobSize
+        A->>A: used(rows) + reserved(pending cache) + sizeBytes <= maxJobSize
         A->>A: pending.put(uploadId)
     end
     A->>S3: presignPut(objectKey, sizeBytes)
-    A-->>W: PresignedUpload(url, expiresAt) — or Response(false, reason)
+    A-->>W: PresignedUpload(url, expiresAt) or Response(false, reason)
     W->>S3: PUT bytes
-    loop sweeper, every 2s
+    loop Sweeper (every 2s)
         A->>S3: HEAD objectKey
         alt size matches
-            A->>A: record(): lockAssignedOpen, persist Artifact (idempotent on objectKey)
+            A->>A: record(): lockAssignedOpen, persist Artifact (idempotent)
             A->>A: pending.remove(uploadId)
         else size differs
             A->>S3: delete
         end
     end
-    Note over A: cache expiry (presign + 5m): removal listener promotes or deletes, so no object leaks
+    Note over A: Cache expiry listener promotes or deletes to prevent orphaned S3 objects
 ```
 
-Four limits, on `StorageConfig`, and they are not the same shape: `maxFileSize` and `maxJobSize` bound
-bytes, `maxJobArtifacts` bounds the count **per job**, and `maxPendingUploads` bounds concurrent
-in-flight uploads **across the whole service** (`reserveSlot`, outside any transaction). Only
-`max-file-size` / `max-job-size` are set in `application.yml`; the other two run on their defaults.
+## Storage Limits (`StorageConfig`)
 
-Pending uploads live in a Caffeine cache with TTL `storage.presign-duration + 5m`; the removal
-listener does a final promote-or-delete so an expired entry never leaks an S3 object. Quota is
-computed as *persisted artifact bytes + still-reserved pending bytes*.
+| Config Property | Scope | Description |
+| --- | --- | --- |
+| `max-file-size` | Per file | Max bytes per artifact file. |
+| `max-job-size` | Per job | Max aggregate bytes across all artifacts of a job. |
+| `max-job-artifacts` | Per job | Max count of artifacts for a single job. |
+| `max-pending-uploads`| Global | Max in-flight uploads service-wide (`reserveSlot`, outside transactions). |
 
-The quota spans persisted rows *and* in-flight reservations, which is why both halves live in one
-bean and are checked under the job row lock: two concurrent uploads cannot both fit into the same
-remaining room. Only the worker the job was assigned to may attach to it, and only while it is open —
-`lockAssignedOpen` is the one place the worker protocol checks that a message names a job that worker
-was actually given. A `promoting` set keeps the sweeper and the removal listener off the same upload.
+## In-Flight Reservation & Quota Accounting
+
+- **Quota Calculation**: `persisted artifact bytes + currently reserved pending bytes`.
+- **Concurrency Control**: Quota check and cache reservation run under `PESSIMISTIC_WRITE` on the `job` row (`reserve()`) inside `ArtifactService`.
+- **Worker Verification**: `lockAssignedOpen` verifies that the reporting worker matches `job.worker` and that the job is currently open (`PENDING` or `RUNNING`).
+- **Cache & Sweeper**:
+  - In-flight uploads are tracked in a Caffeine cache with TTL `presign-duration + 5m`.
+  - A periodic sweeper checks pending objects via `HEAD` every 2 seconds. Matching sizes are persisted to `artifact` rows; mismatched sizes are deleted from S3.
+  - The cache removal listener performs a final promote-or-delete upon TTL expiration to prevent orphaned S3 objects.
+  - A concurrent `promoting` set prevents race conditions between the sweeper and the cache removal listener.
+

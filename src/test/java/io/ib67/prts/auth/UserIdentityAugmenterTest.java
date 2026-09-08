@@ -45,7 +45,7 @@ class UserIdentityAugmenterTest {
     void setUp() {
         augmenter.userService = userService;
         augmenter.permissionService = permissionService;
-        // runBlocking is the only hop off the event loop; run the body on the spot.
+        // Execute blocking calls synchronously for testing.
         when(context.runBlocking(any())).thenAnswer(invocation ->
                 Uni.createFrom().item(invocation.getArgument(0, Supplier.class).get()));
     }
@@ -83,7 +83,6 @@ class UserIdentityAugmenterTest {
         verify(context, never()).runBlocking(any());
     }
 
-    /** What @TestSecurity produces: a bare principal with no issuer, hence no local user. */
     @Test
     void anIdentityWithoutAnIssuerIsUntouched() {
         var identity = QuarkusSecurityIdentity.builder()
@@ -178,7 +177,6 @@ class UserIdentityAugmenterTest {
         verify(userService).provision(ISSUER, SUBJECT, SUBJECT, EMAIL);
     }
 
-    /** No email means no account: the User entity requires one. */
     @Test
     void aTokenWithoutAnEmailIsNotRegistered() {
         when(userService.findByIssuerAndSubject(ISSUER, SUBJECT)).thenReturn(Optional.empty());
@@ -188,7 +186,7 @@ class UserIdentityAugmenterTest {
         verify(userService, never()).provision(any(), any(), any(), any());
     }
 
-    /** Two first logins at once: one insert loses, and must still see the row the winner wrote. */
+    /** Handles concurrent first-time logins by falling back to the row created by the winning insert. */
     @Test
     void aConcurrentFirstLoginFallsBackToTheRowTheOtherThreadWrote() {
         var token = token();
@@ -214,7 +212,7 @@ class UserIdentityAugmenterTest {
         assertSame(identity, augment(identity));
     }
 
-    /** Not every provider yields a JsonWebToken principal; the issuer may arrive as an attribute. */
+    /** Supports resolving the issuer from attributes when the principal is not a JsonWebToken. */
     @Test
     void theIssuerMayComeFromAnAttribute() {
         when(userService.findByIssuerAndSubject(ISSUER, SUBJECT)).thenReturn(Optional.of(user));

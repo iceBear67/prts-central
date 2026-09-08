@@ -76,7 +76,7 @@ class SecretCipherTest {
         assertThrows(IllegalStateException.class, () -> rekeyed.open(sealed, CONTEXT));
     }
 
-    /** Rotation adds a key and repoints active-key; rows sealed under the old one must still open. */
+    /** Verifies that ciphertexts encrypted with previous keys remain decryptable after key rotation. */
     @Test
     void rotationKeepsOldValuesReadable() {
         var sealed = cipher().seal("hunter2", CONTEXT);
@@ -102,7 +102,7 @@ class SecretCipherTest {
         assertThrows(IllegalStateException.class, () -> cipher.open("not-an-envelope", CONTEXT));
         assertThrows(IllegalStateException.class, () -> cipher.open("2:v1:AAAA", CONTEXT));
         assertThrows(IllegalStateException.class, () -> cipher.open("1:v1:not base64!", CONTEXT));
-        // 12 bytes is the IV alone, with no ciphertext or tag behind it.
+        // 12 bytes corresponds to the IV only, without ciphertext or authentication tag.
         assertThrows(IllegalStateException.class,
                 () -> cipher.open("1:v1:" + key((byte) 0, 12), CONTEXT));
     }
@@ -127,7 +127,7 @@ class SecretCipherTest {
     @Test
     void keyMaterialIsValidatedAtStartup() {
         assertThrows(IllegalStateException.class, () -> cipher("v1", Map.of("v1", "not base64!")));
-        // 20 bytes is not an AES key length.
+        // 20 bytes is not a valid AES key length (expected 16, 24, or 32 bytes).
         assertThrows(IllegalStateException.class, () -> cipher("v1", Map.of("v1", key((byte) 1, 20))));
         assertThrows(IllegalStateException.class, () -> cipher("bad id", Map.of("bad id", V1)));
     }

@@ -1,80 +1,42 @@
-# `JobSpec`, templates, resource classes
+# JobSpec, Templates & Resource Classes
 
-## Secrets never touch the row
+## Secrets Isolation
 
-`JobSpec` is jsonb on the template and the job, and travels to the worker. Its one field that is
-**not** part of that is `secret`, the project's secrets in the clear, to be injected at dispatch time:
+Plaintext secrets are never stored in the database or serialized inside `job.spec` jsonb:
+- **Annotation**: `JobSpec#secret` is annotated with `@JsonIgnore` and excluded from all standard spec serializations.
+- **In-Memory Injection**: `JobLauncher.prepare` resolves project secrets and attaches them to a transient copy of `JobSpec` via `withSecret(...)`.
+- **Worker Delivery**: `WorkerClient.createJob` transfers secrets explicitly in `CreateJob.secrets`.
+- **Log & View Safety**: `JobSpec#toString` prints secret counts rather than values; `JobView.SpecView` omits secrets.
 
-```mermaid
-flowchart LR
-    T[template spec · jsonb] --> M[merged spec]
-    M -->|persist| ROW["job.spec · jsonb<br/>no secret"]
-    M -->|withSecret| SC["scheduler copy<br/>JobSpec.secret (@JsonIgnore)"]
-    SC -->|"WorkerClient.createJob lifts spec.secret()"| MSG["CreateJob.secrets<br/>the only serialization"]
-```
+## Templates & Resource Classes
 
-`@JsonIgnore` keeps it out of the jsonb column *and* out of every serialization of a spec, the one the
-worker receives included. So the secrets reach the worker beside the spec instead — `CreateJob` has a
-`secrets` field of its own and `WorkerClient.createJob` lifts `spec.secret()` onto it by hand, which
-makes that message the only place a secret is ever serialized. What fills the field is
-`JobLauncher.prepare`, and only on the copy it hands the scheduler: the `Job` it persists keeps the
-secret-free spec, so a plaintext value exists no longer than the dispatch, and neither the row nor
-anything read back off it could hold one even without the `@JsonIgnore`. `JobSpec.withSecret` is the
-only way in, and `JobSpec.toString` is hand-written to print a count instead of the values.
-Every view of a spec goes through `JobView.SpecView`, including `JobSpecTemplateView`, so a new
-`JobSpec` field is not published by default.
+### Templates (`JobSpecTemplate`)
+- **Scoping**: `project_id = null` indicates a global template accessible across all projects; otherwise scoped to a single project.
+- **Resolution**: `JobSpecTemplate.findVisibleFetched(projectId, id)` resolves templates visible to the project.
 
-## Nullability
+### Resource Classes (`ResourceClass`)
+- **Keying**: Composite primary key `(name, projectId)` via `@IdClass(ResourceClassId.class)`.
+- **Global Sentinel**: Global classes use `ResourceClass.GLOBAL` (`Reserved.ID`).
+- **Shadowing**: `ResourceClass.findVisible(projectId, name)` queries the project-specific row first, falling back to global if absent. Project-specific classes shadow global classes sharing the same name.
+- **Foreign Keys**: References use two-column FKs `(resource_class, resource_class_project)` on `job` and `job_spec_template`.
+- **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the template's default class does not require this permission.
 
-Nothing on a `JobSpec` is nullable: its compact constructor normalizes an absent container to the
-empty one and an absent or blank `lock` to `""`, which is what a spec read back off an older jsonb row
-or built from a template with a null column goes through. Add a field and normalize it there too.
+## Volume Isolation
 
-## Templates
+A job may only mount worker volumes owned by its project (`JobSpec.requireVolumesIn(project)`). Mounting volumes from another project is rejected.
 
-A `JobSpecTemplate` belongs to a project, or to none: a null `project_id` is a **global template**
-every project may use. `listVisibleFetched` / `findVisibleFetched` are the only finders, and
-`JobLauncher.prepare` goes through them — a template of another project is a 404, so a spec
-cannot be reached across projects.
+## Per-Field Override Gating (`JobSpecOverride`)
 
-## Resource classes
+Overrides are validated field-by-field against caller permissions:
+- **`JobSpecOverridePermissions`**: Implements `JobSpecOverrideAuthorizer`. Each method is annotated with a field-specific `@RequirePermission` check.
+- **Application**: `JobSpecOverride.applyTo(spec, authorizer)` validates and applies fields. Scalar fields replace template values; maps and lists merge.
+- **Pass-through**: `JobLauncher.PRE_AUTHORIZED` bypasses permission checks when dispatching pre-validated queued jobs.
 
-A `ResourceClass` is scoped the same way, but its key **is** `(name, project_id)` — the name is only
-unique within a project, so two projects may each mean their own thing by `large`. Postgres cannot key
-on null, so "global" is the reserved `ResourceClass.GLOBAL` (the `Permission.GLOBAL` trick again, and
-the same `Reserved.ID` — see [authorization.md](authorization.md)) and `null` is normalized to it by
-`scopeOf`. `findVisible(projectId, name)` returns the project's own row or, failing that, the global
-one — **a project row shadows a global row of the same name**. Every reference is therefore a
-two-column FK (`resource_class`, `resource_class_project`) on `job` and `job_spec_template`. The entity
-is `@IdClass`, not `@EmbeddedId`, so `getName()` and the JSON the worker receives are unchanged;
-`projectId` is `@JsonIgnore`d because no worker needs it. `JobLauncher.resolveResourceClass` gates the
-request against `job:resource-class` only when it **deviates** from the template's class — asking for
-what the template already says is not an override, and a re-run must not cost more permission than the
-create it replays.
+### Adding an Overridable Field
+1. Add field to `JobSpec` (normalize nulls in compact constructor) and `JobSpecOverride`.
+2. Define permission constant in `Perm`.
+3. Add method to `JobSpecOverrideAuthorizer`.
+4. Implement method in `JobSpecOverridePermissions` with `@RequirePermission`.
+5. Implement pass-through in `JobLauncher.PRE_AUTHORIZED`.
+6. Wire field application in `JobSpecOverride.applyTo`.
 
-## Volumes
-
-A spec may only mount volumes of **its own project** (`JobSpec.requireVolumesIn`) — membership in the
-volume's project is not enough, since the job's logs and artifacts are readable by every viewer of the
-project it runs in.
-
-## The per-field override gating idiom
-
-`JobSpecOverridePermissions` is a bean of one pass-through method per `JobSpec` field, each annotated
-with its own `@RequirePermission` but taking no project argument — the check picks the project off the
-request path. `JobSpecOverride.applyTo` calls the method for every field the caller actually supplied,
-so the interceptor enforces field-level permissions per project. Scalar fields replace the template
-value; `Map`/`List` fields **merge** into it (map entries win per key, list entries are appended), so an
-empty container is a no-op and no override can remove a template entry.
-
-`applyTo` takes the gate as a **parameter** typed `JobSpecOverrideAuthorizer`, not as a fixed
-dependency, because a create may be authorized in one request and submitted from a thread where the
-interceptor could not run — that is the seam the pending queue replays through.
-
-`JobSpecOverridePermissions` may not be renamed off the `Permissions` suffix: `PermissionOASFilter`
-finds it by that name.
-
-**To add an overridable spec field: add the field to `JobSpec` and `JobSpecOverride`, a constant to
-`Perm`, a method to `JobSpecOverrideAuthorizer` with its gated implementation in
-`JobSpecOverridePermissions` (and a pass-through in `JobLauncher.PRE_AUTHORIZED`), and wire it in
-`applyTo`.**

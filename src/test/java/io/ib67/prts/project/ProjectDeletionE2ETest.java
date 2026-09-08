@@ -39,14 +39,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * What {@link ProjectService#delete} tears down, and what it must leave standing.
- *
- * <p>Most of the teardown is a foreign key doing its job, which is exactly why it is worth asserting:
- * a table added later inherits no cascade, and the only place that shows is a row nobody can reach.
- *
- * <p>Not covered: the {@code BUSY} round trip and the 409 beyond it. Reaching it takes a job placed
- * between {@code stopWork} and {@code deleteRows}, and the pessimistic lock the latter takes means the
- * race cannot be staged from a single thread.
+ * Verifies cascading deletion in {@link ProjectService#delete}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -65,8 +58,8 @@ class ProjectDeletionE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        mine = fixtures.project("mine");
-        theirs = fixtures.project("theirs");
+        mine = fixtures.createProject("mine");
+        theirs = fixtures.createProject("theirs");
     }
 
     @Test
@@ -78,10 +71,7 @@ class ProjectDeletionE2ETest {
         assertNothingLeftOf(mine);
     }
 
-    /**
-     * A sub-account exists only to act on one project, so its {@code prts_user} row is the project's to
-     * take — the cascade would otherwise leave a login behind with nothing to log in to.
-     */
+    /** Sub-account user records are deleted along with the project. */
     @Test
     void aSubAccountIsTakenDownWithTheProject() {
         var filled = fill(mine);
@@ -95,7 +85,7 @@ class ProjectDeletionE2ETest {
         as(filled.subAccount()).get("/api/project").then().statusCode(401);
     }
 
-    /** A member is a person, not project property: only the membership row was the project's. */
+    /** User accounts of project members are preserved when the project is deleted. */
     @Test
     void aMemberOutlivesTheProjectTheyWereIn() {
         var filled = fill(mine);
@@ -134,13 +124,13 @@ class ProjectDeletionE2ETest {
                         rows(() -> Permission.count("id.projectId", theirs)), "user_permission"));
     }
 
-    /** Its queue is cancelled by project id; another project's entries are still waiting their turn. */
+    /** Deleting a project does not affect pending job queues of other projects. */
     @Test
     void anotherProjectsQueueStaysInLine() {
-        var alice = fixtures.actor("alice");
-        var template = fixtures.template("build", null, fixtures.resourceClass("small", null));
-        var queued = fixtures.queued(theirs, alice, template, "small");
-        fixtures.queued(mine, alice, template, "small");
+        var alice = fixtures.createActor("alice");
+        var template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small", null));
+        var queued = fixtures.createQueuedJob(theirs, alice, template, "small");
+        fixtures.createQueuedJob(mine, alice, template, "small");
 
         projectService.delete(mine);
 
@@ -148,11 +138,11 @@ class ProjectDeletionE2ETest {
                 inTx(() -> PendingJob.<PendingJob>findById(queued).getState()));
     }
 
-    /** Global definitions back every project, so one project's exit must not take them. */
+    /** Global resource classes and templates are preserved when a project is deleted. */
     @Test
     void theGlobalDefinitionsAreNotTheProjectsToTake() {
-        var global = fixtures.resourceClass("shared", null);
-        fixtures.template("shared", null, global);
+        var global = fixtures.createResourceClass("shared", null);
+        fixtures.createTemplate("shared", null, global);
         fill(mine);
 
         projectService.delete(mine);
@@ -164,10 +154,10 @@ class ProjectDeletionE2ETest {
                         rows(() -> JobSpecTemplate.count("project is null")), "job_spec_template"));
     }
 
-    /** Grants are wiped by project id, and a global grant is keyed on the sentinel rather than one. */
+    /** Global permissions are preserved when a project is deleted. */
     @Test
     void aGlobalGrantIsNotAProjectGrant() {
-        var admin = fixtures.actor("admin");
+        var admin = fixtures.createActor("admin");
         fixtures.makeAdmin(admin);
         fill(mine);
 
@@ -212,24 +202,23 @@ class ProjectDeletionE2ETest {
                         rows(() -> Permission.count("id.projectId", projectId)), "user_permission"));
     }
 
-    /** One row of every kind a project can own, so that anything the delete misses shows up. */
+    // Populates sample data across all project-related tables.
     private Filled fill(UUID projectId) {
-        var owner = fixtures.actor("owner");
+        var owner = fixtures.createActor("owner");
         fixtures.join(owner, projectId, ProjectRole.OWNER);
         fixtures.grant(owner, Perm.JOB_CREATE, projectId);
-        var subAccount = fixtures.subAccount(projectId, "ci", owner);
-        fixtures.secret(projectId, "TOKEN", "s3cret");
-        var klass = fixtures.resourceClass("small", projectId);
-        var template = fixtures.template("run", projectId, klass);
-        var done = fixtures.job(projectId, owner, klass, JobState.SUCCESS, null);
-        fixtures.log(done, "state", "RUNNING -> SUCCESS");
-        fixtures.artifact(done, "out.tar");
-        // Held by a finished job on purpose: a live one would be cancelled on the way out, and the
-        // release that follows would hide whether the cascade reaches job_lock at all.
+        var subAccount = fixtures.createSubAccount(projectId, "ci", owner);
+        fixtures.createSecret(projectId, "TOKEN", "s3cret");
+        var klass = fixtures.createResourceClass("small", projectId);
+        var template = fixtures.createTemplate("run", projectId, klass);
+        var done = fixtures.createJob(projectId, owner, klass, JobState.SUCCESS, null);
+        fixtures.createLog(done, "state", "RUNNING -> SUCCESS");
+        fixtures.createArtifact(done, "out.tar");
+        // Acquire lock with completed job to test cascading deletion of JobLock.
         inTx(() -> JobLock.tryAcquire("deploy", done));
-        fixtures.job(projectId, owner, klass, JobState.RUNNING, fixtures.worker("w-" + projectId));
-        fixtures.volume(projectId, fixtures.worker("v-" + projectId), "cache");
-        fixtures.queued(projectId, owner, template, "small");
+        fixtures.createJob(projectId, owner, klass, JobState.RUNNING, fixtures.createWorker("w-" + projectId));
+        fixtures.createVolume(projectId, fixtures.createWorker("v-" + projectId), "cache");
+        fixtures.createQueuedJob(projectId, owner, template, "small");
         return new Filled(owner, subAccount);
     }
 
