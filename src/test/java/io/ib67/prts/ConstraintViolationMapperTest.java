@@ -21,8 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Checks that the constraint messages reach the caller as the same {@code {"message": ...}} the
- * hand-written checks produced, escaping and all.
+ * Tests mapping of Bean Validation constraint violations to error responses.
  */
 class ConstraintViolationMapperTest {
 
@@ -42,7 +41,7 @@ class ConstraintViolationMapperTest {
         factory.close();
     }
 
-    /** Runs the record through validation the way the resource parameter does, and maps the failure. */
+    /** Validates the request object and maps the resulting constraint violations. */
     private String messageFor(Object request) {
         var violations = validator.validate(request);
         var response = mapper.toResponse(new ConstraintViolationException(violations));
@@ -72,10 +71,7 @@ class ConstraintViolationMapperTest {
                 messageFor(new SetPermissionsRequest(null)));
     }
 
-    /**
-     * The braces in the pattern are message-template syntax and are escaped in the constraint; this is
-     * what proves the escape unwinds to the literal the E2E asserts.
-     */
+    /** Verifies that escaped braces in validation pattern messages are properly unescaped. */
     @Test
     void theSecretNamePatternSurvivesInterpolation() {
         assertEquals("name must match [A-Za-z_][A-Za-z0-9_]{0,63}",
@@ -93,7 +89,7 @@ class ConstraintViolationMapperTest {
         assertEquals("value is required", messageFor(new CreateSecretRequest("TOKEN", null, "")));
     }
 
-    /** A nested spec is only reached because the component carries @Valid. */
+    /** Verifies that nested objects with @Valid are validated. */
     @Test
     void aNestedSpecViolationIsReached() {
         var request = new CreateTemplateRequest(
@@ -111,7 +107,7 @@ class ConstraintViolationMapperTest {
         assertEquals("spec.timeout must be >= 0", messageFor(request));
     }
 
-    /** Several failures are joined in a stable order rather than picking one at random. */
+    /** Multiple violations are concatenated in deterministic order. */
     @Test
     void severalViolationsAreJoinedDeterministically() {
         var request = new CreateTemplateRequest(null, null, null);
@@ -120,10 +116,7 @@ class ConstraintViolationMapperTest {
                 messageFor(request));
     }
 
-    /**
-     * A violated return value is this service breaking its own contract, not a bad request, so it is
-     * rethrown to stay a 500 — the same carve-out the built-in mapper makes.
-     */
+    /** Return value violations are rethrown to be handled as internal server errors (500). */
     @Test
     void aReturnValueViolationIsRethrown() throws Exception {
         var target = new Contracted();
@@ -136,7 +129,6 @@ class ConstraintViolationMapperTest {
         assertThrows(ConstraintViolationException.class, () -> mapper.toResponse(exception));
     }
 
-    /** Stand-in for a resource whose own return value is constrained. */
     public static class Contracted {
         @NotNull
         public String mustNotReturnNull() {

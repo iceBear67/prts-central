@@ -132,7 +132,7 @@ public class PendingJob extends PanacheEntityBase {
                 List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
     }
 
-    /** Queue entry counts per state across every project. */
+    /** Counts pending queue entries grouped by state across all projects. */
     public static Map<PendingJobState, Long> countByState() {
         return getEntityManager()
                 .createQuery("select state, count(id) from PendingJob group by state", Object[].class)
@@ -140,7 +140,7 @@ public class PendingJob extends PanacheEntityBase {
                 .collect(Collectors.toMap(row -> (PendingJobState) row[0], row -> (Long) row[1]));
     }
 
-    /** Active queue entry counts for a batch of projects, keyed by project. */
+    /** Counts active queue entries grouped by project ID for a collection of projects. */
     public static Map<UUID, Long> countActiveByProjects(Collection<UUID> projectIds) {
         if (projectIds.isEmpty()) {
             return Map.of();

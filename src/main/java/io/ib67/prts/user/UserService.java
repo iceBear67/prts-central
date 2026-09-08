@@ -108,11 +108,10 @@ public class UserService {
     }
 
     /**
-     * Sets the user's system-wide grants, replacing the ones they hold.
+     * Replaces the user's global permissions.
      *
-     * <p>Sub-accounts hold nothing globally, and the last {@link Perm#ADMIN_OF_ALL} holder cannot be
-     * stripped of it: every admin endpoint is gated on that permission, so losing the last holder locks
-     * the door from the inside.
+     * <p>Sub-accounts cannot hold global permissions. The last remaining holder of
+     * {@link Perm#ADMIN_OF_ALL} cannot have it revoked.
      */
     @Transactional
     public void setGlobalPermissions(UUID userId, Collection<Perm> perms) {
@@ -130,7 +129,7 @@ public class UserService {
         permissionService.grantAll(userId, perms, null);
     }
 
-    /** Revokes every grant a user holds, in any scope. */
+    /** Revokes all permissions granted to a user across all scopes. */
     @Transactional
     public long revokeAllPermissions(UUID userId) {
         requireAnotherAdmin(userId);
@@ -165,12 +164,11 @@ public class UserService {
     }
 
     /**
-     * Hands ownership of a project to another member: the target becomes {@code OWNER} and the caller
-     * steps down to {@code MEMBER}.
+     * Transfers project ownership to another member.
      *
-     * <p>The caller need not be an owner — an {@code admin:all} holder or someone granted
-     * {@code project:transfer} may transfer without being in the project, in which case only the target
-     * is moved. Promoting before demoting is what keeps the project from momentarily having no owner.
+     * <p>The target member is promoted to {@code OWNER}. If the caller was an existing member, they are
+     * demoted to {@code MEMBER}. If the caller is an administrator or non-member with {@code project:transfer},
+     * only the target member is updated. The target is promoted before demoting the caller to ensure continuous ownership.
      */
     @Transactional
     public UserToProject transferOwnership(UUID callerId, UUID projectId, UUID targetId) {
@@ -242,7 +240,7 @@ public class UserService {
         }
     }
 
-    /** Ensures someone else still holds {@link Perm#ADMIN_OF_ALL} before this user gives it up. */
+    /** Ensures at least one other user retains {@link Perm#ADMIN_OF_ALL} before revoking it from this user. */
     private void requireAnotherAdmin(UUID userId) {
         if (!permissionService.has(userId, Perm.ADMIN_OF_ALL)) {
             return;

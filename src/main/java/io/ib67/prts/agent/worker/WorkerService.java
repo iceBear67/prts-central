@@ -82,8 +82,8 @@ public class WorkerService {
     /**
      * Renames a registered worker.
      *
-     * <p>Only until the worker says otherwise: {@link Worker#upsert} takes the name from the worker's own
-     * registration, so reconnecting under a different name overwrites this.
+     * <p>Note that if the worker reconnects with a different name in its registration,
+     * {@link Worker#upsert} will overwrite this value.
      */
     public Worker rename(UUID id, String name) {
         return QuarkusTransaction.requiringNew().call(() -> {
@@ -94,8 +94,7 @@ public class WorkerService {
     }
 
     /**
-     * Closes a worker's live session, if it holds one. Its unfinished jobs are failed, the same as on
-     * any disconnect.
+     * Closes an active worker session, if connected. Any unfinished jobs on the worker will fail.
      */
     public void disconnect(UUID id) {
         var worker = activeWorkers.get(id);
@@ -105,10 +104,9 @@ public class WorkerService {
     }
 
     /**
-     * Drops a worker's registration.
+     * Deletes a worker's registration.
      *
-     * <p>Refuses a connected worker rather than closing it on the caller's behalf — the disconnect is
-     * what fails its jobs, and that is a decision to take on its own.
+     * <p>The worker must be disconnected, have no in-flight jobs, and host no volumes before deletion.
      */
     public void delete(UUID id) {
         synchronized (roster) {
@@ -124,7 +122,6 @@ public class WorkerService {
                             "worker " + id + " still has " + open + " unfinished job(s)",
                             Response.Status.CONFLICT);
                 }
-                // worker_volume carries a plain foreign key, so a leftover volume would fail the delete.
                 var volumes = WorkerVolume.countByWorker(id);
                 if (volumes > 0) {
                     throw new ClientErrorException(

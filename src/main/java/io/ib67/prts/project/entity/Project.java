@@ -40,8 +40,7 @@ public class Project extends PanacheEntityBase {
     private String name;
 
     /**
-     * When the project was archived, or null while it is live. A single nullable column rather than a
-     * boolean beside a timestamp, so the two can never disagree.
+     * Timestamp when the project was archived, or null if the project is active.
      */
     @Nullable
     @Column(name = "archived_at")
@@ -51,7 +50,7 @@ public class Project extends PanacheEntityBase {
         return archivedAt != null;
     }
 
-    /** Lists projects whose name contains the query, newest first. */
+    /** Searches projects by name with pagination, ordered by creation time descending. */
     public static List<Project> search(@Nullable String query, int offset, int limit) {
         var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
         return find("lower(name) like ?1 order by id desc", filter)

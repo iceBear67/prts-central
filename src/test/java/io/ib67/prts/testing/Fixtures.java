@@ -69,7 +69,7 @@ public class Fixtures {
         return projectService.create(name).getId();
     }
 
-    /** Archives a project without going through the endpoint. */
+    /** Archives a project directly via ProjectService. */
     public void archive(UUID projectId) {
         projectService.archive(projectId);
     }

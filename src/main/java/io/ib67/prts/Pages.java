@@ -2,13 +2,13 @@ package io.ib67.prts;
 
 import jakarta.annotation.Nullable;
 
-/** Window arithmetic shared by the paged listings. */
+/** Utility methods for pagination calculations. */
 public final class Pages {
 
     private Pages() {
     }
 
-    /** A missing or non-positive length means "as many as allowed". */
+    /** Returns the clamped page length, defaulting to {@code max} if null or non-positive. */
     public static int clampLength(@Nullable Integer length, int max) {
         if (length == null || length <= 0) {
             return max;

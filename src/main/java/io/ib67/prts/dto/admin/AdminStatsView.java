@@ -6,7 +6,7 @@ import io.ib67.prts.project.entity.JobState;
 import java.util.Map;
 import java.util.Objects;
 
-/** Service-wide counters for the admin dashboard. */
+/** System-wide statistics for the admin dashboard. */
 public record AdminStatsView(
         Users users,
         Projects projects,
@@ -24,7 +24,7 @@ public record AdminStatsView(
         Objects.requireNonNull(storage, "storage");
     }
 
-    /** @param subAccounts Accounts owned by a project rather than a person; included in {@code total}. */
+    /** @param subAccounts Sub-accounts scoped to projects (included in {@code total}). */
     public record Users(long total, long subAccounts) {
     }
 
@@ -32,15 +32,15 @@ public record AdminStatsView(
     }
 
     /**
-     * @param connected   Workers holding a live WebSocket session right now.
-     * @param schedulable Connected workers that are not disabled.
+     * @param connected   Workers currently connected via WebSocket.
+     * @param schedulable Connected and enabled workers.
      */
     public record Workers(long registered, long disabled, long connected, long schedulable) {
     }
 
     /**
-     * @param byState        Visible job counts per state; a state with no jobs is absent.
-     * @param completedLast24h Jobs that reached a terminal state in the past day.
+     * @param byState        Job counts grouped by state.
+     * @param completedLast24h Jobs completed within the last 24 hours.
      */
     public record Jobs(Map<JobState, Long> byState, long completedLast24h) {
         public Jobs {
@@ -48,7 +48,7 @@ public record AdminStatsView(
         }
     }
 
-    /** @param byState Queue entry counts per state; a state with no entries is absent. */
+    /** @param byState Queue entry counts grouped by state. */
     public record Queue(Map<PendingJobState, Long> byState) {
         public Queue {
             Objects.requireNonNull(byState, "byState");

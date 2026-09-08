@@ -20,8 +20,8 @@ class ClientErrorMapperTest {
     private final ClientErrorMapper mapper = new ClientErrorMapper();
 
     /**
-     * The chain a throw from a request record's constructor actually arrives in: Jackson wraps the
-     * constructor's exception, and {@code ServerJacksonMessageBodyReader} rewraps that as a bare 400.
+     * Simulates deserialization failures where Jackson wraps the constructor exception and
+     * {@code ServerJacksonMessageBodyReader} rewraps it into a WebApplicationException(400).
      */
     private static WebApplicationException asDeserializationFailure(RuntimeException thrownInConstructor) {
         var wrapped = ValueInstantiationException.from(
@@ -63,7 +63,7 @@ class ClientErrorMapperTest {
         assertNull(response.getEntity());
     }
 
-    /** Without unwrapping this reads "HTTP 400 Bad Request", which tells the caller nothing. */
+    /** Unwraps the underlying exception so the client receives the constructor validation message. */
     @Test
     void aConstructorRejectionSurvivesDeserialization() {
         var response = mapper.toResponse(
@@ -73,7 +73,7 @@ class ClientErrorMapperTest {
         assertEquals("name is required", messageOf(response));
     }
 
-    /** The carried exception decides the status too, not just the message. */
+    /** The nested client exception determines the response status code. */
     @Test
     void aCarriedStatusOutranksTheReadersBadRequest() {
         var response = mapper.toResponse(asDeserializationFailure(
@@ -83,7 +83,7 @@ class ClientErrorMapperTest {
         assertEquals("already taken", messageOf(response));
     }
 
-    /** Malformed JSON carries no exception of ours, so the reader's own 400 stands. */
+    /** Unrecognized deserialization errors retain the message body reader's 400 status. */
     @Test
     void aFailureCarryingNothingOfOursKeepsTheReadersStatus() {
         var response = mapper.toResponse(new WebApplicationException(
@@ -93,7 +93,7 @@ class ClientErrorMapperTest {
         assertEquals("HTTP 400 Bad Request", messageOf(response));
     }
 
-    /** Only the reader raises a plain WebApplicationException; a subclass already says what it means. */
+    /** Specific WebApplicationException subclasses are returned directly without unwrapping causes. */
     @Test
     void aSubclassIsNeverUnwrapped() {
         var response = mapper.toResponse(

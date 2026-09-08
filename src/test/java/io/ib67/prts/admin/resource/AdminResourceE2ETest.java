@@ -225,7 +225,7 @@ class AdminResourceE2ETest {
         as(alice).get("/api/project/{p}", project).then().statusCode(403);
     }
 
-    /** Every admin endpoint is gated on admin:all, so the last holder must keep it. */
+    /** The last admin:all holder cannot revoke their own admin permission. */
     @Test
     void theLastAdminCannotGiveUpAdminOfAll() {
         as(admin).contentType(ContentType.JSON).body(Map.of("permissions", List.of()))
@@ -264,7 +264,7 @@ class AdminResourceE2ETest {
                 .statusCode(200)
                 .body("name", contains("shared"));
 
-        // Every project sees it.
+        // Global templates are visible to projects.
         var project = fixtures.createProject("mine");
         fixtures.join(alice, project, ProjectRole.OWNER);
         as(alice).get("/api/project/{p}/job/template", project).then()
@@ -275,7 +275,7 @@ class AdminResourceE2ETest {
         as(admin).get("/api/admin/template").then().body("$", empty());
     }
 
-    /** A project-scoped class would be invisible to every other project the template is offered to. */
+    /** Global templates require a global resource class. */
     @Test
     void aGlobalTemplateNeedsAGlobalResourceClass() {
         var project = fixtures.createProject("mine");
@@ -304,7 +304,7 @@ class AdminResourceE2ETest {
                 .body("message", equalTo("a global template cannot mount volumes"));
     }
 
-    /** Project templates belong to the project's own endpoints. */
+    /** Global template endpoints do not manage project-scoped templates. */
     @Test
     void aProjectTemplateIsNotVisibleToTheGlobalListing() {
         var project = fixtures.createProject("mine");
@@ -315,7 +315,7 @@ class AdminResourceE2ETest {
         as(admin).delete("/api/admin/template/{t}", theirs).then().statusCode(404);
     }
 
-    /** Nothing is banned by default, so the catalogue is just the enum. */
+    /** Lists all available permissions when no permissions are banned. */
     @Test
     void thePermissionCatalogueListsEveryPermission() {
         as(admin).get("/api/admin/permission").then()

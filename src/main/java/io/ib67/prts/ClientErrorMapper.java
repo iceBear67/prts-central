@@ -16,7 +16,7 @@ import java.util.Objects;
 @Provider
 public class ClientErrorMapper implements ExceptionMapper<WebApplicationException> {
 
-    /** A cause chain deeper than this is a cycle, not a wrapping. */
+    /** Maximum traversal depth for cause chains to avoid circular references. */
     private static final int MAX_UNWRAP = 8;
 
     public record ErrorView(String message) {
@@ -41,16 +41,15 @@ public class ClientErrorMapper implements ExceptionMapper<WebApplicationExceptio
     }
 
     /**
-     * Recovers the exception a deserialization failure is carrying.
+     * Unwraps the underlying application exception from deserialization failures.
      *
-     * <p>A throw from a request record's constructor reaches the reader as a Jackson
-     * {@code DatabindException}, which {@code ServerJacksonMessageBodyReader} rewraps in a bare
-     * {@link WebApplicationException} whose status is always 400 and whose message is generated from
-     * that status. The status and message actually thrown survive only in the cause chain.
+     * <p>When a request DTO constructor throws an exception, Jackson catches it as a
+     * {@code DatabindException}, and {@code ServerJacksonMessageBodyReader} wraps it in a generic
+     * {@link WebApplicationException} (HTTP 400). Unwrapping the cause chain recovers the original
+     * exception's status and message.
      *
-     * <p>Keyed on the exact type because the reader is the only thing that raises a plain
-     * {@code WebApplicationException} — everything this service throws is a subclass, which already says
-     * what it means and is left alone.
+     * <p>Only exact instances of {@code WebApplicationException} are unwrapped; subclasses thrown
+     * directly by the application are returned as-is.
      */
     private static WebApplicationException unwrapped(WebApplicationException thrown) {
         if (thrown.getClass() != WebApplicationException.class) {

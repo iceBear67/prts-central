@@ -38,13 +38,9 @@ sequenceDiagram
 
 ## Deletion
 
-`ArtifactService.delete(projectId, artifactId)` (behind `DELETE /project/{projectId}/job/artifact/{id}`,
-`job:artifact:delete`) drops the row in `requiringNew()` and only then deletes the object, outside the
-transaction.
+`ArtifactService.delete(projectId, artifactId)` (invoked via `DELETE /project/{projectId}/job/artifact/{id}`, requiring `job:artifact:delete`) deletes the database row in a new transaction (`requiringNew()`) and then deletes the S3 object outside the transaction.
 
-That order is the reverse of `ProjectService.deleteObjects`, on purpose: a whole-project delete has to
-read the keys before the rows cascade away, while here an object left behind is invisible and a row whose
-object is already gone would keep handing out presigned URLs to nothing.
+This order prevents handing out presigned URLs for already deleted S3 objects if the database commit fails. Any orphaned S3 object left by a failed storage deletion remains inaccessible through the API.
 
 ## Storage Limits (`StorageConfig`)
 

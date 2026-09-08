@@ -110,8 +110,8 @@ admin:
     max-page-size: 50
 
 permission:
-  # Permissions taken out of service system-wide, refused to everyone including admin:all holders.
-  # An unknown name, or admin:all itself, fails startup. Takes a restart to change.
+  # Globally disabled permissions. Denied to all callers, including administrators.
+  # Invalid permission names or 'admin:all' will cause startup failure. Requires restart to change.
   banned: [ ]
 
 job:

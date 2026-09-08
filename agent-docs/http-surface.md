@@ -13,25 +13,18 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 | **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
 
 ### Special Permission Rules
-- **Template Spec Hiding**: `GET .../job/template` requires `project:read`. However, reading template `spec` and `resourceClass` requires explicit `job:template:read` (`defaultRole = NONE`). Without it, those fields are returned as `null`. The template the caller just created is returned in full — they wrote it.
+- **Template Spec Hiding**: `GET .../job/template` requires `project:read`. However, reading template `spec` and `resourceClass` requires explicit `job:template:read` (`defaultRole = NONE`). Without it, those fields are returned as `null`. When creating a template, the response returns the full template definition directly.
 - **Self-Removal / Leaving**: `DELETE .../member/{userId}` allows users to remove themselves without `project:member:manage`. The last remaining `OWNER` cannot leave or be demoted.
 - **Project Enumeration Prevention**: Non-members querying nonexistent projects receive 403 Forbidden from the interceptor, not 404. Only `admin:all` callers reach the resource to receive 404.
-- **Global Templates Are Read-Only Here**: `DELETE .../job/template/{id}` refuses a template with no project (409). They belong to `/admin/template`.
+- **Global Templates Are Read-Only Here**: `DELETE .../job/template/{id}` returns 409 Conflict for global templates (where `projectId` is null). Global templates must be managed via `/api/admin/template`.
 
 ## Archived Projects
 
-`POST /project/{projectId}/archive` turns a project read-only. `ProjectService.archive` runs the same
-`stopWork` as a delete first — the queue is cancelled and running jobs interrupted — so nothing is left
-running that the now-refused cancel endpoint could no longer stop.
+`POST /project/{projectId}/archive` sets a project to read-only status. During archiving, `ProjectService.archive` invokes `stopWork` to cancel pending queue items and interrupt active running jobs.
 
-Every mutating endpoint of a project calls `ProjectService.requireWritable(projectId)` first and answers
-**409** while it is archived: rename, transfer, member and sub-account management, secrets, job create
-and cancel, template create and delete, artifact delete. Reads are untouched, and so are
-`POST .../unarchive` and `DELETE /project/{projectId}` — an archived project is never stuck.
+Mutating endpoints within a project call `ProjectService.requireWritable(projectId)` and return **409 Conflict** when the project is archived (such as renaming, ownership transfer, member/subaccount management, secrets, job creation/cancellation, template operations, and artifact deletion). Read requests remain allowed, as do `POST .../unarchive` and `DELETE /project/{projectId}`.
 
-The guard is an explicit call, not an interceptor: **a new mutating endpoint has to add it.** Worker
-report paths (`JobService.applyState`, `appendLog`, `ArtifactService.record`) deliberately have no
-guard, or an archive would break jobs still reporting in.
+Because writability is checked explicitly rather than through an interceptor, any new mutating project endpoint must call `requireWritable(projectId)`. Worker reporting endpoints (`JobService.applyState`, `appendLog`, `ArtifactService.record`) intentionally omit this check so in-flight status reports are not rejected.
 
 ## Jobs API Behavior
 
@@ -66,11 +59,11 @@ No server-side automatic re-run endpoint exists. Clients retrieve the original `
 | `POST /worker/{id}/disconnect` | Closes the session; its unfinished jobs fail as on any disconnect. Deliberately separate from the delete. |
 | `GET /worker/{id}/job\|volume` | The worker's unfinished jobs, and the volumes it hosts across projects. |
 
-The mutating `/admin/user` endpoints hold **no transaction of their own**: the grant cache is invalidated
-when the service's transaction completes, so reading the user back inside it would answer from the
-pre-change snapshot.
+Mutating endpoints under `/admin/user` do not wrap their operations in a resource-level transaction:
+the permission grant cache is invalidated when the service transaction commits, so re-reading the user
+within the same transaction would return pre-commit data.
 
-Listing windows are capped by `admin.list.max-page-size` (`AdminConfig`), the same shape as `job.list`.
+Listing page sizes are capped by `admin.list.max-page-size` (`AdminConfig`), matching `job.list`.
 
 ## Token & Secret Endpoints
 
@@ -82,49 +75,18 @@ Listing windows are capped by `admin.list.max-page-size` (`AdminConfig`), the sa
 ## DTO & Exception Architecture
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
-- **Request Validation**: An inbound record carries Bean Validation constraints, each with the `message` the caller reads; the resource takes it as `@NotNull(message = "a request body is required") @Valid`. The record's compact constructor only normalizes (`strip()`). What constraints cannot express stays as code: cross-component and enum-value rules throw from the constructor (`UpdateSecretRequest`, `SetMemberRoleRequest`), configured length ceilings stay in `SecretResource`, and `SetPermissionsRequest.resolved()` does the `Perm` lookup — which is why no resource carries a `perm(String)` helper. Constraints also land in the OpenAPI schema as `required` / `pattern` / `minLength` / `minimum`.
-- **Exception Mapping**: **every 4xx and 5xx answers `{ "message": ... }`, with 401 the one exception.**
-  - `NoSuchElementException` -> mapped to 404 by `NotFoundMapper`, carrying the message it was thrown with.
-  - `ClientErrorMapper` -> wraps 4xx exceptions with structured `{ "message": ... }` responses.
-  - **403**: `RequirePermissionInterceptor` throws Quarkus' `io.quarkus.security.ForbiddenException`, a
-    `SecurityException` that `ClientErrorMapper` never sees — `ForbiddenMapper` gives it the same body.
-    The few endpoints throwing the JAX-RS `ForbiddenException` instead already had one.
-  - **401 has no body, and must not be given one.** It is the authentication challenge: both the
-    security layer and `UserContext.require()`'s `UnauthorizedException` reach Quarkus' own handler,
-    which under the `web-app` OIDC flow answers with a redirect to the provider. A mapper here would
-    replace that redirect.
-  - **Constraint violations**: `ConstraintViolationMapper` renders them in that same shape, joining
-    several failures in property-path order so one payload always reads the same way. It takes
-    precedence over Quarkus' `ResteasyReactiveViolationExceptionMapper` — that one is registered for
-    `ValidationException`, the thrown `ResteasyReactiveViolationException` extends
-    `ConstraintViolationException`, and `RuntimeExceptionMapper.searchMapperInClassHierarchy` walks up
-    from the thrown class and stops at the first match, so the nearer registration wins. A violated
-    **return value** is rethrown rather than reported as a 400: that is this service breaking its own
-    contract, and the built-in makes the same carve-out.
-  - **Deserialization failures**: `ServerJacksonMessageBodyReader` catches Jackson's `DatabindException`
-    and rethrows a plain `WebApplicationException` fixed at 400, whose message is generated from that
-    status. `ClientErrorMapper` therefore walks the cause chain and, when it finds one, answers with the
-    `WebApplicationException` that was actually thrown — which is what lets a request record reject
-    itself in its constructor. The reader is the only source of a plain `WebApplicationException`, so
-    the unwrap is keyed on that exact type and leaves every subclass alone. Malformed JSON carries
-    nothing of ours and keeps the reader's 400.
-- **OpenAPI**: `EndpointOASFilter` runs at build time and republishes what SmallRye does not read off a
-  resource method — all of it derived, so **documenting an endpoint's errors takes no annotation**:
-  - A **`default` response** carrying `ErrorView` on every operation. This is the whole error contract:
-    since every refusal answers with the same body, one `default` says so without anyone having to
-    enumerate which codes an endpoint can reach. The named codes below are the ones worth calling out
-    alongside it, **not an exhaustive list** — an exhaustive one is what would need annotations, and
-    would go stale the moment an endpoint gained a new way to refuse.
-  - **401** on every operation; **400** wherever a request body is consumed; **404** wherever the path
-    takes a parameter; **409** on every non-GET under `/project/{projectId}` — the reach of
-    `ProjectService.requireWritable` — minus `archive` and `unarchive`, which deliberately skip it.
-    The bar for naming a code is that a caller branches on it; 415 does not clear it and is left to
-    `default`.
-  - The **success status** comes from `@ResponseStatus`, or is 204 for a `void` method. SmallRye reads
-    neither, so it had documented every created resource 200 and every `void` POST 201.
-  - Every error response, `default` included, gets the `ErrorView` body. **401 is the one skipped** —
-    it carries no body, and being named it takes precedence over `default` for a client.
-  - Adding an `@APIResponse` is rarely the answer, and never for an error: **a lone one replaces the
-    success response SmallRye derives rather than adding to it**, so it has to restate the 200/201/204
-    as well. `JobResource.createJob` is the one place that does, for its `JobStatusView` schema.
+- **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
+- **Exception Mapping**: All 4xx and 5xx responses return `{ "message": ... }`, with the exception of 401.
+  - `NoSuchElementException`: Mapped to 404 by `NotFoundMapper` with the exception message.
+  - `ClientErrorMapper`: Formats 4xx exceptions into `{ "message": ... }`.
+  - **403**: `RequirePermissionInterceptor` throws Quarkus's `io.quarkus.security.ForbiddenException` (a `SecurityException`). `ForbiddenMapper` maps this to the standard error JSON body.
+  - **401**: Returned with an empty body as the authentication challenge. In the `web-app` OIDC flow, adding a body would override the browser redirect to the OIDC provider.
+  - **Constraint Violations**: `ConstraintViolationMapper` formats violations into `{ "message": ... }`, sorting by property path for deterministic output. This mapper takes precedence over Quarkus's default `ResteasyReactiveViolationExceptionMapper`. Violations on method return values are rethrown as 500 internal server errors.
+  - **Deserialization Failures**: `ServerJacksonMessageBodyReader` wraps Jackson's `DatabindException` into a generic `WebApplicationException` with status 400. `ClientErrorMapper` unwraps the cause chain to preserve the original exception message and status thrown from constructors. Malformed JSON without an underlying application exception retains the default 400 response.
+- **OpenAPI**: `EndpointOASFilter` runs at build time to augment the OpenAPI document with inferred metadata:
+  - A **`default` response** with `ErrorView` is added to every operation to document the standard error format without enumerating all possible codes.
+  - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`, except archive/unarchive).
+  - The **success status** is inferred from `@ResponseStatus`, defaulting to 204 for `void` methods (correcting SmallRye's default assumption of 200/201).
+  - Error responses include the `ErrorView` schema, except 401 which has an empty body.
+  - Custom `@APIResponse` annotations are reserved for special responses (such as `JobResource.createJob`'s `JobStatusView` schema), as SmallRye replaces generated success responses when manual annotations are present.
 

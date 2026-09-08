@@ -7,18 +7,15 @@ import jakarta.ws.rs.BadRequestException;
 import java.util.List;
 
 /**
- * Request payload replacing a subject's permission grants in one scope.
+ * Request payload to replace a subject's permission grants in a scope.
  *
- * @param permissions The grants to end up with, by their {@link Perm#permission()} identifier.
+ * @param permissions The permission identifiers to grant (see {@link Perm#permission()}).
  */
 public record SetPermissionsRequest(
         @NotNull(message = "permissions is required, empty to hold none") List<String> permissions
 ) {
     /**
-     * The permissions named, deduplicated.
-     *
-     * <p>Resolving a name to a {@link Perm} is a lookup, not a shape check, so it stays here rather
-     * than becoming a constraint.
+     * Resolves and deduplicates the requested permissions.
      */
     public List<Perm> resolved() {
         return permissions.stream()

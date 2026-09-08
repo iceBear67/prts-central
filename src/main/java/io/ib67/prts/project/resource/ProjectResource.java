@@ -64,7 +64,7 @@ public class ProjectResource {
                 .toList();
     }
 
-    /** Opens a project with the caller as its owner. */
+    /** Creates a new project with the caller as its owner. */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @ResponseStatus(RestResponse.StatusCode.CREATED)
@@ -107,10 +107,7 @@ public class ProjectResource {
     }
 
     /**
-     * Stops the project's work and turns it read-only.
-     *
-     * <p>Queued entries are cancelled and running jobs interrupted, so nothing is left running that the
-     * now-refused cancel endpoint could no longer stop.
+     * Archives a project, cancelling queued jobs and interrupting active ones before setting it to read-only.
      */
     @POST
     @Path("/{projectId}/archive")
@@ -119,7 +116,7 @@ public class ProjectResource {
         return ProjectView.of(projectService.archive(projectId), roleOf(projectId));
     }
 
-    /** Returns an archived project to accepting writes. */
+    /** Restores an archived project to active status. */
     @POST
     @Path("/{projectId}/unarchive")
     @Transactional
@@ -129,7 +126,7 @@ public class ProjectResource {
     }
 
     /**
-     * Hands ownership to another member: the target becomes owner and the caller steps down to member.
+     * Transfers project ownership to another member.
      */
     @POST
     @Path("/{projectId}/transfer")

@@ -10,7 +10,7 @@ import java.util.UUID;
 /**
  * Administrative view of an account.
  *
- * @param subAccountOf The project owning this sub-account, or null for a human user.
+ * @param subAccountOf The ID of the owning project if this account is a sub-account, or null for standard users.
  */
 public record UserView(
         UUID id,

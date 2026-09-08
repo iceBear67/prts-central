@@ -91,7 +91,7 @@ public class SecretResource {
         }
     }
 
-    /** The request records reject an absent value; the configured ceiling is only knowable here. */
+    /** Validates secret value length against the runtime configuration limit. */
     private String value(String value) {
         if (value.length() > secretConfig.maxValueLength()) {
             throw new BadRequestException(

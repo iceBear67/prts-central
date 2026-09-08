@@ -56,7 +56,7 @@ public class User extends PanacheEntityBase {
                 : find("email", email).firstResultOptional();
     }
 
-    /** Lists users whose name or email contains the query, newest first. */
+    /** Searches users by name or email with pagination, ordered by creation time descending. */
     public static List<User> search(@Nullable String query, int offset, int limit) {
         var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
         return find("lower(name) like ?1 or lower(email) like ?1 order by id desc", filter)

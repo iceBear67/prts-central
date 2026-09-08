@@ -11,7 +11,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 
 /**
- * Service-wide counters for the admin dashboard.
+ * Administrative endpoint providing system-wide statistics for the dashboard.
  */
 @Path("/admin/stats")
 @Produces(MediaType.APPLICATION_JSON)

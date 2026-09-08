@@ -29,14 +29,12 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Republishes into the OpenAPI document what a JAX-RS method declares but SmallRye does not read: its
- * {@link RequirePermission} gate, the status it actually answers with, and the errors it can raise.
+ * Enriches the OpenAPI specification at build time with metadata not automatically extracted by SmallRye:
+ * permission requirements ({@link RequirePermission}), accurate HTTP success statuses, and standard error responses.
  *
- * <p>The error contract is documented here rather than on each method because it is uniform: every
- * refusal answers with {@code ClientErrorMapper.ErrorView}, so a {@code default} response says the
- * whole of it in one line per operation. The named codes it adds alongside are the ones worth calling
- * out, derived from the shape of the endpoint — deliberately not an exhaustive list, because being
- * exhaustive would mean an annotation per endpoint that drifts the moment one is added.
+ * <p>Standardizes error responses using {@code ClientErrorMapper.ErrorView} via a {@code default} response
+ * and adds commonly expected HTTP status codes (e.g. 400, 401, 403, 404, 409) based on method signatures
+ * and annotations.
  */
 @OpenApiFilter(stages = OpenApiFilter.RunStage.BUILD)
 public class EndpointOASFilter implements OASFilter {
@@ -58,15 +56,12 @@ public class EndpointOASFilter implements OASFilter {
     private static final String ERROR_SCHEMA = "ErrorView";
     private static final String ERROR_REF = "#/components/schemas/" + ERROR_SCHEMA;
     private static final String JSON = "application/json";
-    /** The one 4xx with no body of ours: it is the authentication challenge. */
+    /** HTTP 401 status code, which returns an empty body for authentication challenges. */
     private static final String CHALLENGE = "401";
 
-    /** Where {@code ProjectService.requireWritable} guards every write, and so where 409 lives. */
+    /** Base path prefix for project operations subject to {@code ProjectService.requireWritable}. */
     private static final String PROJECT_SCOPE = "/project/{projectId}";
-    /**
-     * The project writes that deliberately skip {@code requireWritable} — without them an archived
-     * project would have no way back.
-     */
+    /** Mutating project endpoints that bypass {@code requireWritable} to allow unarchiving. */
     private static final Set<String> ALWAYS_WRITABLE = Set.of(
             "POST " + PROJECT_SCOPE + "/archive", "POST " + PROJECT_SCOPE + "/unarchive");
 
@@ -114,7 +109,7 @@ public class EndpointOASFilter implements OASFilter {
         }
     }
 
-    // A JobSpecOverridePermissions-style gate names the record whose property it guards.
+    // Record property gates match the naming convention <RecordName>Permissions.
     private void collectGate(MethodInfo method, Rule rule) {
         var declaring = method.declaringClass();
         if (declaring.declaredAnnotation(JAXRS_PATH) != null || !declaring.simpleName().endsWith(GATE_SUFFIX)) {
@@ -124,7 +119,7 @@ public class EndpointOASFilter implements OASFilter {
         gatedFields.computeIfAbsent(gated, name -> new HashMap<>()).put(method.name(), rule);
     }
 
-    // Class-level annotations apply to methods that do not define their own.
+    // Fall back to class-level annotations if not defined directly on the method.
     private Rule ruleOf(MethodInfo method) {
         var declared = method.declaredAnnotation(REQUIRE_PERMISSION);
         var instance = declared != null ? declared : method.declaringClass().declaredAnnotation(REQUIRE_PERMISSION);
@@ -132,10 +127,9 @@ public class EndpointOASFilter implements OASFilter {
     }
 
     /**
-     * The status the method answers with, or null when SmallRye already derived it.
+     * Determines the HTTP success status for a method, or null if SmallRye's default applies.
      *
-     * <p>It reads neither RESTEasy's {@code @ResponseStatus} nor the 204 a {@code void} method answers
-     * with, so every created resource was documented 200 and every {@code void} POST 201.
+     * <p>Resolves RESTEasy's {@code @ResponseStatus} and defaults {@code void} methods to HTTP 204.
      */
     private static String statusOf(MethodInfo method) {
         var declared = method.declaredAnnotation(RESPONSE_STATUS);
@@ -192,7 +186,7 @@ public class EndpointOASFilter implements OASFilter {
         item.getOperations().forEach((verb, operation) -> describe(path, verb, operation));
     }
 
-    // Strips context prefixes until matching a known endpoint path.
+    // Strips path prefixes until matching a known endpoint path.
     private MethodInfo lookup(PathItem.HttpMethod verb, String path) {
         for (var candidate = path; candidate != null; ) {
             var method = endpoints.get(key(verb, candidate));
@@ -219,28 +213,23 @@ public class EndpointOASFilter implements OASFilter {
                 operation.addExtension(EXTENSION, extension(rule));
                 if (!rule.defaultValue()) {
                     addResponse(responses, "403", "Missing `" + rule.perm().permission() + "`"
-                            + (rule.defaultRole() == ProjectRole.NONE ? "." : " and the role standing in for it."));
+                            + (rule.defaultRole() == ProjectRole.NONE ? "." : " or the corresponding project role."));
                 }
             }
             if (writesToProject(verb, method)) {
-                addResponse(responses, "409", "Refused by the project's current state; an archived "
-                        + "project answers this to every write. The message says which.");
+                addResponse(responses, "409", "The project is archived or cannot accept modifications in its current state.");
             }
         }
-        // Everything the document describes sits under the `authenticated` policy of application.yml.
-        addResponse(responses, "401", "Not signed in, or no local user for the authenticated identity. "
-                + "Carries no body: this is the authentication challenge, which under the `web-app` OIDC "
-                + "flow is a redirect to the provider rather than an answer of ours.");
+        // Operations under the /api tree require authentication.
+        addResponse(responses, "401", "Authentication required or user identity not recognized. The response body is empty.");
         if (operation.getRequestBody() != null) {
-            addResponse(responses, "400", "The body is absent, malformed, or breaks a constraint of its schema.");
+            addResponse(responses, "400", "The request body is missing, malformed, or violates schema constraints.");
         }
         if (path.indexOf('{') >= 0) {
-            addResponse(responses, "404", "No such resource under this path, or none this caller may see.");
+            addResponse(responses, "404", "The requested resource was not found or is inaccessible.");
         }
-        // The named codes above are the ones a caller branches on, not an exhaustive list — 415, say, is
-        // left to `default`, being a client bug rather than anything a UI reacts to. This is what makes
-        // that acceptable: whatever else an endpoint refuses with, the body is the same shape.
-        addResponse(responses, APIResponses.DEFAULT, "Any other refusal.");
+        // Common HTTP error codes are explicitly documented; other errors use the default error schema.
+        addResponse(responses, APIResponses.DEFAULT, "Default error response.");
         responses.getAPIResponses().forEach((code, response) -> {
             if (carriesError(code)) {
                 addErrorBody(response);
@@ -250,10 +239,9 @@ public class EndpointOASFilter implements OASFilter {
     }
 
     /**
-     * Re-keys the generated success response onto the status the method actually answers with.
+     * Updates the generated success response code to match the actual status returned by the method.
      *
-     * <p>Left alone when the method declares its own {@code @APIResponse} set: it has already said what
-     * it answers, and there is no single generated response to move.
+     * <p>Skipped if the method already declares its own {@code @APIResponse} annotations.
      */
     private static void applyStatus(APIResponses responses, String status) {
         if (responses.hasAPIResponse(status)) {
@@ -298,10 +286,10 @@ public class EndpointOASFilter implements OASFilter {
     private static Schema errorSchema() {
         return OASFactory.createSchema()
                 .addType(Schema.SchemaType.OBJECT)
-                .description("The body every 4xx and 5xx of this service answers with.")
+                .description("Standard JSON error response body for 4xx and 5xx errors.")
                 .addProperty("message", OASFactory.createSchema()
                         .addType(Schema.SchemaType.STRING)
-                        .description("What was refused, in the words of whatever refused it."))
+                        .description("Error message describing the failure."))
                 .required(List.of("message"));
     }
 
@@ -309,7 +297,7 @@ public class EndpointOASFilter implements OASFilter {
         return code.length() == 3 && code.charAt(0) == '2';
     }
 
-    /** Everything answered with {@code ClientErrorMapper.ErrorView}, which is everything but the challenge. */
+    /** Checks if the status code expects an ErrorView response body (all 4xx/5xx except 401). */
     private static boolean carriesError(String code) {
         if (APIResponses.DEFAULT.equals(code)) {
             return true;

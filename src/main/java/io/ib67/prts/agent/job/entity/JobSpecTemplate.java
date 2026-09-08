@@ -91,7 +91,7 @@ public class JobSpecTemplate extends PanacheEntityBase {
     private static final String GLOBAL =
             "from JobSpecTemplate t left join fetch t.resourceClass where t.project is null";
 
-    /** Lists the templates every project may use. */
+    /** Lists all global templates. */
     public static List<JobSpecTemplate> listGlobalFetched() {
         return find(GLOBAL).list();
     }

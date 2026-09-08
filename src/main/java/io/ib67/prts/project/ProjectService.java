@@ -66,8 +66,9 @@ public class ProjectService {
     }
 
     /**
-     * Requires a project that still accepts writes. Every mutating endpoint of a project calls this;
-     * an archived project only answers reads, {@link #unarchive} and {@link #delete}.
+     * Ensures the project exists and is not archived.
+     *
+     * @throws ClientErrorException with HTTP 409 Conflict if the project is archived
      */
     public Project requireWritable(UUID id) {
         var project = require(id);
@@ -84,11 +85,11 @@ public class ProjectService {
         return project;
     }
 
-    /** Opens a project and makes the given user its owner in the same transaction. */
+    /** Creates a new project and assigns the specified user as its owner. */
     @Transactional
     public Project create(String name, UUID ownerId) {
         var project = create(name);
-        // Flush before granting: the role insert carries a foreign key onto the project row.
+        // Flush so foreign key references to the new project row can succeed.
         Project.flush();
         userService.grant(ownerId, project.getId(), ProjectRole.OWNER);
         return project;
@@ -102,10 +103,7 @@ public class ProjectService {
     }
 
     /**
-     * Stops the project's work and turns it read-only.
-     *
-     * <p>Archiving cancels the queue and interrupts running jobs first, the same way {@link #delete}
-     * does: once nothing is running, refusing every write leaves no job stranded with no way to stop it.
+     * Archives a project, cancelling pending queue entries and interrupting running jobs before marking it archived.
      */
     public Project archive(UUID id) {
         require(id);

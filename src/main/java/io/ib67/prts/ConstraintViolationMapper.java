@@ -12,13 +12,11 @@ import java.util.Comparator;
 import java.util.stream.Collectors;
 
 /**
- * Formats Bean Validation failures into the same {@code {"message": ...}} body every other 4xx uses.
+ * Maps {@link ConstraintViolationException} to standard JSON error responses ({@code {"message": ...}}).
  *
- * <p>Takes precedence over Quarkus' own {@code ResteasyReactiveViolationExceptionMapper}, which is
- * registered for {@link jakarta.validation.ValidationException}: the thrown
- * {@code ResteasyReactiveViolationException} extends {@link ConstraintViolationException}, and
- * {@code RuntimeExceptionMapper} walks up from the thrown class and takes the first mapper it finds,
- * so the nearer registration wins.
+ * <p>Registered specifically for {@link ConstraintViolationException} to take precedence over Quarkus's
+ * default {@code ResteasyReactiveViolationExceptionMapper} (which is registered for the broader
+ * {@link jakarta.validation.ValidationException}).
  */
 @Provider
 public class ConstraintViolationMapper implements ExceptionMapper<ConstraintViolationException> {
@@ -26,11 +24,11 @@ public class ConstraintViolationMapper implements ExceptionMapper<ConstraintViol
     @Override
     public Response toResponse(ConstraintViolationException exception) {
         if (exception.getConstraintViolations().stream().anyMatch(ConstraintViolationMapper::onReturnValue)) {
-            // A violated return value is this service breaking its own contract, not a bad request.
-            // Rethrowing leaves it a 500, which is what the built-in mapper does with one too.
+            // Return value violations indicate internal server errors rather than client bad requests.
+            // Rethrowing allows Quarkus to handle them as HTTP 500.
             throw exception;
         }
-        // Sorted by path so a payload failing several constraints always reads the same way.
+        // Sort by property path to produce deterministic error message ordering.
         var message = exception.getConstraintViolations().stream()
                 .sorted(Comparator.comparing(violation -> violation.getPropertyPath().toString()))
                 .map(ConstraintViolation::getMessage)

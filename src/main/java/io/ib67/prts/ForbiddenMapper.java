@@ -7,14 +7,14 @@ import jakarta.ws.rs.ext.ExceptionMapper;
 import jakarta.ws.rs.ext.Provider;
 
 /**
- * Gives the 403 of {@code RequirePermissionInterceptor} the same body as every other 4xx.
+ * Maps Quarkus's security {@link ForbiddenException} (HTTP 403) to a standard JSON error response.
  *
- * <p>The interceptor throws Quarkus' {@link ForbiddenException}, a {@link SecurityException} rather
- * than a {@code WebApplicationException}, so {@link ClientErrorMapper} never saw it and the permission
- * it names was dropped — while the handful of endpoints throwing the JAX-RS one answered with a body.
+ * <p>{@link io.ib67.prts.auth.RequirePermissionInterceptor} throws Quarkus's {@link ForbiddenException}
+ * (a {@link SecurityException} rather than a {@code WebApplicationException}), which is not handled by
+ * {@link ClientErrorMapper}. This mapper ensures 403 errors consistently return a JSON body with the error message.
  *
- * <p>The matching 401 is deliberately left alone: it is the authentication challenge, and under the
- * {@code web-app} OIDC flow answering it here would replace the redirect to the provider.
+ * <p>Note that 401 Unauthorized errors are intentionally left unmapped without a body, allowing Quarkus OIDC
+ * to handle authentication challenges and provider redirects.
  */
 @Provider
 public class ForbiddenMapper implements ExceptionMapper<ForbiddenException> {

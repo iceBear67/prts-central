@@ -17,7 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 /**
- * Assembles the service-wide counters behind the admin dashboard.
+ * Collects system-wide statistics for the admin dashboard.
  */
 @ApplicationScoped
 public class AdminStatsService {
@@ -32,7 +32,7 @@ public class AdminStatsService {
     @Transactional
     public AdminStatsView collect() {
         var live = workerService.getActiveWorkers().values();
-        // sum() is null while nothing is stored; count() over the same rows is not.
+        // sum() returns null when no rows exist, whereas count() returns 0.
         var artifacts = (Object[]) entityManager
                 .createQuery("select count(a), sum(a.sizeBytes) from Artifact a")
                 .getSingleResult();

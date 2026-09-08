@@ -12,7 +12,7 @@ import java.util.UUID;
  * Summary view of a project.
  *
  * @param role       The caller's role in the project, or {@link ProjectRole#NONE} if not a direct member.
- * @param archivedAt When the project was archived, or null while it still accepts writes.
+ * @param archivedAt Timestamp when the project was archived, or null if active.
  */
 public record ProjectView(
         UUID id,

@@ -65,7 +65,7 @@ public class WorkerResource {
     }
 
     /**
-     * Renames a worker. The name holds until the worker registers again under one of its own.
+     * Renames a worker.
      */
     @PATCH
     @Path("/{id}")
@@ -77,10 +77,7 @@ public class WorkerResource {
     }
 
     /**
-     * Closes the worker's session. Its unfinished jobs fail, as on any disconnect.
-     *
-     * <p>Returns no worker: the session is torn down by the {@code @OnClose} handler, so a view read
-     * here could still report the worker as connected.
+     * Disconnects a worker's active session. Any running jobs on the worker will fail.
      */
     @POST
     @Path("/{id}/disconnect")
@@ -89,14 +86,14 @@ public class WorkerResource {
         workerService.disconnect(id);
     }
 
-    /** Drops a worker's registration. It must be disconnected, idle, and hosting no volumes. */
+    /** Deletes a worker registration. The worker must be disconnected with no active jobs or volumes. */
     @DELETE
     @Path("/{id}")
     public void deleteWorker(@PathParam("id") UUID id) {
         workerService.delete(id);
     }
 
-    /** Lists the jobs this worker has not finished. */
+    /** Lists all active jobs currently assigned to the worker. */
     @GET
     @Path("/{id}/job")
     @Transactional
@@ -107,7 +104,7 @@ public class WorkerResource {
                 .toList();
     }
 
-    /** Lists the volumes this worker hosts, across every project. */
+    /** Lists all volumes hosted on this worker across all projects. */
     @GET
     @Path("/{id}/volume")
     @Transactional

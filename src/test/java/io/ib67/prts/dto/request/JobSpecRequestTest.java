@@ -33,7 +33,7 @@ class JobSpecRequestTest {
         factory.close();
     }
 
-    /** The single message the record's constraints produce for this payload. */
+    /** Validates the request and returns concatenated violation messages. */
     private static String rejection(JobSpecRequest request) {
         return validator.validate(request).stream()
                 .map(ConstraintViolation::getMessage)
@@ -65,7 +65,7 @@ class JobSpecRequestTest {
         assertEquals("build", spec.lock());
     }
 
-    /** A template never carries secrets: they are resolved per dispatch. */
+    /** Templates do not include secrets; secrets are resolved at job dispatch time. */
     @Test
     void theSpecCarriesNoSecrets() {
         assertEquals(Map.of(), of("img:1", 0L).toSpec().secret());
@@ -87,17 +87,13 @@ class JobSpecRequestTest {
         assertEquals("img:1", of("  img:1  ", 0L).image());
     }
 
-    /**
-     * Rejection is a constraint now, not a throw: the record still constructs, and the resource
-     * parameter's validation is what refuses it. {@code ConstraintViolationMapper} turns this message
-     * into the response body.
-     */
+    /** Verifies constraint violation message when image is missing. */
     @Test
     void aMissingImageIsRejectedWithAMessage() {
         assertEquals("spec.image is required", rejection(of(null, 0L)));
     }
 
-    /** Normalization runs first, so a whitespace-only image reaches the constraint already empty. */
+    /** Blank images are normalized to null and rejected by constraint validation. */
     @Test
     void aBlankImageIsRejected() {
         assertEquals("spec.image is required", rejection(of("   ", 0L)));

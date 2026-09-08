@@ -10,7 +10,7 @@ import java.util.UUID;
  * View of a storage volume hosted on a worker.
  *
  * @param length Allocated bytes.
- * @param used   Bytes in use, never above {@code length}.
+ * @param used   Bytes currently in use.
  */
 public record WorkerVolumeView(
         UUID id,

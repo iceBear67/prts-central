@@ -49,9 +49,8 @@ public class RequirePermissionInterceptor {
             throw new UnauthorizedException();
         }
         var perm = required.value();
-        // A global ban denies the permission itself, so neither an admin nor the standing-in role can
-        // satisfy it. It does not close an endpoint that is open regardless (defaultValue), which would
-        // take away things like leaving a project along with the permission.
+        // A global ban disables the permission itself, overriding admin and role privileges,
+        // but does not affect endpoints with defaultValue = true.
         var banned = permissionService.isBanned(perm);
         if (!banned) {
             if (required.allowAdmin() && permissionService.isAdmin(user.getId())) {

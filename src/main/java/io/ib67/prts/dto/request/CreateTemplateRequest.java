@@ -5,13 +5,12 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
 /**
- * Request payload to define a job spec template.
+ * Request payload to create a job specification template.
  *
- * @param resourceClass Name of the resource class jobs default to; must be visible to the template's scope.
+ * @param resourceClass Name of the default resource class; must be visible in the template's scope.
  */
 public record CreateTemplateRequest(
         @NotBlank(message = "name is required") String name,
-        // @Valid so the spec's own constraints are reached rather than only its presence.
         @NotNull(message = "spec is required") @Valid JobSpecRequest spec,
         @NotBlank(message = "resourceClass is required") String resourceClass
 ) {

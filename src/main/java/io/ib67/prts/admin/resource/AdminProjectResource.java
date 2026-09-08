@@ -25,10 +25,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Cross-project listing for administrators.
- *
- * <p>Only a listing: an {@code admin:all} holder already reaches every project's own endpoints to read,
- * rename, archive or delete one.
+ * Administrative endpoints for cross-project queries.
  */
 @Path("/admin/project")
 @Produces(MediaType.APPLICATION_JSON)
@@ -48,7 +45,7 @@ public class AdminProjectResource {
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
         var projects = Project.search(query, Pages.clampOffset(offset, window), window);
-        // Counted in one grouped query each rather than per project.
+        // Batch query aggregated metrics for the page of projects.
         var ids = projects.stream().map(Project::getId).toList();
         var members = memberCounts(ids);
         var jobs = Job.countVisibleByProjects(ids);

@@ -34,28 +34,28 @@ CDI interceptor binding (`RequirePermissionInterceptor`) evaluated on annotated 
 - **Project Resolution**: Resolves project ID from `@ProjectId UUID` method argument; falls back to `{projectId}` HTTP path parameter (`RequirePermissionInterceptor.PROJECT_PATH_PARAM`). Throws `IllegalStateException` if neither is available.
 
 ### 3. Global Permission Bans
-`permission.banned` (`PermissionConfig`) takes permissions out of service system-wide. It is a
-deployment switch, not an API: `PermissionService` resolves the list once in `@PostConstruct`, so
-changing it means editing the configuration and restarting.
-- **Denies the permission, not the endpoint**: a ban beats the explicit grant, the standing-in
-  `defaultRole` and `allowAdmin` alike, but leaves `defaultValue = true` alone. Banning
-  `project:member:manage` therefore stops members being removed without also stopping a member leaving.
-- **`admin:all` may not be listed**, and neither may an unknown identifier — both fail startup. The
-  service is `@Startup`, so a typo is a boot failure rather than a ban nobody notices is missing.
-- `PermissionService.allows` reports a banned permission as denied so view gating (`JobAccess`) agrees
-  with what the endpoints accept. `has` is untouched — it answers "is this grant on file", which
-  `listUsersWith` and grant management still need.
-- `GET /api/admin/permission` reports the catalogue with each permission's ban state, read-only.
+`permission.banned` (`PermissionConfig`) disables permissions system-wide. `PermissionService` resolves
+the list once during initialization (`@PostConstruct`), so changes require updating configuration and restarting.
+- **Denies the permission, not the endpoint**: A ban overrides explicit user grants, role fallbacks
+  (`defaultRole`), and `allowAdmin`. Endpoints with `defaultValue = true` remain accessible to callers without
+  grants. For example, banning `project:member:manage` prevents member removal by managers without preventing
+  users from removing themselves.
+- **`admin:all` and unknown identifiers cannot be listed**: Specifying `admin:all` or an unrecognized
+  permission identifier fails application startup.
+- `PermissionService.allows` treats banned permissions as denied so endpoint checks and view gating (`JobAccess`)
+  remain consistent. `PermissionService.has` continues to check database records directly for administration
+  and lookup (`listUsersWith`).
+- `GET /api/admin/permission` returns all permissions along with their ban status.
 
 ### 4. Project Membership & Roles
 - Persisted in `user_to_project.role` as enum ordinals (0 = `OWNER`, 1 = `MEMBER`, 2 = `VIEWER`, 3 = `NONE`).
 - Checked via `UserService.hasAtLeast(user, project, role)` comparing ordinals (`role.ordinal() <= required.ordinal()`).
 - **Do not reorder existing `ProjectRole` constants.**
-- `UserService.transferOwnership` promotes the target to `OWNER` before demoting the caller to `MEMBER`,
-  so the project is never momentarily ownerless. A caller who is not a member (an admin, or a holder of
-  `project:transfer`) moves only the target.
-- The last `admin:all` holder cannot give it up (`UserService.requireAnotherAdmin`, 409), the same shape
-  as the last-owner rule.
+- `UserService.transferOwnership` promotes the target user to `OWNER` before demoting the caller to `MEMBER`
+  to ensure continuous project ownership. If the caller is not a project member (such as an administrator
+  or user with `project:transfer`), only the target member is updated.
+- The last remaining user with `admin:all` cannot have that permission revoked (`UserService.requireAnotherAdmin`
+  throws 409 Conflict), consistent with the last-owner rule.
 
 ## Sub-Accounts
 

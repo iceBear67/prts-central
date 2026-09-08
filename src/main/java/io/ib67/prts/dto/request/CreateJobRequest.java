@@ -10,9 +10,7 @@ import java.util.UUID;
 /**
  * Request payload to submit or queue a new job.
  *
- * <p>Also rides outbound inside {@code JobView.createRequest}. That is safe: a constraint is only
- * evaluated when something hands the record to a {@code Validator}, which happens for the annotated
- * resource parameter and never for {@link #of(JobRequest)}.
+ * <p>Also embedded in {@code JobView.createRequest} to describe the original request parameters.
  */
 public record CreateJobRequest(
         @NotNull(message = "templateId is required") UUID templateId,

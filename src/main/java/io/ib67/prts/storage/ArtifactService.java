@@ -114,12 +114,10 @@ public class ArtifactService {
     }
 
     /**
-     * Deletes a recorded artifact of a project along with its stored object.
+     * Deletes an artifact database record and its underlying storage object.
      *
-     * <p>The row goes first, the object after — the reverse of {@link
-     * io.ib67.prts.project.ProjectService#delete}, which has to read the keys before the rows cascade
-     * away. Here an object left behind is invisible, while a row whose object is already gone would keep
-     * handing out presigned URLs to nothing.
+     * <p>The database row is deleted in a new transaction before deleting the storage object, ensuring
+     * no presigned download URLs can be issued for a deleted artifact.
      */
     public void delete(UUID projectId, UUID artifactId) {
         var objectKey = QuarkusTransaction.requiringNew().call(() -> {

@@ -117,16 +117,12 @@ public class JobResource {
                 .project(project)
                 .build();
         template.persist();
-        // The caller authored this spec, so it is theirs to read back regardless of job:template:read.
+        // Return the full spec to the creator without requiring job:template:read permission.
         return JobSpecTemplateView.of(template, true);
     }
 
     /**
-     * Deletes a template of this project.
-     *
-     * <p>Queued entries naming it are not checked for: {@code job.template_id} carries no foreign key and
-     * a queue entry holds its request as jsonb. An entry that outlives its template fails its next
-     * dispatch attempt in {@code PendingJobDispatcher} rather than looping.
+     * Deletes a project-scoped template.
      */
     @DELETE
     @Path("/template/{templateId}")
@@ -186,7 +182,7 @@ public class JobResource {
         }
         var pending = pendingJobService.findInProject(projectId, jobId)
                 .orElseThrow(NotFoundException::new);
-        // Only ever set once an attempt was taken, so an entry still waiting reads as itself.
+        // If a worker has been assigned, return the created Job; otherwise return the pending job entry.
         var dispatched = pending.getJobId() == null
                 ? Optional.<Job>empty()
                 : jobService.findInProject(projectId, pending.getJobId());
@@ -213,7 +209,7 @@ public class JobResource {
     @ResponseStatus(RestResponse.StatusCode.CREATED)
     @APIResponse(
             responseCode = "201",
-            description = "The queue entry the create became.",
+            description = "The created or queued job.",
             content = @Content(schema = @Schema(implementation = JobStatusView.class)))
     @RequirePermission(value = Perm.JOB_CREATE, defaultRole = ProjectRole.MEMBER)
     public JobStatusView createJob(
@@ -231,7 +227,6 @@ public class JobResource {
     @RequirePermission(value = Perm.JOB_CANCEL, defaultRole = ProjectRole.MEMBER)
     public JobStatusView cancelJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
-        // An archived project has already had its queue cancelled and its jobs interrupted.
         projectService.requireWritable(projectId);
         if (jobService.findInProject(projectId, jobId).isEmpty()) {
             var pending = pendingJobService.findInProject(projectId, jobId)
@@ -255,7 +250,7 @@ public class JobResource {
         return PresignedUrlView.of(storageService.presignGet(artifact.getObjectKey()));
     }
 
-    /** Deletes an artifact and the object holding its content. There is no way back. */
+    /** Deletes an artifact and its underlying storage object. */
     @DELETE
     @Path("/artifact/{artifactId}")
     @RequirePermission(value = Perm.JOB_ARTIFACT_DELETE, defaultRole = ProjectRole.OWNER)

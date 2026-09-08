@@ -5,9 +5,9 @@ import io.ib67.prts.Perm;
 import java.util.Objects;
 
 /**
- * A permission and whether it is currently switched off system-wide.
+ * Representation of a permission and its system-wide ban status.
  *
- * @param scope {@code global} or {@code project}, matching what a grant of it must be scoped to.
+ * @param scope Scope of the permission ({@code global} or {@code project}).
  */
 public record PermissionView(String permission, String scope, boolean banned) {
     public PermissionView {

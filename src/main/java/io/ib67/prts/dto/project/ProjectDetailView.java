@@ -14,7 +14,7 @@ import java.util.UUID;
  *
  * @param role       The caller's role in the project, or {@link ProjectRole#NONE} if not a direct member.
  * @param access     The authorization basis allowing the caller to view the project.
- * @param archivedAt When the project was archived, or null while it still accepts writes.
+ * @param archivedAt Timestamp when the project was archived, or null if active.
  */
 public record ProjectDetailView(
         UUID id,

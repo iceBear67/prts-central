@@ -17,16 +17,16 @@ import java.util.stream.Collectors;
  */
 public enum Perm {
     ADMIN_OF_ALL("admin:all", true),
-    /** Opening a project. Global, so it is granted through the admin API rather than by a project. */
+    /** Global permission to create new projects. */
     PROJECT_CREATE("project:create", true),
 
     PROJECT_READ("project:read", false),
     PROJECT_UPDATE("project:update", false),
     /** Deleting a project permanently removes all its jobs and artifacts. */
     PROJECT_DELETE("project:delete", false),
-    /** Archiving stops the project's work and turns it read-only. */
+    /** Permission to archive or unarchive a project. */
     PROJECT_ARCHIVE("project:archive", false),
-    /** Handing the sole ownership of a project to another member. */
+    /** Permission to transfer project ownership to another member. */
     PROJECT_TRANSFER("project:transfer", false),
     PROJECT_MEMBER_MANAGE("project:member:manage", false),
     PROJECT_SUBACCOUNT_MANAGE("project:subaccount:manage", false),
@@ -37,7 +37,7 @@ public enum Perm {
     JOB_READ("job:read", false),
     JOB_LOG_READ("job:log:read", false),
     JOB_ARTIFACT_READ("job:artifact:read", false),
-    /** Deleting an artifact drops its stored object; there is no way back. */
+    /** Permission to delete an artifact and its underlying storage object. */
     JOB_ARTIFACT_DELETE("job:artifact:delete", false),
     JOB_TEMPLATE_READ("job:template:read", false),
     JOB_TEMPLATE_MANAGE("job:template:manage", false),

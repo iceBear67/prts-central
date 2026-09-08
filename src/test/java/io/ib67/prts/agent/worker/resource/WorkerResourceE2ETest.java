@@ -165,7 +165,7 @@ class WorkerResourceE2ETest {
         as(admin).get("/api/worker/{id}", worker).then().statusCode(404);
     }
 
-    /** A worker with jobs still in flight is not something to drop out from under. */
+    /** Workers with active jobs cannot be deleted. */
     @Test
     void aWorkerWithUnfinishedJobsIsNotDropped() {
         var admin = fixtures.createActor("root");
@@ -180,7 +180,7 @@ class WorkerResourceE2ETest {
                 .body("message", equalTo("worker " + worker + " still has 1 unfinished job(s)"));
     }
 
-    /** worker_volume carries a plain foreign key, so the delete would fail on it anyway. */
+    /** Workers hosting persistent volumes cannot be deleted. */
     @Test
     void aWorkerStillHostingVolumesIsNotDropped() {
         var admin = fixtures.createActor("root");
@@ -223,7 +223,7 @@ class WorkerResourceE2ETest {
                 .body("[0].length", equalTo(1024));
     }
 
-    /** Disconnecting a worker that holds no session changes nothing. */
+    /** Disconnecting an offline worker succeeds without error. */
     @Test
     void disconnectingAnOfflineWorkerIsHarmless() {
         var admin = fixtures.createActor("root");

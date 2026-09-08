@@ -40,7 +40,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Cross-project account and permission administration.
+ * Administrative endpoints for managing users and permissions across projects.
  */
 @Path("/admin/user")
 @Produces(MediaType.APPLICATION_JSON)
@@ -68,7 +68,7 @@ public class AdminUserResource {
         return users.stream().map(user -> UserView.of(user, owners.get(user.getId()))).toList();
     }
 
-    /** Owning project of each sub-account in the batch; a user absent from the map is a person. */
+    /** Maps sub-account IDs to their owning project IDs; human users are omitted. */
     private Map<UUID, UUID> owningProjects(List<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();
@@ -88,7 +88,7 @@ public class AdminUserResource {
         return detailOf(userId);
     }
 
-    /** Replaces the user's system-wide grants. */
+    /** Replaces the user's global permissions. */
     @PUT
     @Path("/{userId}/permission/global")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -101,7 +101,7 @@ public class AdminUserResource {
         return detailOf(userId);
     }
 
-    /** Replaces the user's grants within one project. */
+    /** Replaces the user's permissions for a specific project. */
     @PUT
     @Path("/{userId}/permission/project/{projectId}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -115,7 +115,7 @@ public class AdminUserResource {
         return detailOf(userId);
     }
 
-    /** Revokes every grant the user holds, in any scope. */
+    /** Revokes all permissions granted to the user across all scopes. */
     @DELETE
     @Path("/{userId}/permission")
     public UserDetailView revokePermissions(@PathParam("userId") UUID userId) {
@@ -125,11 +125,10 @@ public class AdminUserResource {
     }
 
     /**
-     * Reads the user back.
+     * Retrieves the detailed view for a user.
      *
-     * <p>The mutating endpoints deliberately hold no transaction of their own: the grant cache is
-     * invalidated when the service's transaction completes, so a read inside it would still answer from
-     * the pre-change snapshot.
+     * <p>Called outside mutating service transactions so that cached permission lookups reflect
+     * committed changes.
      */
     private UserDetailView detailOf(UUID userId) {
         var user = requireUser(userId);
@@ -146,7 +145,7 @@ public class AdminUserResource {
                 grouped);
     }
 
-    /** Grants keyed by the scope they were granted in; {@link Permission#GLOBAL} holds system-wide ones. */
+    /** Groups permissions by project scope, using {@link Permission#GLOBAL} for global permissions. */
     private static Map<UUID, List<String>> byScope(Collection<Permission.Id> grants) {
         var grouped = new TreeMap<UUID, List<String>>();
         grants.forEach(grant -> grouped

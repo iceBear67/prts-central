@@ -26,10 +26,9 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * The templates every project may use.
+ * Administrative endpoints for managing global job specification templates.
  *
- * <p>Project-scoped templates are managed through the project's own endpoints; this resource only ever
- * sees and touches the global ones.
+ * <p>Project-scoped templates are managed via project endpoints; this resource only handles global templates.
  */
 @Path("/admin/template")
 @Produces(MediaType.APPLICATION_JSON)
@@ -52,7 +51,7 @@ public class AdminTemplateResource {
             @NotNull(message = "a request body is required") @Valid CreateTemplateRequest request) {
         var spec = request.spec().toSpec();
         if (!spec.volumes().isEmpty()) {
-            // Volumes belong to one project; a template every project uses cannot name them.
+            // Volumes are project-scoped and cannot be referenced by global templates.
             throw new BadRequestException("a global template cannot mount volumes");
         }
         var template = JobSpecTemplate.builder()
@@ -73,10 +72,7 @@ public class AdminTemplateResource {
                 .delete();
     }
 
-    /**
-     * A global template may only name a global resource class: a project-scoped one would be invisible
-     * to every other project the template is offered to.
-     */
+    /** Ensures the referenced resource class is globally scoped. */
     private static ResourceClass requireGlobalClass(String name) {
         return ResourceClass.<ResourceClass>findByIdOptional(
                         new ResourceClass.Key(name, ResourceClass.GLOBAL))

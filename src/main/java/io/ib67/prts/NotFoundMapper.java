@@ -10,9 +10,7 @@ import java.util.NoSuchElementException;
 /**
  * Maps {@link NoSuchElementException} thrown by services to HTTP 404 Not Found responses.
  *
- * <p>Carries the same {@code {"message": ...}} body every other 4xx uses: a caller telling a missing
- * project from a missing job reads it, and one 404 answering with nothing at all would be the only
- * error in the service without a body.
+ * <p>Returns a standard JSON error response ({@code {"message": ...}}) containing the exception message.
  */
 @Provider
 public class NotFoundMapper implements ExceptionMapper<NoSuchElementException> {

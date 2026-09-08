@@ -96,34 +96,30 @@ and the entities both have been), so a path is the part that goes stale while th
   `JobSpecOverride` are stored as `jsonb` (`@JdbcTypeCode(SqlTypes.JSON)`), so they must stay
   Jackson-round-trippable and backward-compatible with rows already in the database.
 - **A record's compact constructor `requireNonNull`s every reference component that is not
-  `@Nullable`** — Jackson and Panache both build them by deserialization, where nothing else would
-  stop a hole.
-- **An inbound request DTO states its rules as Bean Validation constraints**, each carrying the exact
-  `message` the caller should read (`@NotBlank(message = "name is required")`). The resource takes it as
+  `@Nullable`** — Jackson and Panache build records via deserialization, where explicit checks prevent
+  unexpected nulls.
+- **An inbound request DTO states its validation rules as Bean Validation constraints**, each with an explicit
+  `message` (`@NotBlank(message = "name is required")`). The resource accepts it as
   `@NotNull(message = "a request body is required") @Valid XxxRequest`, and `ConstraintViolationMapper`
-  renders the failure as the usual `{"message": ...}`. Constraints reach the OpenAPI schema as
-  `required` / `pattern` / `minLength` / `minimum`, which is the point of doing it this way.
-  - **Braces are message-template syntax.** A message containing `{` or `}` must escape them
-    (`[A-Za-z0-9_]\\{0,63\\}`) or interpolation eats it.
-  - `@Valid` on a **component** is what reaches a nested record's own constraints
-    (`CreateTemplateRequest.spec`); without it only its presence is checked.
-  - A compact constructor still **normalizes** (`strip()`), null-safely, and never throws for shape.
-    Validation runs after construction, so a blank value arrives already stripped.
-  - Three things constraints cannot say, which stay as code:
-    - a rule **spanning components or naming one enum value** — `UpdateSecretRequest`'s "description or
-      value", `SetMemberRoleRequest`'s `NONE` — throws from the constructor, and `ClientErrorMapper`
-      recovers it from the deserialization cause chain;
-    - a limit that comes from **config** (`SecretConfig.maxValueLength`), which is no compile-time
-      constant and so cannot be a `@Size`;
-    - a **value lookup** rather than a shape check — `SetPermissionsRequest.resolved()`.
-  - A DTO also returned in a response is safe now: `CreateJobRequest` rides inside `JobView`, and a
-    constraint only fires when something hands the record to a `Validator`, never on the way out.
+  formats failures into `{"message": ...}`. Constraints are automatically published to the OpenAPI schema as
+  `required`, `pattern`, `minLength`, `minimum`, etc.
+  - **Escape braces in message templates.** Bean validation treats `{` and `}` as interpolation syntax;
+    literal braces must be escaped (`[A-Za-z0-9_]\\{0,63\\}`).
+  - Annotate nested components with `@Valid` (e.g. `CreateTemplateRequest.spec`) to validate their constraints.
+  - Compact constructors normalize values (such as `strip()`) in a null-safe manner and avoid throwing validation
+    exceptions, as Bean Validation runs after instantiation.
+  - Validation rules that cannot be expressed via standard constraints are handled in code:
+    - Cross-field rules or single-enum exclusions (e.g. `UpdateSecretRequest` requiring description or
+      value, `SetMemberRoleRequest` rejecting `NONE`) throw from the constructor, and `ClientErrorMapper`
+      extracts the message from the deserialization cause chain.
+    - Configuration-dependent limits (e.g. `SecretConfig.maxValueLength`) that cannot be compile-time `@Size` constants.
+    - Semantic lookups and validations (e.g. `SetPermissionsRequest.resolved()`).
+  - DTOs reused in responses (such as `CreateJobRequest` within `JobView`) do not trigger validation on serialization,
+    as Bean Validation only executes when a validator explicitly checks an incoming request payload.
 - **Config via `@ConfigMapping` interfaces** (`StorageConfig`, `JobConfig`, `WorkerConfig`,
   `SecretConfig`, `AdminConfig`, `PermissionConfig`), not `@ConfigProperty`. These are **immutable
-  snapshots** — SmallRye
-  builds each mapping once when the `Config` is assembled and caches it, so nothing here can be changed
-  at runtime. A knob that has to be tunable while the service runs needs its own store, not a config
-  source.
+  snapshots** built and cached by SmallRye at startup; they cannot be changed at runtime. Values that must
+  be dynamic at runtime require persistent storage rather than configuration mappings.
 - **No `@Nullable` where an empty value says the same thing**, containers above all: a `Map`/`List`
   field is non-null and empty, and `JobSpec.lock` is `""` rather than null. Normalize at the
   constructor so no reader has to tell absent from empty. `@Nullable` is for a genuine third state —
@@ -131,11 +127,11 @@ and the entities both have been), so a path is the part that goes stale while th
   supplied field is gated.
 - **Authorization lives at the endpoint**, not in the services. Services take plain arguments or domain
   values (`JobRequest`), never wire DTOs; request-shape validation stays in the resource.
-- **Every endpoint that writes to a project calls `ProjectService.requireWritable(projectId)` first** —
-  an archived project answers 409 to everything but unarchive and delete. It is an explicit call rather
-  than an interceptor, so **a new mutating endpoint has to add it**; the worker report paths
-  (`JobService.applyState` / `appendLog`, `ArtifactService.record`) deliberately do not.
-  [agent-docs/http-surface.md](agent-docs/http-surface.md) lists the current call sites.
+- **Every mutating project endpoint must call `ProjectService.requireWritable(projectId)` first.**
+  Archived projects return 409 Conflict for all modifications other than unarchive and delete. This check
+  is explicit rather than interceptor-based, so **new mutating endpoints must include it**. Worker reporting
+  paths (`JobService.applyState`, `appendLog`, `ArtifactService.record`) intentionally bypass this check.
+  See [agent-docs/http-surface.md](agent-docs/http-surface.md) for existing call sites.
 - **Transactions do not span an RPC.** Commit in `QuarkusTransaction.requiringNew()`, make the call
   outside any transaction, compensate in another one.
 - `-parameters` is on for `compileJava`; REST/JSON parameter names depend on it.

@@ -78,7 +78,7 @@ public final class WorkerClient {
         }
     }
 
-    /** Closes the session. The {@code @OnClose} handler unregisters the worker and fails its open jobs. */
+    /** Closes the WebSocket session. */
     void close() {
         conn.close().await().atMost(SEND_TIMEOUT);
     }

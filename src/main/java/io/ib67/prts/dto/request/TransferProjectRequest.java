@@ -5,9 +5,9 @@ import jakarta.validation.constraints.NotNull;
 import java.util.UUID;
 
 /**
- * Request payload to hand a project's ownership to another member.
+ * Request payload to transfer project ownership to another member.
  *
- * @param userId The member to make owner.
+ * @param userId The user ID of the new owner.
  */
 public record TransferProjectRequest(@NotNull(message = "userId is required") UUID userId) {
 }

@@ -170,7 +170,7 @@ public class Job extends PanacheEntityBase {
         return new Counts((long) row[0], (long) row[1]);
     }
 
-    /** Visible job counts per state across every project. */
+    /** Counts visible jobs grouped by state across all projects. */
     public static Map<JobState, Long> countByState() {
         return Job.getEntityManager()
                 .createQuery("select state, count(id) from Job where " + VISIBLE_ROW + " group by state",
@@ -184,7 +184,7 @@ public class Job extends PanacheEntityBase {
         return count("completedAt >= ?1", since);
     }
 
-    /** Visible job counts for a batch of projects, keyed by project. */
+    /** Counts visible jobs grouped by project ID for a collection of projects. */
     public static Map<UUID, Long> countVisibleByProjects(Collection<UUID> projectIds) {
         if (projectIds.isEmpty()) {
             return Map.of();

@@ -447,7 +447,7 @@ class JobResourceE2ETest {
                 .post("/api/project/{p}/job/template", project).then().statusCode(403);
     }
 
-    /** The permission stands in for the role, so it can be handed out on its own. */
+    /** Grants permission to create templates independently of user role. */
     @Test
     void theTemplatePermissionIsEnoughOnItsOwn() {
         var alice = fixtures.createActor("alice");
@@ -481,7 +481,7 @@ class JobResourceE2ETest {
                 .body("message", equalTo("no such resource class: huge"));
     }
 
-    /** A template may only mount volumes of its own project. */
+    /** Templates cannot mount volumes belonging to other projects. */
     @Test
     void aTemplateCannotMountAnotherProjectsVolume() {
         var alice = fixtures.createActor("alice");
@@ -507,7 +507,7 @@ class JobResourceE2ETest {
         as(alice).get("/api/project/{p}/job/template/{t}", project, template).then().statusCode(404);
     }
 
-    /** Global templates are visible here but are the admin API's to manage. */
+    /** Global templates cannot be deleted via project-scoped endpoints. */
     @Test
     void aGlobalTemplateCannotBeDeletedThroughAProject() {
         var alice = fixtures.createActor("alice");
@@ -564,7 +564,7 @@ class JobResourceE2ETest {
         as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(404);
     }
 
-    /** An archived project takes no job, template or artifact write. */
+    /** Verifies that write operations on jobs, templates, and artifacts fail when the project is archived. */
     @Test
     void anArchivedProjectRefusesJobAndTemplateWrites() {
         var alice = fixtures.createActor("alice");
@@ -580,7 +580,7 @@ class JobResourceE2ETest {
         as(alice).delete("/api/project/{p}/job/template/{t}", project, template).then().statusCode(409);
         as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(409);
 
-        // Reads keep working.
+        // Read operations remain allowed on archived projects.
         as(alice).get("/api/project/{p}/job", project).then().statusCode(200);
         as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(200);
     }

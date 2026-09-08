@@ -28,7 +28,7 @@ public class PermissionService {
     public static final String CACHE_NAME = "user-permissions";
 
     /**
-     * Resolved once from {@code permission.banned}; changing it means restarting the service.
+     * Set of permissions disabled system-wide, initialized from configuration.
      */
     private Set<Perm> banned = Set.of();
 
@@ -92,8 +92,7 @@ public class PermissionService {
     /**
      * Checks whether the user is permitted either through explicit grants, admin role, or project role.
      *
-     * <p>A globally banned permission is allowed to nobody, so views built on this agree with what the
-     * endpoints will actually accept.
+     * <p>Returns {@code false} if the permission is globally banned.
      */
     public boolean allows(UUID userId, Perm perm, @Nullable UUID projectId, ProjectRole defaultRole) {
         return !isBanned(perm)
@@ -179,7 +178,7 @@ public class PermissionService {
     }
 
     /**
-     * Whether the permission is switched off system-wide. Holds for every caller, admins included.
+     * Returns true if the permission is disabled system-wide.
      */
     public boolean isBanned(Perm perm) {
         return banned.contains(perm);

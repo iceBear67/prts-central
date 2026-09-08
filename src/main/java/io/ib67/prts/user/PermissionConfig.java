@@ -9,17 +9,13 @@ import java.util.Optional;
 public interface PermissionConfig {
 
     /**
-     * Permissions taken out of service system-wide, by their {@link io.ib67.prts.Perm#permission()}
-     * identifier. Refused to everyone, {@code admin:all} holders included.
+     * Identifiers of permissions disabled system-wide (see {@link io.ib67.prts.Perm#permission()}).
      *
-     * <p>{@code Optional} against the usual rule about containers, and not by choice: an empty list has
-     * no spelling in configuration — {@code banned: [ ]} reaches SmallRye as the empty string, which its
-     * collection converter reads as null. A plain {@code List} then fails startup with SRCFG00040
-     * instead of resolving to no bans, whether the emptiness came from the file or from a
-     * {@code @WithDefault("")}. {@link PermissionService} normalizes it away at once, so nothing
-     * downstream has to tell absent from empty.
+     * <p>Wrapped in {@link Optional} because SmallRye Config maps an empty YAML list ({@code banned: []})
+     * to null or an empty string, which causes conversion errors if typed directly as {@code List<String>}.
+     * {@link PermissionService} normalizes absent values to an empty set during initialization.
      *
-     * <p>An unknown identifier, or {@code admin:all} itself, fails startup.
+     * <p>Configuring {@code admin:all} or an unknown permission identifier will cause application startup to fail.
      */
     Optional<List<String>> banned();
 }

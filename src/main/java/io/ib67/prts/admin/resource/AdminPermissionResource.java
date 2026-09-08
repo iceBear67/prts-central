@@ -14,10 +14,7 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * The permission catalogue, so a client need not hard-code the list.
- *
- * <p>Bans are read-only here: they come from {@code permission.banned} and changing one means editing
- * the configuration and restarting.
+ * Provides the system-wide catalogue of available permissions and their configuration ban status.
  */
 @Path("/admin/permission")
 @Produces(MediaType.APPLICATION_JSON)

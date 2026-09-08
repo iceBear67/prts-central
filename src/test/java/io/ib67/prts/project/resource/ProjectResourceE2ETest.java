@@ -198,7 +198,7 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("name is required"));
     }
 
-    /** Sub-accounts hold permissions but never a project role, so they cannot own a new project. */
+    /** Sub-accounts cannot own projects and therefore cannot create new projects. */
     @Test
     void aSubAccountCannotOpenAProject() {
         fixtures.join(alice, project, ProjectRole.OWNER);
@@ -256,7 +256,7 @@ class ProjectResourceE2ETest {
                 .post("/api/project/{p}/transfer", project).then().statusCode(403);
     }
 
-    /** An admin transferring from outside the project moves only the target. */
+    /** Administrators can transfer project ownership without being members of the project. */
     @Test
     void anAdminTransfersWithoutBeingAMember() {
         var admin = fixtures.createActor("root");
@@ -289,7 +289,7 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("project is archived: " + project));
     }
 
-    /** Everything a project can be written through is refused while it is archived. */
+    /** Verifies that write operations across the project are rejected while archived. */
     @Test
     void archivingRefusesEveryWriteAcrossTheProject() {
         var bob = fixtures.createActor("bob");
@@ -306,7 +306,7 @@ class ProjectResourceE2ETest {
                 .post("/api/project/{p}/subaccount", project).then().statusCode(409);
     }
 
-    /** Unarchiving is the one write an archived project still takes. */
+    /** Verifies that unarchiving succeeds and restores write operations. */
     @Test
     void unarchivingRestoresWrites() {
         fixtures.join(alice, project, ProjectRole.OWNER);
@@ -320,7 +320,7 @@ class ProjectResourceE2ETest {
                 .patch("/api/project/{id}", project).then().statusCode(200);
     }
 
-    /** Deleting is the other, so an archived project is not stuck. */
+    /** Verifies that archived projects can still be deleted. */
     @Test
     void anArchivedProjectCanStillBeDeleted() {
         fixtures.join(alice, project, ProjectRole.OWNER);

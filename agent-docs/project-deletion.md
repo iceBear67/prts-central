@@ -14,7 +14,7 @@ flowchart TD
    - Cancels active queue entries (`PendingJobService#cancelActive`).
    - For all open jobs: marks `CANCELLED`, dispatches `ClientboundMessage.InterruptJob` to workers, and purges unassigned pending entries.
    - *Note*: `InterruptJob` informs the worker that the job no longer exists on the server. Workers must drop the container immediately without reporting terminal state updates.
-   - **Also used by `ProjectService.archive`**, which stops the work and then turns the project read-only instead of deleting it. The `reason` argument is what distinguishes the two in the worker's log.
+   - **Also used by `ProjectService.archive`**: Cancels pending work and interrupts active jobs before setting the project to read-only. The `reason` parameter informs the worker whether the interruption was caused by deletion or archiving.
 2. **`deleteObjects`**:
    - Deletes all S3 objects associated with the project's jobs before database rows are dropped.
 3. **`deleteRows`**:

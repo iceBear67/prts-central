@@ -10,10 +10,9 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Inbound shape of a {@link JobSpec}.
+ * Request payload representation of a {@link JobSpec}.
  *
- * <p>Mirrors the spec with the containers nullable, so a payload may leave out what it does not set;
- * {@link #toSpec()} normalizes them the way {@code JobSpec} does.
+ * <p>Allows optional collection fields which are normalized to non-null values by {@link #toSpec()}.
  */
 public record JobSpecRequest(
         @NotBlank(message = "spec.image is required") String image,
@@ -28,7 +27,7 @@ public record JobSpecRequest(
         image = image == null ? null : image.strip();
     }
 
-    /** Secrets are never part of a template: they are resolved per dispatch. */
+    /** Converts this request to a {@link JobSpec}, omitting secrets which are resolved at dispatch. */
     public JobSpec toSpec() {
         return new JobSpec(image, environment, labels, command, volumes, timeout, lock, null);
     }

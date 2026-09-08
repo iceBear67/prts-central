@@ -141,7 +141,7 @@ class RequirePermissionInterceptorTest {
         assertThrows(ForbiddenException.class, () -> interceptor.check(context));
     }
 
-    /** A globally banned permission stops the caller who was granted it outright. */
+    /** Verifies that a globally banned permission denies access even when explicitly granted. */
     @Test
     void aBannedPermissionIsForbiddenDespiteTheGrant() throws Exception {
         when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
@@ -153,7 +153,7 @@ class RequirePermissionInterceptorTest {
                 thrown.getMessage());
     }
 
-    /** The ban is a service-wide switch, so admin:all does not step over it either. */
+    /** Verifies that a globally banned permission denies access to administrators. */
     @Test
     void aBannedPermissionStopsAnAdminToo() throws Exception {
         when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
@@ -163,7 +163,7 @@ class RequirePermissionInterceptorTest {
         assertThrows(ForbiddenException.class, () -> interceptor.check(context));
     }
 
-    /** Nor does the role that would otherwise stand in for the permission. */
+    /** Verifies that a globally banned permission denies access even if the user has an authorized role. */
     @Test
     void aBannedPermissionOutranksTheStandingInRole() throws Exception {
         when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
@@ -173,10 +173,7 @@ class RequirePermissionInterceptorTest {
         assertThrows(ForbiddenException.class, () -> interceptor.check(context));
     }
 
-    /**
-     * A ban denies the permission, not the endpoint: one open to callers holding nothing stays open, so
-     * banning {@code project:member:manage} does not also take away leaving a project.
-     */
+    /** Verifies that endpoints allowing default access remain accessible when unrelated permissions are banned. */
     @Test
     void aBannedPermissionLeavesAnEndpointOpenToEveryoneOpen() throws Exception {
         when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);

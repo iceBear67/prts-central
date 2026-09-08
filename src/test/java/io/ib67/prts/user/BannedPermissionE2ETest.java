@@ -24,9 +24,9 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
 /**
- * Verifies that a permission listed in {@code permission.banned} is refused everywhere.
+ * Verifies that permissions listed in {@code permission.banned} are globally disabled across all endpoints.
  *
- * <p>Runs under its own profile because the ban is resolved from configuration once, at startup.
+ * <p>Runs under a dedicated test profile because permission bans are loaded from configuration at startup.
  */
 @QuarkusTest
 @TestProfile(BannedPermissionE2ETest.JobCreateBanned.class)
@@ -60,7 +60,7 @@ class BannedPermissionE2ETest {
         fixtures.join(alice, project, ProjectRole.OWNER);
     }
 
-    /** An owner would otherwise satisfy job:create through their role. */
+    /** Verifies that project roles do not grant access when the required permission is globally banned. */
     @Test
     void theRoleThatStandsInForItNoLongerDoes() {
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template.toString()))
@@ -80,7 +80,7 @@ class BannedPermissionE2ETest {
                 .post("/api/project/{p}/job", project).then().statusCode(403);
     }
 
-    /** The ban is a service-wide switch, so it holds for admins too. */
+    /** Verifies that globally banned permissions apply to administrators as well. */
     @Test
     void anAdminIsStoppedAsWell() {
         var admin = fixtures.createActor("root");
@@ -90,7 +90,7 @@ class BannedPermissionE2ETest {
                 .post("/api/project/{p}/job", project).then().statusCode(403);
     }
 
-    /** Only that one permission is out; everything else the project offers still works. */
+    /** Verifies that other permissions and endpoints remain unaffected by the ban. */
     @Test
     void nothingElseIsAffected() {
         as(alice).get("/api/project/{p}", project).then().statusCode(200);
@@ -99,7 +99,7 @@ class BannedPermissionE2ETest {
                 .patch("/api/project/{p}", project).then().statusCode(200);
     }
 
-    /** Views agree with the endpoints: a banned job:create means no replayable create request. */
+    /** Verifies that views and permission catalogues reflect banned permissions. */
     @Test
     void theCatalogueAndTheViewsBothShowItGone() {
         var job = fixtures.createJob(

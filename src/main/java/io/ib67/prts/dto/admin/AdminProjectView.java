@@ -10,8 +10,8 @@ import java.util.UUID;
 /**
  * Administrative view of a project.
  *
- * @param jobs   Visible jobs, counted the same way the project's own listing counts them.
- * @param queued Queue entries still waiting or being dispatched.
+ * @param jobs   Count of visible jobs.
+ * @param queued Count of active queue entries.
  */
 public record AdminProjectView(
         UUID id,

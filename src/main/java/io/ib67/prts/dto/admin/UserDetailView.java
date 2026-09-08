@@ -9,10 +9,10 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Administrative view of an account with everything it may act through.
+ * Detailed administrative view of a user account, including memberships and permissions.
  *
- * @param globalPermissions  Grants scoped system-wide, such as {@code admin:all}.
- * @param projectPermissions Grants keyed by the project they apply in.
+ * @param globalPermissions  Global permission identifiers (e.g. {@code admin:all}).
+ * @param projectPermissions Project-scoped permission identifiers grouped by project ID.
  */
 public record UserDetailView(
         UserView user,

@@ -6,9 +6,7 @@ import jakarta.ws.rs.BadRequestException;
 
 public record SetMemberRoleRequest(@NotNull(message = "role is required") ProjectRole role) {
     public SetMemberRoleRequest {
-        // Not a constraint: excluding one enum value is a rule about what a membership means, not a
-        // shape a standard constraint expresses. A bespoke validator would be more machinery than the
-        // rule deserves, and custom constraints do not reach the OpenAPI schema anyway.
+        // Setting a role to NONE is disallowed; member removal must be done via DELETE.
         if (role == ProjectRole.NONE) {
             throw new BadRequestException(
                     "NONE is the absence of a membership; delete the member instead");

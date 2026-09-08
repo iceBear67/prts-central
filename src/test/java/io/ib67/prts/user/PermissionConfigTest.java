@@ -14,11 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Resolves {@code permission.banned} through the real SmallRye mapping.
- *
- * <p>Nothing else covers this: the fast tiers never build a config, and the tier that boots one does not
- * run locally. An empty list has no spelling in configuration, and getting that wrong fails startup
- * rather than any test.
+ * Unit tests verifying {@code permission.banned} parsing and validation via SmallRye Config.
  */
 class PermissionConfigTest {
 
@@ -36,16 +32,13 @@ class PermissionConfigTest {
         return service;
     }
 
-    /** No `permission` section at all. */
+    /** Verifies behavior when the permission config section is omitted. */
     @Test
     void anAbsentPropertyResolves() {
         assertTrue(configOf(Map.of()).banned().isEmpty());
     }
 
-    /**
-     * What {@code banned: [ ]} in the YAML actually reaches SmallRye as. A plain {@code List} here fails
-     * startup with SRCFG00040, which is exactly the shape this guards.
-     */
+    /** Verifies that an empty configuration string is treated as an empty list. */
     @Test
     void anEmptyListReachesUsAsTheEmptyString() {
         assertTrue(configOf(Map.of("permission.banned", "")).banned().isEmpty());
@@ -80,7 +73,7 @@ class PermissionConfigTest {
         assertFalse(service.isBanned(Perm.JOB_CANCEL));
     }
 
-    /** A typo would otherwise be a ban nobody notices is missing. */
+    /** Unknown permissions fail validation during startup. */
     @Test
     void anUnknownPermissionFailsStartup() {
         var service = serviceOf(Map.of("permission.banned", "job:teleport"));
