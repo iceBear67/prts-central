@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Arrays;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
@@ -138,6 +139,50 @@ class RequirePermissionInterceptorTest {
         var context = invocationOf("projectScoped", PROJECT);
 
         assertThrows(ForbiddenException.class, () -> interceptor.check(context));
+    }
+
+    /** A globally banned permission stops the caller who was granted it outright. */
+    @Test
+    void aBannedPermissionIsForbiddenDespiteTheGrant() throws Exception {
+        when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
+        when(permissionService.has(USER, Perm.JOB_CREATE, PROJECT)).thenReturn(true);
+        var context = invocationOf("projectScoped", PROJECT);
+
+        var thrown = assertThrows(ForbiddenException.class, () -> interceptor.check(context));
+        assertEquals("permission is globally disabled: " + Perm.JOB_CREATE.permission(),
+                thrown.getMessage());
+    }
+
+    /** The ban is a service-wide switch, so admin:all does not step over it either. */
+    @Test
+    void aBannedPermissionStopsAnAdminToo() throws Exception {
+        when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
+        when(permissionService.isAdmin(USER)).thenReturn(true);
+        var context = invocationOf("projectScoped", PROJECT);
+
+        assertThrows(ForbiddenException.class, () -> interceptor.check(context));
+    }
+
+    /** Nor does the role that would otherwise stand in for the permission. */
+    @Test
+    void aBannedPermissionOutranksTheStandingInRole() throws Exception {
+        when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
+        when(userService.hasAtLeast(USER, PROJECT, ProjectRole.MEMBER)).thenReturn(true);
+        var context = invocationOf("withDefaultRole", PROJECT);
+
+        assertThrows(ForbiddenException.class, () -> interceptor.check(context));
+    }
+
+    /**
+     * A ban denies the permission, not the endpoint: one open to callers holding nothing stays open, so
+     * banning {@code project:member:manage} does not also take away leaving a project.
+     */
+    @Test
+    void aBannedPermissionLeavesAnEndpointOpenToEveryoneOpen() throws Exception {
+        when(permissionService.isBanned(Perm.JOB_CREATE)).thenReturn(true);
+        var context = invocationOf("defaultAllowed", PROJECT);
+
+        assertSame(PROCEEDED, interceptor.check(context));
     }
 
     /** Project-scoped permissions without a target project throw IllegalStateException. */

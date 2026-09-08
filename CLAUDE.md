@@ -48,7 +48,8 @@ holds the services and value objects.
 | `user` | `User`, project membership, permission grants + cached lookup, sub-accounts |
 | `auth` | OIDC identity augmentation, worker token mechanism, `@RequirePermission` interceptor |
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
-| `dto` | Outward-facing view records, grouped `dto.job` / `dto.project` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
+| `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
+| `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing the annotations into the OpenAPI document |
 
@@ -100,7 +101,11 @@ and the entities both have been), so a path is the part that goes stale while th
   `CreateSecretRequest`, `SetMemberRoleRequest`): a throw there is a bodiless 400, so they only carry
   the annotations and the resource keeps the check that returns a message.
 - **Config via `@ConfigMapping` interfaces** (`StorageConfig`, `JobConfig`, `WorkerConfig`,
-  `SecretConfig`), not `@ConfigProperty`.
+  `SecretConfig`, `AdminConfig`, `PermissionConfig`), not `@ConfigProperty`. These are **immutable
+  snapshots** — SmallRye
+  builds each mapping once when the `Config` is assembled and caches it, so nothing here can be changed
+  at runtime. A knob that has to be tunable while the service runs needs its own store, not a config
+  source.
 - **No `@Nullable` where an empty value says the same thing**, containers above all: a `Map`/`List`
   field is non-null and empty, and `JobSpec.lock` is `""` rather than null. Normalize at the
   constructor so no reader has to tell absent from empty. `@Nullable` is for a genuine third state —

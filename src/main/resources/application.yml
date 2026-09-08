@@ -105,6 +105,15 @@ storage:
   max-file-size: 512M
   max-job-size: 4G
 
+admin:
+  list:
+    max-page-size: 50
+
+permission:
+  # Permissions taken out of service system-wide, refused to everyone including admin:all holders.
+  # An unknown name, or admin:all itself, fails startup. Takes a restart to change.
+  banned: [ ]
+
 job:
   log:
     max-page-size: 20

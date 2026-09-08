@@ -413,6 +413,178 @@ class JobResourceE2ETest {
                 .then().statusCode(404);
     }
 
+    /** A minimal create-template payload; every test that needs a spec starts from this. */
+    private static Map<String, Object> templateBody(String name, String resourceClass) {
+        return Map.of("name", name, "resourceClass", resourceClass,
+                "spec", Map.of("image", "alpine"));
+    }
+
+    @Test
+    void anOwnerDefinesATemplate() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        var created = as(alice).contentType(ContentType.JSON).body(templateBody("  deploy  ", "small"))
+                .post("/api/project/{p}/job/template", project).then()
+                .statusCode(201)
+                .body("name", equalTo("deploy"))
+                .body("projectId", equalTo(project.toString()))
+                .body("resourceClass", equalTo("small"))
+                .body("spec.image", equalTo("alpine"))
+                .extract().path("id");
+
+        as(alice).get("/api/project/{p}/job/template/{t}", project, created).then()
+                .statusCode(200)
+                .body("name", equalTo("deploy"));
+    }
+
+    @Test
+    void aMemberCannotDefineATemplate() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "small"))
+                .post("/api/project/{p}/job/template", project).then().statusCode(403);
+    }
+
+    /** The permission stands in for the role, so it can be handed out on its own. */
+    @Test
+    void theTemplatePermissionIsEnoughOnItsOwn() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+        fixtures.grant(alice, Perm.JOB_TEMPLATE_MANAGE, project);
+
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "small"))
+                .post("/api/project/{p}/job/template", project).then().statusCode(201);
+    }
+
+    @Test
+    void aTemplateNeedsAnImage() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON)
+                .body(Map.of("name", "deploy", "resourceClass", "small", "spec", Map.of()))
+                .post("/api/project/{p}/job/template", project).then()
+                .statusCode(400)
+                .body("message", equalTo("spec.image is required"));
+    }
+
+    @Test
+    void aTemplateNamingAnUnknownResourceClassIsNotFound() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "huge"))
+                .post("/api/project/{p}/job/template", project).then()
+                .statusCode(404)
+                .body("message", equalTo("no such resource class: huge"));
+    }
+
+    /** A template may only mount volumes of its own project. */
+    @Test
+    void aTemplateCannotMountAnotherProjectsVolume() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var other = fixtures.createProject("theirs");
+        var volume = fixtures.createVolume(other, fixtures.createWorker("w1"), "data");
+
+        as(alice).contentType(ContentType.JSON).body(Map.of(
+                        "name", "deploy",
+                        "resourceClass", "small",
+                        "spec", Map.of("image", "alpine",
+                                "volumes", Map.of(volume.toString(), Map.of("mountPoint", "/data")))))
+                .post("/api/project/{p}/job/template", project).then().statusCode(403);
+    }
+
+    @Test
+    void anOwnerDeletesATemplate() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).delete("/api/project/{p}/job/template/{t}", project, template).then().statusCode(204);
+
+        as(alice).get("/api/project/{p}/job/template/{t}", project, template).then().statusCode(404);
+    }
+
+    /** Global templates are visible here but are the admin API's to manage. */
+    @Test
+    void aGlobalTemplateCannotBeDeletedThroughAProject() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var global = fixtures.createTemplate("shared", null, small);
+
+        as(alice).delete("/api/project/{p}/job/template/{t}", project, global).then()
+                .statusCode(409)
+                .body("message", equalTo("a global template is not this project's to delete: " + global));
+    }
+
+    @Test
+    void aTemplateOfAnotherProjectCannotBeDeletedFromHere() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var other = fixtures.createProject("theirs");
+        var theirs = fixtures.createTemplate("build", other, small);
+
+        as(alice).delete("/api/project/{p}/job/template/{t}", project, theirs).then().statusCode(404);
+    }
+
+    @Test
+    void anOwnerDeletesAnArtifact() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
+
+        as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(204);
+
+        as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(404);
+        as(alice).get("/api/project/{p}/job/{j}", project, job).then().body("artifacts", empty());
+    }
+
+    @Test
+    void aMemberCannotDeleteAnArtifact() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
+
+        as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(403);
+        as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(200);
+    }
+
+    @Test
+    void anArtifactOfAnotherProjectCannotBeDeletedFromHere() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var other = fixtures.createProject("theirs");
+        var job = fixtures.createJob(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
+
+        as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(404);
+    }
+
+    /** An archived project takes no job, template or artifact write. */
+    @Test
+    void anArchivedProjectRefusesJobAndTemplateWrites() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        var artifact = fixtures.createArtifact(job, "out.txt");
+        fixtures.archive(project);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template.toString()))
+                .post("/api/project/{p}/job", project).then().statusCode(409);
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "small"))
+                .post("/api/project/{p}/job/template", project).then().statusCode(409);
+        as(alice).delete("/api/project/{p}/job/template/{t}", project, template).then().statusCode(409);
+        as(alice).delete("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(409);
+
+        // Reads keep working.
+        as(alice).get("/api/project/{p}/job", project).then().statusCode(200);
+        as(alice).get("/api/project/{p}/job/artifact/{a}", project, artifact).then().statusCode(200);
+    }
+
     @Test
     void anAdminReadsAProjectTheyAreNotIn() {
         var admin = fixtures.createActor("root");

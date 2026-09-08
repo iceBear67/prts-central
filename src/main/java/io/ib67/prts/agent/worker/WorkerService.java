@@ -1,9 +1,9 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.entity.JobState;
@@ -12,6 +12,8 @@ import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.ws.rs.ClientErrorException;
+import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
 import java.util.Collections;
@@ -65,10 +67,7 @@ public class WorkerService {
     public Worker setDisabled(UUID id, boolean disabled) {
         synchronized (roster) {
             var row = QuarkusTransaction.requiringNew().call(() -> {
-                var worker = Worker.<Worker>findById(id);
-                if (worker == null) {
-                    throw new NoSuchElementException("no such worker: " + id);
-                }
+                var worker = requireRow(id);
                 worker.setDisabled(disabled);
                 return worker;
             });
@@ -78,6 +77,71 @@ public class WorkerService {
             }
             return row;
         }
+    }
+
+    /**
+     * Renames a registered worker.
+     *
+     * <p>Only until the worker says otherwise: {@link Worker#upsert} takes the name from the worker's own
+     * registration, so reconnecting under a different name overwrites this.
+     */
+    public Worker rename(UUID id, String name) {
+        return QuarkusTransaction.requiringNew().call(() -> {
+            var worker = requireRow(id);
+            worker.setName(name);
+            return worker;
+        });
+    }
+
+    /**
+     * Closes a worker's live session, if it holds one. Its unfinished jobs are failed, the same as on
+     * any disconnect.
+     */
+    public void disconnect(UUID id) {
+        var worker = activeWorkers.get(id);
+        if (worker != null) {
+            worker.getRpc().close();
+        }
+    }
+
+    /**
+     * Drops a worker's registration.
+     *
+     * <p>Refuses a connected worker rather than closing it on the caller's behalf — the disconnect is
+     * what fails its jobs, and that is a decision to take on its own.
+     */
+    public void delete(UUID id) {
+        synchronized (roster) {
+            if (activeWorkers.containsKey(id)) {
+                throw new ClientErrorException(
+                        "worker " + id + " is connected; disconnect it first", Response.Status.CONFLICT);
+            }
+            QuarkusTransaction.requiringNew().run(() -> {
+                var worker = requireRow(id);
+                var open = Job.listOpenByWorker(id).size();
+                if (open > 0) {
+                    throw new ClientErrorException(
+                            "worker " + id + " still has " + open + " unfinished job(s)",
+                            Response.Status.CONFLICT);
+                }
+                // worker_volume carries a plain foreign key, so a leftover volume would fail the delete.
+                var volumes = WorkerVolume.countByWorker(id);
+                if (volumes > 0) {
+                    throw new ClientErrorException(
+                            "worker " + id + " still hosts " + volumes + " volume(s)",
+                            Response.Status.CONFLICT);
+                }
+                worker.delete();
+            });
+        }
+    }
+
+    private static Worker requireRow(UUID id) {
+        var worker = Worker.<Worker>findById(id);
+        if (worker == null) {
+            throw new NoSuchElementException("no such worker: " + id);
+        }
+        return worker;
     }
 
     /** Unregisters a worker if the closing connection matches its active session. */

@@ -69,6 +69,11 @@ public class Fixtures {
         return projectService.create(name).getId();
     }
 
+    /** Archives a project without going through the endpoint. */
+    public void archive(UUID projectId) {
+        projectService.archive(projectId);
+    }
+
     public void join(Actor actor, UUID projectId, ProjectRole role) {
         userService.grant(actor.id(), projectId, role);
     }

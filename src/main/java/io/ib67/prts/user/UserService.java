@@ -107,6 +107,36 @@ public class UserService {
         permissionService.grantAll(userId, perms, projectId);
     }
 
+    /**
+     * Sets the user's system-wide grants, replacing the ones they hold.
+     *
+     * <p>Sub-accounts hold nothing globally, and the last {@link Perm#ADMIN_OF_ALL} holder cannot be
+     * stripped of it: every admin endpoint is gated on that permission, so losing the last holder locks
+     * the door from the inside.
+     */
+    @Transactional
+    public void setGlobalPermissions(UUID userId, Collection<Perm> perms) {
+        requireNotSubAccount(userId, "hold a global permission");
+        perms.stream()
+                .filter(perm -> !perm.global())
+                .findFirst()
+                .ifPresent(perm -> {
+                    throw new BadRequestException("not a global permission: " + perm.permission());
+                });
+        if (!perms.contains(Perm.ADMIN_OF_ALL)) {
+            requireAnotherAdmin(userId);
+        }
+        permissionService.revokeAll(userId, Permission.GLOBAL);
+        permissionService.grantAll(userId, perms, null);
+    }
+
+    /** Revokes every grant a user holds, in any scope. */
+    @Transactional
+    public long revokeAllPermissions(UUID userId) {
+        requireAnotherAdmin(userId);
+        return permissionService.revokeAll(userId);
+    }
+
     /** Lists project memberships for a user. */
     public List<UserToProject> listMemberships(UUID userId) {
         return UserToProject.listByUserFetched(userId);
@@ -132,6 +162,30 @@ public class UserService {
         var link = UserToProject.of(requireUser(userId), requireProject(projectId), projectRole);
         link.persist();
         return link;
+    }
+
+    /**
+     * Hands ownership of a project to another member: the target becomes {@code OWNER} and the caller
+     * steps down to {@code MEMBER}.
+     *
+     * <p>The caller need not be an owner — an {@code admin:all} holder or someone granted
+     * {@code project:transfer} may transfer without being in the project, in which case only the target
+     * is moved. Promoting before demoting is what keeps the project from momentarily having no owner.
+     */
+    @Transactional
+    public UserToProject transferOwnership(UUID callerId, UUID projectId, UUID targetId) {
+        if (callerId.equals(targetId)) {
+            throw new BadRequestException("already the transfer target: " + targetId);
+        }
+        requireNotSubAccount(targetId, "hold a project role");
+        lockRoster(projectId);
+        var target = UserToProject.findByUserAndProject(targetId, projectId)
+                .orElseThrow(() -> new NoSuchElementException(
+                        "not a member of project " + projectId + ": " + targetId));
+        target.setProjectRole(ProjectRole.OWNER);
+        UserToProject.findByUserAndProject(callerId, projectId)
+                .ifPresent(caller -> caller.setProjectRole(ProjectRole.MEMBER));
+        return target;
     }
 
     @Transactional
@@ -185,6 +239,21 @@ public class UserService {
     private void lockRoster(UUID projectId) {
         if (Project.findById(projectId, LockModeType.PESSIMISTIC_WRITE) == null) {
             throw new NoSuchElementException("no such project: " + projectId);
+        }
+    }
+
+    /** Ensures someone else still holds {@link Perm#ADMIN_OF_ALL} before this user gives it up. */
+    private void requireAnotherAdmin(UUID userId) {
+        if (!permissionService.has(userId, Perm.ADMIN_OF_ALL)) {
+            return;
+        }
+        var others = permissionService.listUsersWith(Perm.ADMIN_OF_ALL, null).stream()
+                .filter(holder -> !holder.getId().equals(userId))
+                .count();
+        if (others == 0) {
+            throw new ClientErrorException(
+                    "the last " + Perm.ADMIN_OF_ALL.permission() + " holder cannot give it up",
+                    Response.Status.CONFLICT);
         }
     }
 

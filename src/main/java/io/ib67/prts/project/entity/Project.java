@@ -1,6 +1,7 @@
 package io.ib67.prts.project.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -13,6 +14,8 @@ import lombok.Setter;
 import lombok.ToString;
 import org.hibernate.annotations.UuidGenerator;
 
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -35,4 +38,35 @@ public class Project extends PanacheEntityBase {
 
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
+
+    /**
+     * When the project was archived, or null while it is live. A single nullable column rather than a
+     * boolean beside a timestamp, so the two can never disagree.
+     */
+    @Nullable
+    @Column(name = "archived_at")
+    private Instant archivedAt;
+
+    public boolean isArchived() {
+        return archivedAt != null;
+    }
+
+    /** Project count summary. */
+    public record Counts(long total, long archived) {
+    }
+
+    public static Counts counts() {
+        var row = (Object[]) getEntityManager()
+                .createQuery("select count(p), count(p.archivedAt) from Project p")
+                .getSingleResult();
+        return new Counts((long) row[0], (long) row[1]);
+    }
+
+    /** Lists projects whose name contains the query, newest first. */
+    public static List<Project> search(@Nullable String query, int offset, int limit) {
+        var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
+        return find("lower(name) like ?1 order by id desc", filter)
+                .range(offset, offset + limit - 1)
+                .list();
+    }
 }

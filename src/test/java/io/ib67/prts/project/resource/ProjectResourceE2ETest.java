@@ -21,6 +21,8 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.notNullValue;
+import static org.hamcrest.Matchers.nullValue;
 
 /**
  * Permission and access control tests for {@link ProjectResource}.
@@ -150,6 +152,188 @@ class ProjectResourceE2ETest {
 
         fixtures.revoke(alice, Perm.PROJECT_READ, project);
         as(alice).get("/api/project/{id}", project).then().statusCode(403);
+    }
+
+    @Test
+    void aGrantedUserOpensAProjectAndOwnsIt() {
+        fixtures.grant(alice, Perm.PROJECT_CREATE, null);
+
+        var opened = as(alice).contentType(ContentType.JSON).body(Map.of("name", "  fresh  "))
+                .post("/api/project").then()
+                .statusCode(201)
+                .body("name", equalTo("fresh"))
+                .body("role", equalTo("OWNER"))
+                .body("archivedAt", nullValue())
+                .extract().path("id");
+
+        as(alice).get("/api/project/{id}", opened).then()
+                .statusCode(200)
+                .body("role", equalTo("OWNER"))
+                .body("members.name", contains("alice"));
+    }
+
+    @Test
+    void openingAProjectNeedsThePermission() {
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "fresh"))
+                .post("/api/project").then()
+                .statusCode(403)
+                .body("message", equalTo("missing permission: " + Perm.PROJECT_CREATE.permission()));
+    }
+
+    @Test
+    void anAdminOpensAProjectWithoutTheGrant() {
+        fixtures.makeAdmin(alice);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "fresh"))
+                .post("/api/project").then().statusCode(201);
+    }
+
+    @Test
+    void aBlankNameCannotOpenAProject() {
+        fixtures.grant(alice, Perm.PROJECT_CREATE, null);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "  "))
+                .post("/api/project").then()
+                .statusCode(400)
+                .body("message", equalTo("name is required"));
+    }
+
+    /** Sub-accounts hold permissions but never a project role, so they cannot own a new project. */
+    @Test
+    void aSubAccountCannotOpenAProject() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var ci = fixtures.createSubAccount(project, "ci", alice);
+        fixtures.grant(ci, Perm.PROJECT_CREATE, null);
+
+        as(ci).contentType(ContentType.JSON).body(Map.of("name", "fresh"))
+                .post("/api/project").then().statusCode(409);
+    }
+
+    @Test
+    void anOwnerHandsTheProjectOverAndStepsDown() {
+        var bob = fixtures.createActor("bob");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.join(bob, project, ProjectRole.MEMBER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("userId", bob.id().toString()))
+                .post("/api/project/{p}/transfer", project).then()
+                .statusCode(200)
+                .body("userId", equalTo(bob.id().toString()))
+                .body("role", equalTo("OWNER"));
+
+        as(bob).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
+        as(alice).get("/api/project/{id}", project).then().body("role", equalTo("MEMBER"));
+    }
+
+    @Test
+    void transferringToSomeoneOutsideTheProjectIsNotFound() {
+        var bob = fixtures.createActor("bob");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("userId", bob.id().toString()))
+                .post("/api/project/{p}/transfer", project).then()
+                .statusCode(404)
+                .body("message", equalTo("not a member of project " + project + ": " + bob.id()));
+    }
+
+    @Test
+    void transferringToMyselfIsRejected() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("userId", alice.id().toString()))
+                .post("/api/project/{p}/transfer", project).then()
+                .statusCode(400)
+                .body("message", equalTo("already the transfer target: " + alice.id()));
+    }
+
+    @Test
+    void aMemberCannotTransferTheProject() {
+        var bob = fixtures.createActor("bob");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+        fixtures.join(bob, project, ProjectRole.MEMBER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("userId", bob.id().toString()))
+                .post("/api/project/{p}/transfer", project).then().statusCode(403);
+    }
+
+    /** An admin transferring from outside the project moves only the target. */
+    @Test
+    void anAdminTransfersWithoutBeingAMember() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var bob = fixtures.createActor("bob");
+        fixtures.join(bob, project, ProjectRole.VIEWER);
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("userId", bob.id().toString()))
+                .post("/api/project/{p}/transfer", project).then().statusCode(200);
+
+        as(alice).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
+        as(bob).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
+    }
+
+    @Test
+    void anOwnerArchivesTheProjectAndItGoesReadOnly() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).post("/api/project/{p}/archive", project).then()
+                .statusCode(200)
+                .body("archivedAt", notNullValue());
+
+        as(alice).get("/api/project/{id}", project).then()
+                .statusCode(200)
+                .body("archivedAt", notNullValue());
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "renamed"))
+                .patch("/api/project/{id}", project).then()
+                .statusCode(409)
+                .body("message", equalTo("project is archived: " + project));
+    }
+
+    /** Everything a project can be written through is refused while it is archived. */
+    @Test
+    void archivingRefusesEveryWriteAcrossTheProject() {
+        var bob = fixtures.createActor("bob");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.join(bob, project, ProjectRole.MEMBER);
+        fixtures.archive(project);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("role", "VIEWER"))
+                .put("/api/project/{p}/member/{u}", project, bob.id()).then().statusCode(409);
+        as(alice).delete("/api/project/{p}/member/{u}", project, bob.id()).then().statusCode(409);
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "TOKEN", "value", "v"))
+                .post("/api/project/{p}/secret", project).then().statusCode(409);
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "ci"))
+                .post("/api/project/{p}/subaccount", project).then().statusCode(409);
+    }
+
+    /** Unarchiving is the one write an archived project still takes. */
+    @Test
+    void unarchivingRestoresWrites() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.archive(project);
+
+        as(alice).post("/api/project/{p}/unarchive", project).then()
+                .statusCode(200)
+                .body("archivedAt", nullValue());
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "renamed"))
+                .patch("/api/project/{id}", project).then().statusCode(200);
+    }
+
+    /** Deleting is the other, so an archived project is not stuck. */
+    @Test
+    void anArchivedProjectCanStillBeDeleted() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.archive(project);
+
+        as(alice).delete("/api/project/{id}", project).then().statusCode(204);
+    }
+
+    @Test
+    void aMemberCannotArchiveTheProject() {
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+
+        as(alice).post("/api/project/{p}/archive", project).then().statusCode(403);
     }
 
     @Test

@@ -39,6 +39,14 @@ public class Worker extends PanacheEntityBase {
     @Column(name = "disabled", nullable = false)
     private boolean disabled;
 
+    /** Registered worker count summary. */
+    public record Counts(long registered, long disabled) {
+    }
+
+    public static Counts counts() {
+        return new Counts(count(), count("disabled", true));
+    }
+
     public static Worker upsert(UUID id, String name) {
         Worker existing = findById(id);
         if (existing == null) {

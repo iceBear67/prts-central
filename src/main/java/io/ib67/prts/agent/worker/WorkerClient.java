@@ -78,6 +78,11 @@ public final class WorkerClient {
         }
     }
 
+    /** Closes the session. The {@code @OnClose} handler unregisters the worker and fails its open jobs. */
+    void close() {
+        conn.close().await().atMost(SEND_TIMEOUT);
+    }
+
     void completeCreate(UUID requestId) {
         var future = outstanding.get(requestId);
         if (future != null) {

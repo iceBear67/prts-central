@@ -13,6 +13,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
+import jakarta.ws.rs.NotFoundException;
 import org.jboss.logging.Logger;
 
 import java.time.Duration;
@@ -110,6 +111,26 @@ public class ArtifactService {
             }
             throw e;
         }
+    }
+
+    /**
+     * Deletes a recorded artifact of a project along with its stored object.
+     *
+     * <p>The row goes first, the object after — the reverse of {@link
+     * io.ib67.prts.project.ProjectService#delete}, which has to read the keys before the rows cascade
+     * away. Here an object left behind is invisible, while a row whose object is already gone would keep
+     * handing out presigned URLs to nothing.
+     */
+    public void delete(UUID projectId, UUID artifactId) {
+        var objectKey = QuarkusTransaction.requiringNew().call(() -> {
+            var artifact = Artifact.findInProject(projectId, artifactId)
+                    .orElseThrow(() -> new NotFoundException(
+                            "no such artifact in project " + projectId + ": " + artifactId));
+            var key = artifact.getObjectKey();
+            artifact.delete();
+            return key;
+        });
+        storageService.deleteQuietly(objectKey);
     }
 
     /** Cancels in-flight uploads and deletes partial objects for a job. */

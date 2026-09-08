@@ -12,7 +12,11 @@ Plaintext secrets are never stored in the database or serialized inside `job.spe
 
 ### Templates (`JobSpecTemplate`)
 - **Scoping**: `project_id = null` indicates a global template accessible across all projects; otherwise scoped to a single project.
-- **Resolution**: `JobSpecTemplate.findVisibleFetched(projectId, id)` resolves templates visible to the project.
+- **Resolution**: `JobSpecTemplate.findVisibleFetched(projectId, id)` resolves templates visible to the project; `listGlobalFetched` / `findGlobalFetched` see only the global ones.
+- **Managed from two places**: project templates through `POST|DELETE /project/{projectId}/job/template[/{id}]` (`job:template:manage`), global ones through `/api/admin/template`. Each refuses the other's scope.
+- **A global template names a global resource class** and mounts no volumes. Both belong to one project, so neither is visible to the other projects the template is offered to.
+- **Inbound specs arrive as `JobSpecRequest`**, not `JobSpec`: the spec's compact constructor rejects a missing image, and a throw during deserialization is a bodiless 400. `CreateTemplateRequest.check` validates the payload where the resource can answer with a message.
+- **Deleting a template leaves queued entries alone**: `job.template_id` carries no foreign key and a queue entry holds its request as jsonb. An entry that outlives its template throws `NotFoundException` on its next attempt and `PendingJobDispatcher` marks it `FAILED` — it does not loop.
 
 ### Resource Classes (`ResourceClass`)
 - **Keying**: Composite primary key `(name, projectId)` via `@IdClass(ResourceClassId.class)`.

@@ -10,10 +10,11 @@ flowchart TD
 
 ## Deletion Phases
 
-1. **`stopWork`**:
+1. **`stopWork(projectId, reason)`**:
    - Cancels active queue entries (`PendingJobService#cancelActive`).
    - For all open jobs: marks `CANCELLED`, dispatches `ClientboundMessage.InterruptJob` to workers, and purges unassigned pending entries.
    - *Note*: `InterruptJob` informs the worker that the job no longer exists on the server. Workers must drop the container immediately without reporting terminal state updates.
+   - **Also used by `ProjectService.archive`**, which stops the work and then turns the project read-only instead of deleting it. The `reason` argument is what distinguishes the two in the worker's log.
 2. **`deleteObjects`**:
    - Deletes all S3 objects associated with the project's jobs before database rows are dropped.
 3. **`deleteRows`**:

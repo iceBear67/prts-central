@@ -83,6 +83,15 @@ public class WorkerVolume extends PanacheEntityBase {
         return length - used;
     }
 
+    /** Lists the volumes hosted on a worker, with their owning projects fetched. */
+    public static List<WorkerVolume> listByWorker(UUID workerId) {
+        return find("from WorkerVolume v join fetch v.project where v.worker.id = ?1", workerId).list();
+    }
+
+    public static long countByWorker(UUID workerId) {
+        return count("worker.id", workerId);
+    }
+
     public static List<WorkerVolume> listByIds(Collection<UUID> ids) {
         if (ids == null || ids.isEmpty()) {
             return List.of();

@@ -1,14 +1,17 @@
 package io.ib67.prts.agent.worker.resource;
 
+import io.ib67.prts.project.entity.JobState;
 import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
+import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.Map;
 import java.util.UUID;
 
 import static io.ib67.prts.testing.Fixtures.as;
@@ -124,5 +127,125 @@ class WorkerResourceE2ETest {
 
         as(fixtures.createActor("alice")).post("/api/worker/{id}/disable", worker)
                 .then().statusCode(403);
+    }
+
+    @Test
+    void anAdminRenamesAWorker() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("name", "  builder-1  "))
+                .patch("/api/worker/{id}", worker).then()
+                .statusCode(200)
+                .body("name", equalTo("builder-1"));
+        as(admin).get("/api/worker/{id}", worker).then().body("name", equalTo("builder-1"));
+    }
+
+    @Test
+    void renamingNeedsAName() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("name", "   "))
+                .patch("/api/worker/{id}", worker).then()
+                .statusCode(400)
+                .body("message", equalTo("name is required"));
+    }
+
+    @Test
+    void anAdminDropsAnIdleWorker() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+
+        as(admin).delete("/api/worker/{id}", worker).then().statusCode(204);
+
+        as(admin).get("/api/worker/{id}", worker).then().statusCode(404);
+    }
+
+    /** A worker with jobs still in flight is not something to drop out from under. */
+    @Test
+    void aWorkerWithUnfinishedJobsIsNotDropped() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+        var project = fixtures.createProject("mine");
+        var small = fixtures.createResourceClass("small", null);
+        fixtures.createJob(project, admin, small, JobState.RUNNING, worker);
+
+        as(admin).delete("/api/worker/{id}", worker).then()
+                .statusCode(409)
+                .body("message", equalTo("worker " + worker + " still has 1 unfinished job(s)"));
+    }
+
+    /** worker_volume carries a plain foreign key, so the delete would fail on it anyway. */
+    @Test
+    void aWorkerStillHostingVolumesIsNotDropped() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+        fixtures.createVolume(fixtures.createProject("mine"), worker, "data");
+
+        as(admin).delete("/api/worker/{id}", worker).then()
+                .statusCode(409)
+                .body("message", equalTo("worker " + worker + " still hosts 1 volume(s)"));
+    }
+
+    @Test
+    void anAdminListsAWorkersUnfinishedJobs() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+        var project = fixtures.createProject("mine");
+        var small = fixtures.createResourceClass("small", null);
+        fixtures.createJob(project, admin, small, JobState.RUNNING, worker);
+        fixtures.createJob(project, admin, small, JobState.SUCCESS, worker);
+
+        as(admin).get("/api/worker/{id}/job", worker).then()
+                .statusCode(200)
+                .body("state", contains("RUNNING"));
+    }
+
+    @Test
+    void anAdminListsAWorkersVolumes() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+        var project = fixtures.createProject("mine");
+        fixtures.createVolume(project, worker, "data");
+
+        as(admin).get("/api/worker/{id}/volume", worker).then()
+                .statusCode(200)
+                .body("name", contains("data"))
+                .body("[0].projectName", equalTo("mine"))
+                .body("[0].length", equalTo(1024));
+    }
+
+    /** Disconnecting a worker that holds no session changes nothing. */
+    @Test
+    void disconnectingAnOfflineWorkerIsHarmless() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+        var worker = fixtures.createWorker("w1");
+
+        as(admin).post("/api/worker/{id}/disconnect", worker).then().statusCode(204);
+        as(admin).get("/api/worker/{id}", worker).then().statusCode(200);
+    }
+
+    @Test
+    void disconnectingAWorkerThatDoesNotExistIsNotFound() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+
+        as(admin).post("/api/worker/{id}/disconnect", UUID.randomUUID()).then().statusCode(404);
+    }
+
+    @Test
+    void anOrdinaryUserCannotDropAWorker() {
+        var worker = fixtures.createWorker("w1");
+
+        as(fixtures.createActor("alice")).delete("/api/worker/{id}", worker).then().statusCode(403);
     }
 }

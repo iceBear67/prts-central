@@ -62,7 +62,7 @@ public class SubAccountResource {
         if (request == null || request.name() == null || request.name().isBlank()) {
             throw new BadRequestException("name is required");
         }
-        projectService.require(projectId);
+        projectService.requireWritable(projectId);
         var account = subAccountService.create(
                 projectId, request.name().strip(), userContext.require().getId());
         return SubAccountView.of(account, List.of());
@@ -89,6 +89,7 @@ public class SubAccountResource {
     @Path("/{userId}")
     public void deleteSubAccount(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("userId") UUID userId) {
+        projectService.requireWritable(projectId);
         subAccountService.delete(projectId, userId);
     }
 
@@ -104,6 +105,7 @@ public class SubAccountResource {
         if (request == null || request.permissions() == null) {
             throw new BadRequestException("permissions is required, empty to hold none");
         }
+        projectService.requireWritable(projectId);
         var perms = request.permissions().stream().map(SubAccountResource::perm).distinct().toList();
         subAccountService.setPermissions(projectId, userId, perms);
         return SubAccountView.of(subAccountService.require(projectId, userId), perms);
@@ -125,6 +127,7 @@ public class SubAccountResource {
     @Path("/{userId}/token")
     public IssuedTokenView issueToken(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("userId") UUID userId) {
+        projectService.requireWritable(projectId);
         subAccountService.require(projectId, userId);
         var issued = accessTokenService.issue(userId);
         return new IssuedTokenView(issued.token(), issued.issuedAt());

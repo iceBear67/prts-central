@@ -6,8 +6,10 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.project.ProjectDetailView;
 import io.ib67.prts.dto.project.ProjectMemberView;
 import io.ib67.prts.dto.project.ProjectView;
+import io.ib67.prts.dto.request.CreateProjectRequest;
 import io.ib67.prts.dto.request.RenameProjectRequest;
 import io.ib67.prts.dto.request.SetMemberRoleRequest;
+import io.ib67.prts.dto.request.TransferProjectRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.project.entity.Job;
@@ -25,11 +27,14 @@ import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PATCH;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
+import org.jboss.resteasy.reactive.ResponseStatus;
+import org.jboss.resteasy.reactive.RestResponse;
 
 import java.util.List;
 import java.util.UUID;
@@ -56,6 +61,19 @@ public class ProjectResource {
         return userService.listMemberships(requireUser().getId()).stream()
                 .map(link -> ProjectView.of(link.getProject(), link.getProjectRole()))
                 .toList();
+    }
+
+    /** Opens a project with the caller as its owner. */
+    @POST
+    @Consumes(MediaType.APPLICATION_JSON)
+    @ResponseStatus(RestResponse.StatusCode.CREATED)
+    @RequirePermission(Perm.PROJECT_CREATE)
+    public ProjectView createProject(CreateProjectRequest request) {
+        if (request == null || request.name() == null || request.name().isBlank()) {
+            throw new BadRequestException("name is required");
+        }
+        var project = projectService.create(request.name().strip(), requireUser().getId());
+        return ProjectView.of(project, ProjectRole.OWNER);
     }
 
     /** Retrieves detailed project information, member roster, and job counts. */
@@ -87,7 +105,48 @@ public class ProjectResource {
         if (request == null || request.name() == null || request.name().isBlank()) {
             throw new BadRequestException("name is required");
         }
+        projectService.requireWritable(projectId);
         return ProjectView.of(projectService.rename(projectId, request.name().strip()), roleOf(projectId));
+    }
+
+    /**
+     * Stops the project's work and turns it read-only.
+     *
+     * <p>Queued entries are cancelled and running jobs interrupted, so nothing is left running that the
+     * now-refused cancel endpoint could no longer stop.
+     */
+    @POST
+    @Path("/{projectId}/archive")
+    @RequirePermission(value = Perm.PROJECT_ARCHIVE, defaultRole = ProjectRole.OWNER)
+    public ProjectView archiveProject(@ProjectId @PathParam("projectId") UUID projectId) {
+        return ProjectView.of(projectService.archive(projectId), roleOf(projectId));
+    }
+
+    /** Returns an archived project to accepting writes. */
+    @POST
+    @Path("/{projectId}/unarchive")
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_ARCHIVE, defaultRole = ProjectRole.OWNER)
+    public ProjectView unarchiveProject(@ProjectId @PathParam("projectId") UUID projectId) {
+        return ProjectView.of(projectService.unarchive(projectId), roleOf(projectId));
+    }
+
+    /**
+     * Hands ownership to another member: the target becomes owner and the caller steps down to member.
+     */
+    @POST
+    @Path("/{projectId}/transfer")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_TRANSFER, defaultRole = ProjectRole.OWNER)
+    public ProjectMemberView transferProject(
+            @ProjectId @PathParam("projectId") UUID projectId, TransferProjectRequest request) {
+        if (request == null || request.userId() == null) {
+            throw new BadRequestException("userId is required");
+        }
+        projectService.requireWritable(projectId);
+        return ProjectMemberView.of(
+                userService.transferOwnership(requireUser().getId(), projectId, request.userId()));
     }
 
     /** Deletes a project and all associated resources. */
@@ -116,6 +175,7 @@ public class ProjectResource {
         if (request.role() == ProjectRole.NONE) {
             throw new BadRequestException("NONE is the absence of a membership; delete the member instead");
         }
+        projectService.requireWritable(projectId);
         return ProjectMemberView.of(userService.grant(userId, projectId, request.role()));
     }
 
@@ -133,6 +193,7 @@ public class ProjectResource {
                 && !permissionService.allows(callerId, Perm.PROJECT_MEMBER_MANAGE, projectId, ProjectRole.OWNER)) {
             throw new ForbiddenException("missing permission: " + Perm.PROJECT_MEMBER_MANAGE.permission());
         }
+        projectService.requireWritable(projectId);
         if (!userService.revoke(userId, projectId)) {
             throw new NotFoundException("not a member of project " + projectId + ": " + userId);
         }

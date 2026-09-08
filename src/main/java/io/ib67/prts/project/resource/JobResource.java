@@ -3,11 +3,13 @@ package io.ib67.prts.project.resource;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.*;
 import io.ib67.prts.dto.job.*;
 import io.ib67.prts.dto.request.CreateJobRequest;
+import io.ib67.prts.dto.request.CreateTemplateRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
 import io.ib67.prts.project.JobAccess;
@@ -19,12 +21,14 @@ import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobRequest;
 import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.media.Content;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;
 import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
@@ -55,6 +59,8 @@ public class JobResource {
     @Inject
     StorageService storageService;
     @Inject
+    ArtifactService artifactService;
+    @Inject
     JobConfig jobConfig;
     @Inject
     JobAccess jobAccess;
@@ -84,6 +90,55 @@ public class JobResource {
         return JobSpecTemplate.findVisibleFetched(projectId, templateId)
                 .map(template -> JobSpecTemplateView.of(template, jobAccess.mayReadTemplate(projectId)))
                 .orElseThrow(NotFoundException::new);
+    }
+
+    /** Defines a template scoped to this project. Global templates are the admin API's to define. */
+    @POST
+    @Path("/template")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @ResponseStatus(RestResponse.StatusCode.CREATED)
+    @Transactional
+    @RequirePermission(value = Perm.JOB_TEMPLATE_MANAGE, defaultRole = ProjectRole.OWNER)
+    public JobSpecTemplateView createTemplate(
+            @ProjectId @PathParam("projectId") UUID projectId, CreateTemplateRequest request) {
+        var checked = CreateTemplateRequest.check(request);
+        var project = projectService.requireWritable(projectId);
+        checked.spec().requireVolumesIn(projectId);
+        var template = JobSpecTemplate.builder()
+                .name(checked.name())
+                .spec(checked.spec())
+                .resourceClass(ResourceClass.findVisible(projectId, checked.resourceClass())
+                        .orElseThrow(() -> new NotFoundException(
+                                "no such resource class: " + checked.resourceClass())))
+                .project(project)
+                .build();
+        template.persist();
+        // The caller authored this spec, so it is theirs to read back regardless of job:template:read.
+        return JobSpecTemplateView.of(template, true);
+    }
+
+    /**
+     * Deletes a template of this project.
+     *
+     * <p>Queued entries naming it are not checked for: {@code job.template_id} carries no foreign key and
+     * a queue entry holds its request as jsonb. An entry that outlives its template fails its next
+     * dispatch attempt in {@code PendingJobDispatcher} rather than looping.
+     */
+    @DELETE
+    @Path("/template/{templateId}")
+    @Transactional
+    @RequirePermission(value = Perm.JOB_TEMPLATE_MANAGE, defaultRole = ProjectRole.OWNER)
+    public void deleteTemplate(
+            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("templateId") UUID templateId) {
+        projectService.requireWritable(projectId);
+        var template = JobSpecTemplate.findVisibleFetched(projectId, templateId)
+                .orElseThrow(NotFoundException::new);
+        if (template.getProject() == null) {
+            throw new ClientErrorException(
+                    "a global template is not this project's to delete: " + templateId,
+                    Response.Status.CONFLICT);
+        }
+        template.delete();
     }
 
     /** Lists both running/completed jobs and queued pending jobs in reverse chronological order. */
@@ -162,6 +217,7 @@ public class JobResource {
         if (request == null || request.templateId() == null) {
             throw new BadRequestException("templateId is required");
         }
+        projectService.requireWritable(projectId);
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
         return PendingJobView.of(pending, CreateJobRequest.of(pending.getRequest()));
@@ -173,6 +229,8 @@ public class JobResource {
     @RequirePermission(value = Perm.JOB_CANCEL, defaultRole = ProjectRole.MEMBER)
     public JobStatusView cancelJob(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
+        // An archived project has already had its queue cancelled and its jobs interrupted.
+        projectService.requireWritable(projectId);
         if (jobService.findInProject(projectId, jobId).isEmpty()) {
             var pending = pendingJobService.findInProject(projectId, jobId)
                     .orElseThrow(NotFoundException::new);
@@ -193,6 +251,16 @@ public class JobResource {
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("artifactId") UUID artifactId) {
         var artifact = Artifact.findInProject(projectId, artifactId).orElseThrow(NotFoundException::new);
         return PresignedUrlView.of(storageService.presignGet(artifact.getObjectKey()));
+    }
+
+    /** Deletes an artifact and the object holding its content. There is no way back. */
+    @DELETE
+    @Path("/artifact/{artifactId}")
+    @RequirePermission(value = Perm.JOB_ARTIFACT_DELETE, defaultRole = ProjectRole.OWNER)
+    public void deleteArtifact(
+            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("artifactId") UUID artifactId) {
+        projectService.requireWritable(projectId);
+        artifactService.delete(projectId, artifactId);
     }
 
     @GET

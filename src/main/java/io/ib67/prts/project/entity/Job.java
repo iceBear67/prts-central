@@ -32,10 +32,12 @@ import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Represents a single job execution within a project.
@@ -166,6 +168,35 @@ public class Job extends PanacheEntityBase {
                 .setParameter("open", List.of(JobState.PENDING, JobState.RUNNING))
                 .getSingleResult();
         return new Counts((long) row[0], (long) row[1]);
+    }
+
+    /** Visible job counts per state across every project. */
+    public static Map<JobState, Long> countByState() {
+        return Job.getEntityManager()
+                .createQuery("select state, count(id) from Job where " + VISIBLE_ROW + " group by state",
+                        Object[].class)
+                .setParameter("pending", JobState.PENDING)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (JobState) row[0], row -> (Long) row[1]));
+    }
+
+    public static long countCompletedSince(Instant since) {
+        return count("completedAt >= ?1", since);
+    }
+
+    /** Visible job counts for a batch of projects, keyed by project. */
+    public static Map<UUID, Long> countVisibleByProjects(Collection<UUID> projectIds) {
+        if (projectIds.isEmpty()) {
+            return Map.of();
+        }
+        return Job.getEntityManager()
+                .createQuery("select project.id, count(id) from Job "
+                        + "where project.id in :projects and " + VISIBLE_ROW + " group by project.id",
+                        Object[].class)
+                .setParameter("projects", projectIds)
+                .setParameter("pending", JobState.PENDING)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
     /** Lists all uncompleted (PENDING or RUNNING) jobs for a project. */

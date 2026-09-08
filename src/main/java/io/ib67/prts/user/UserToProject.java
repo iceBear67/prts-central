@@ -8,9 +8,12 @@ import lombok.*;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Represents the membership and role of a user within a project.
@@ -65,6 +68,19 @@ public class UserToProject extends PanacheEntityBase {
     /** Lists memberships for a user with projects eagerly fetched. */
     public static List<UserToProject> listByUserFetched(UUID userId) {
         return find("from UserToProject l join fetch l.project where l.id.userId = ?1", userId).list();
+    }
+
+    /** Member counts for a batch of projects, keyed by project. */
+    public static Map<UUID, Long> countByProjects(Collection<UUID> projectIds) {
+        if (projectIds.isEmpty()) {
+            return Map.of();
+        }
+        return getEntityManager()
+                .createQuery("select l.id.projectId, count(l) from UserToProject l "
+                        + "where l.id.projectId in ?1 group by l.id.projectId", Object[].class)
+                .setParameter(1, projectIds)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
     /** Checks if another owner exists for the project. */

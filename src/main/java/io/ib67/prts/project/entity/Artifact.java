@@ -78,4 +78,17 @@ public class Artifact extends PanacheEntityBase {
     public static Optional<Artifact> findInProject(UUID projectId, UUID artifactId) {
         return find("id = ?1 and job.project.id = ?2", artifactId, projectId).firstResultOptional();
     }
+
+    /** Stored artifact totals across every project. */
+    public record Usage(long count, long bytes) {
+    }
+
+    public static Usage usage() {
+        var row = (Object[]) getEntityManager()
+                .createQuery("select count(a), sum(a.sizeBytes) from Artifact a")
+                .getSingleResult();
+        // sum() is null when there is nothing stored yet.
+        var bytes = (Long) row[1];
+        return new Usage((long) row[0], bytes == null ? 0 : bytes);
+    }
 }

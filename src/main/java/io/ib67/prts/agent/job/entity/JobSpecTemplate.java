@@ -87,4 +87,16 @@ public class JobSpecTemplate extends PanacheEntityBase {
     public static Optional<JobSpecTemplate> findVisibleFetched(UUID projectId, UUID id) {
         return find(VISIBLE_TO + " and t.id = ?2", projectId, id).firstResultOptional();
     }
+
+    private static final String GLOBAL =
+            "from JobSpecTemplate t left join fetch t.resourceClass where t.project is null";
+
+    /** Lists the templates every project may use. */
+    public static List<JobSpecTemplate> listGlobalFetched() {
+        return find(GLOBAL).list();
+    }
+
+    public static Optional<JobSpecTemplate> findGlobalFetched(UUID id) {
+        return find(GLOBAL + " and t.id = ?1", id).firstResultOptional();
+    }
 }

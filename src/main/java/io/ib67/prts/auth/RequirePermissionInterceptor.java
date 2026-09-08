@@ -48,27 +48,35 @@ public class RequirePermissionInterceptor {
         if (user == null) {
             throw new UnauthorizedException();
         }
-        if (required.allowAdmin() && permissionService.isAdmin(user.getId())) {
-            return context.proceed();
-        }
         var perm = required.value();
-        var defaultRole = required.defaultRole();
-        var projectId = projectId(context);
-        if (projectId == null && (!perm.global() || defaultRole != ProjectRole.NONE)) {
-            throw new IllegalStateException(
-                    "no @ProjectId argument to scope " + perm.permission() + " to on " + context.getMethod());
-        }
-        if (permissionService.has(user.getId(), perm, projectId)) {
-            return context.proceed();
-        }
-        if (defaultRole != ProjectRole.NONE
-                && userService.hasAtLeast(user.getId(), projectId, defaultRole)) {
-            return context.proceed();
+        // A global ban denies the permission itself, so neither an admin nor the standing-in role can
+        // satisfy it. It does not close an endpoint that is open regardless (defaultValue), which would
+        // take away things like leaving a project along with the permission.
+        var banned = permissionService.isBanned(perm);
+        if (!banned) {
+            if (required.allowAdmin() && permissionService.isAdmin(user.getId())) {
+                return context.proceed();
+            }
+            var defaultRole = required.defaultRole();
+            var projectId = projectId(context);
+            if (projectId == null && (!perm.global() || defaultRole != ProjectRole.NONE)) {
+                throw new IllegalStateException(
+                        "no @ProjectId argument to scope " + perm.permission() + " to on " + context.getMethod());
+            }
+            if (permissionService.has(user.getId(), perm, projectId)) {
+                return context.proceed();
+            }
+            if (defaultRole != ProjectRole.NONE
+                    && userService.hasAtLeast(user.getId(), projectId, defaultRole)) {
+                return context.proceed();
+            }
         }
         if (required.defaultValue()) {
             return context.proceed();
         }
-        throw new ForbiddenException("missing permission: " + perm.permission());
+        throw new ForbiddenException(banned
+                ? "permission is globally disabled: " + perm.permission()
+                : "missing permission: " + perm.permission());
     }
 
     private RequirePermission binding(InvocationContext context) {

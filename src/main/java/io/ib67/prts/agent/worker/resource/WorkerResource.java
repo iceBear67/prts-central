@@ -3,12 +3,22 @@ package io.ib67.prts.agent.worker.resource;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.WorkerView;
+import io.ib67.prts.dto.WorkerVolumeView;
+import io.ib67.prts.dto.job.JobView;
+import io.ib67.prts.dto.request.RenameWorkerRequest;
+import io.ib67.prts.project.entity.Artifact;
+import io.ib67.prts.project.entity.Job;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -51,6 +61,59 @@ public class WorkerResource {
     @Path("/{id}/enable")
     public WorkerView enableWorker(@PathParam("id") UUID id) {
         return view(workerService.setDisabled(id, false));
+    }
+
+    /**
+     * Renames a worker. The name holds until the worker registers again under one of its own.
+     */
+    @PATCH
+    @Path("/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public WorkerView renameWorker(@PathParam("id") UUID id, RenameWorkerRequest request) {
+        if (request == null || request.name() == null || request.name().isBlank()) {
+            throw new BadRequestException("name is required");
+        }
+        return view(workerService.rename(id, request.name().strip()));
+    }
+
+    /**
+     * Closes the worker's session. Its unfinished jobs fail, as on any disconnect.
+     *
+     * <p>Returns no worker: the session is torn down by the {@code @OnClose} handler, so a view read
+     * here could still report the worker as connected.
+     */
+    @POST
+    @Path("/{id}/disconnect")
+    public void disconnectWorker(@PathParam("id") UUID id) {
+        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        workerService.disconnect(id);
+    }
+
+    /** Drops a worker's registration. It must be disconnected, idle, and hosting no volumes. */
+    @DELETE
+    @Path("/{id}")
+    public void deleteWorker(@PathParam("id") UUID id) {
+        workerService.delete(id);
+    }
+
+    /** Lists the jobs this worker has not finished. */
+    @GET
+    @Path("/{id}/job")
+    @Transactional
+    public List<JobView> listWorkerJobs(@PathParam("id") UUID id) {
+        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        return Job.listOpenByWorker(id).stream()
+                .map(job -> JobView.of(job, Artifact.listByJob(job.getId())))
+                .toList();
+    }
+
+    /** Lists the volumes this worker hosts, across every project. */
+    @GET
+    @Path("/{id}/volume")
+    @Transactional
+    public List<WorkerVolumeView> listWorkerVolumes(@PathParam("id") UUID id) {
+        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        return WorkerVolume.listByWorker(id).stream().map(WorkerVolumeView::of).toList();
     }
 
     private WorkerView view(Worker row) {

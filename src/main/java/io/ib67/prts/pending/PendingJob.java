@@ -29,8 +29,11 @@ import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Queued job request waiting to be dispatched to an available worker.
@@ -127,6 +130,28 @@ public class PendingJob extends PanacheEntityBase {
     public static long countActive(UUID projectId) {
         return count("project.id = ?1 and state in ?2", projectId,
                 List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
+    }
+
+    /** Queue entry counts per state across every project. */
+    public static Map<PendingJobState, Long> countByState() {
+        return getEntityManager()
+                .createQuery("select state, count(id) from PendingJob group by state", Object[].class)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (PendingJobState) row[0], row -> (Long) row[1]));
+    }
+
+    /** Active queue entry counts for a batch of projects, keyed by project. */
+    public static Map<UUID, Long> countActiveByProjects(Collection<UUID> projectIds) {
+        if (projectIds.isEmpty()) {
+            return Map.of();
+        }
+        return getEntityManager()
+                .createQuery("select project.id, count(id) from PendingJob "
+                        + "where project.id in ?1 and state in ?2 group by project.id", Object[].class)
+                .setParameter(1, projectIds)
+                .setParameter(2, List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING))
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
     /** Cancels all active pending jobs for a project. */

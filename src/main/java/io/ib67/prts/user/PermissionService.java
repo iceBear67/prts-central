@@ -4,7 +4,9 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.project.entity.ProjectRole;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheName;
+import io.quarkus.runtime.Startup;
 import jakarta.annotation.Nullable;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
@@ -13,15 +15,20 @@ import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 
 import java.util.Collection;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.UUID;
 
+@Startup
 @ApplicationScoped
 public class PermissionService {
 
     public static final String CACHE_NAME = "user-permissions";
+
+    /** Resolved once from {@code permission.banned}; changing it means restarting the service. */
+    private Set<Perm> banned = Set.of();
 
     @Inject
     EntityManager entityManager;
@@ -32,8 +39,30 @@ public class PermissionService {
     @Inject
     UserService userService;
 
+    @Inject
+    PermissionConfig permissionConfig;
+
     @CacheName(CACHE_NAME)
     Cache cache;
+
+    @PostConstruct
+    void resolveBans() {
+        var resolved = EnumSet.noneOf(Perm.class);
+        for (var name : permissionConfig.banned()) {
+            if (name.isBlank()) {
+                continue;
+            }
+            var perm = Perm.byPermission(name.strip()).orElseThrow(() -> new IllegalStateException(
+                    "permission.banned names no such permission: " + name));
+            if (perm == Perm.ADMIN_OF_ALL) {
+                throw new IllegalStateException(
+                        "permission.banned cannot hold " + perm.permission()
+                                + ": it is what every administrative endpoint is gated on");
+            }
+            resolved.add(perm);
+        }
+        banned = Set.copyOf(resolved);
+    }
 
     /** Returns all permission grants held by the user. */
     public Set<Permission.Id> grantsOf(UUID userId) {
@@ -58,11 +87,15 @@ public class PermissionService {
 
     /**
      * Checks whether the user is permitted either through explicit grants, admin role, or project role.
+     *
+     * <p>A globally banned permission is allowed to nobody, so views built on this agree with what the
+     * endpoints will actually accept.
      */
     public boolean allows(UUID userId, Perm perm, @Nullable UUID projectId, ProjectRole defaultRole) {
-        return isAdmin(userId)
+        return !isBanned(perm)
+                && (isAdmin(userId)
                 || has(userId, perm, projectId)
-                || (defaultRole != ProjectRole.NONE && userService.hasAtLeast(userId, projectId, defaultRole));
+                || (defaultRole != ProjectRole.NONE && userService.hasAtLeast(userId, projectId, defaultRole)));
     }
 
     public boolean hasAny(UUID userId, Collection<Perm> perms, @Nullable UUID projectId) {
@@ -137,6 +170,11 @@ public class PermissionService {
         var removed = Permission.deleteByProject(projectId);
         holders.forEach(this::invalidateAfterCompletion);
         return removed;
+    }
+
+    /** Whether the permission is switched off system-wide. Holds for every caller, admins included. */
+    public boolean isBanned(Perm perm) {
+        return banned.contains(perm);
     }
 
     public void invalidate(UUID userId) {

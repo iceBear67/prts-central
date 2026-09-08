@@ -6,6 +6,7 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.request.CreateSecretRequest;
 import io.ib67.prts.dto.SecretView;
 import io.ib67.prts.dto.request.UpdateSecretRequest;
+import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.secret.SecretConfig;
 import io.ib67.prts.secret.SecretService;
@@ -42,6 +43,8 @@ public class SecretResource {
     SecretService secretService;
     @Inject
     SecretConfig secretConfig;
+    @Inject
+    ProjectService projectService;
 
     @GET
     @Transactional
@@ -60,6 +63,7 @@ public class SecretResource {
         if (request == null || request.name() == null || !NAME.matcher(request.name()).matches()) {
             throw new BadRequestException("name must match " + NAME.pattern());
         }
+        projectService.requireWritable(projectId);
         return SecretView.of(secretService.create(
                 projectId, request.name(), description(request.description()), checkSecretForm(request.value())));
     }
@@ -75,6 +79,7 @@ public class SecretResource {
         if (request == null || (request.description() == null && request.value() == null)) {
             throw new BadRequestException("description or value is required; a blank description clears it");
         }
+        projectService.requireWritable(projectId);
         var value = request.value() == null ? null : checkSecretForm(request.value());
         return secretService.update(projectId, name, description(request.description()), value)
                 .map(SecretView::of)
@@ -87,6 +92,7 @@ public class SecretResource {
     @RequirePermission(value = Perm.PROJECT_SECRET_MANAGE, defaultRole = ProjectRole.OWNER)
     public void deleteSecret(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("name") String name) {
+        projectService.requireWritable(projectId);
         if (!secretService.delete(projectId, name)) {
             throw new NotFoundException("no such secret in project " + projectId + ": " + name);
         }

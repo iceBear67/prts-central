@@ -36,6 +36,16 @@ sequenceDiagram
     Note over A: Cache expiry listener promotes or deletes to prevent orphaned S3 objects
 ```
 
+## Deletion
+
+`ArtifactService.delete(projectId, artifactId)` (behind `DELETE /project/{projectId}/job/artifact/{id}`,
+`job:artifact:delete`) drops the row in `requiringNew()` and only then deletes the object, outside the
+transaction.
+
+That order is the reverse of `ProjectService.deleteObjects`, on purpose: a whole-project delete has to
+read the keys before the rows cascade away, while here an object left behind is invisible and a row whose
+object is already gone would keep handing out presigned URLs to nothing.
+
 ## Storage Limits (`StorageConfig`)
 
 | Config Property | Scope | Description |

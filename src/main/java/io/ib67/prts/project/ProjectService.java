@@ -7,6 +7,7 @@ import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.ib67.prts.project.entity.JobState;
 import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.project.entity.ProjectRole;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import io.ib67.prts.user.PermissionService;
@@ -22,6 +23,7 @@ import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -31,6 +33,7 @@ import java.util.UUID;
 public class ProjectService {
     private static final Logger LOG = Logger.getLogger(ProjectService.class);
     private static final String DELETE_REASON = "project deleted";
+    private static final String ARCHIVE_REASON = "project archived";
     /** Maximum retry attempts to stop running jobs during project deletion before giving up. */
     private static final int MAX_STOP_ROUNDS = 3;
 
@@ -62,10 +65,32 @@ public class ProjectService {
                 .orElseThrow(() -> new NoSuchElementException("no such project: " + id));
     }
 
+    /**
+     * Requires a project that still accepts writes. Every mutating endpoint of a project calls this;
+     * an archived project only answers reads, {@link #unarchive} and {@link #delete}.
+     */
+    public Project requireWritable(UUID id) {
+        var project = require(id);
+        if (project.isArchived()) {
+            throw new ClientErrorException("project is archived: " + id, Response.Status.CONFLICT);
+        }
+        return project;
+    }
+
     @Transactional
     public Project create(String name) {
         var project = Project.builder().name(name).build();
         project.persist();
+        return project;
+    }
+
+    /** Opens a project and makes the given user its owner in the same transaction. */
+    @Transactional
+    public Project create(String name, UUID ownerId) {
+        var project = create(name);
+        // Flush before granting: the role insert carries a foreign key onto the project row.
+        Project.flush();
+        userService.grant(ownerId, project.getId(), ProjectRole.OWNER);
         return project;
     }
 
@@ -77,6 +102,34 @@ public class ProjectService {
     }
 
     /**
+     * Stops the project's work and turns it read-only.
+     *
+     * <p>Archiving cancels the queue and interrupts running jobs first, the same way {@link #delete}
+     * does: once nothing is running, refusing every write leaves no job stranded with no way to stop it.
+     */
+    public Project archive(UUID id) {
+        require(id);
+        stopWork(id, ARCHIVE_REASON);
+        return QuarkusTransaction.requiringNew().call(() -> {
+            var project = Project.<Project>findById(id, LockModeType.PESSIMISTIC_WRITE);
+            if (project == null) {
+                throw new NoSuchElementException("no such project: " + id);
+            }
+            if (!project.isArchived()) {
+                project.setArchivedAt(Instant.now());
+            }
+            return project;
+        });
+    }
+
+    @Transactional
+    public Project unarchive(UUID id) {
+        var project = require(id);
+        project.setArchivedAt(null);
+        return project;
+    }
+
+    /**
      * Deletes a project and cleans up all associated resources (running jobs, external storage, and database records).
      *
      * <p>Running worker jobs and storage objects are stopped and removed first to prevent orphaned external resources.
@@ -84,7 +137,7 @@ public class ProjectService {
      */
     public boolean delete(UUID id) {
         for (var round = 1; ; round++) {
-            stopWork(id);
+            stopWork(id, DELETE_REASON);
             deleteObjects(id);
             var rows = QuarkusTransaction.requiringNew().call(() -> deleteRows(id));
             if (rows != Rows.BUSY) {
@@ -101,7 +154,7 @@ public class ProjectService {
     /**
      * Cancels queued jobs and interrupts currently running jobs on workers.
      */
-    private void stopWork(UUID projectId) {
+    private void stopWork(UUID projectId, String reason) {
         try {
             var cancelled = QuarkusTransaction.requiringNew().call(() -> PendingJob.cancelActive(projectId));
             if (cancelled > 0) {
@@ -118,7 +171,7 @@ public class ProjectService {
             }
             if (job.worker() != null) {
                 try {
-                    if (!workerService.interrupt(job.worker(), job.id(), DELETE_REASON)) {
+                    if (!workerService.interrupt(job.worker(), job.id(), reason)) {
                         LOG.warnf("worker %s is not connected: job %s may still be running there",
                                 job.worker(), job.id());
                     }
