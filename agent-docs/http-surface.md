@@ -83,9 +83,16 @@ Listing windows are capped by `admin.list.max-page-size` (`AdminConfig`), the sa
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
 - **Request Validation**: An inbound record carries Bean Validation constraints, each with the `message` the caller reads; the resource takes it as `@NotNull(message = "a request body is required") @Valid`. The record's compact constructor only normalizes (`strip()`). What constraints cannot express stays as code: cross-component and enum-value rules throw from the constructor (`UpdateSecretRequest`, `SetMemberRoleRequest`), configured length ceilings stay in `SecretResource`, and `SetPermissionsRequest.resolved()` does the `Perm` lookup — which is why no resource carries a `perm(String)` helper. Constraints also land in the OpenAPI schema as `required` / `pattern` / `minLength` / `minimum`.
-- **Exception Mapping**:
-  - `NoSuchElementException` -> mapped to 404 by `NotFoundMapper`.
+- **Exception Mapping**: **every 4xx and 5xx answers `{ "message": ... }`, with 401 the one exception.**
+  - `NoSuchElementException` -> mapped to 404 by `NotFoundMapper`, carrying the message it was thrown with.
   - `ClientErrorMapper` -> wraps 4xx exceptions with structured `{ "message": ... }` responses.
+  - **403**: `RequirePermissionInterceptor` throws Quarkus' `io.quarkus.security.ForbiddenException`, a
+    `SecurityException` that `ClientErrorMapper` never sees — `ForbiddenMapper` gives it the same body.
+    The few endpoints throwing the JAX-RS `ForbiddenException` instead already had one.
+  - **401 has no body, and must not be given one.** It is the authentication challenge: both the
+    security layer and `UserContext.require()`'s `UnauthorizedException` reach Quarkus' own handler,
+    which under the `web-app` OIDC flow answers with a redirect to the provider. A mapper here would
+    replace that redirect.
   - **Constraint violations**: `ConstraintViolationMapper` renders them in that same shape, joining
     several failures in property-path order so one payload always reads the same way. It takes
     precedence over Quarkus' `ResteasyReactiveViolationExceptionMapper` — that one is registered for
@@ -101,5 +108,23 @@ Listing windows are capped by `admin.list.max-page-size` (`AdminConfig`), the sa
     itself in its constructor. The reader is the only source of a plain `WebApplicationException`, so
     the unwrap is keyed on that exact type and leaves every subclass alone. Malformed JSON carries
     nothing of ours and keeps the reader's 400.
-- **OpenAPI**: `PermissionOASFilter` runs at build time to document `@RequirePermission` rules, required roles, and 401/403 responses across the generated OpenAPI schema.
+- **OpenAPI**: `EndpointOASFilter` runs at build time and republishes what SmallRye does not read off a
+  resource method — all of it derived, so **documenting an endpoint's errors takes no annotation**:
+  - A **`default` response** carrying `ErrorView` on every operation. This is the whole error contract:
+    since every refusal answers with the same body, one `default` says so without anyone having to
+    enumerate which codes an endpoint can reach. The named codes below are the ones worth calling out
+    alongside it, **not an exhaustive list** — an exhaustive one is what would need annotations, and
+    would go stale the moment an endpoint gained a new way to refuse.
+  - **401** on every operation; **400** wherever a request body is consumed; **404** wherever the path
+    takes a parameter; **409** on every non-GET under `/project/{projectId}` — the reach of
+    `ProjectService.requireWritable` — minus `archive` and `unarchive`, which deliberately skip it.
+    The bar for naming a code is that a caller branches on it; 415 does not clear it and is left to
+    `default`.
+  - The **success status** comes from `@ResponseStatus`, or is 204 for a `void` method. SmallRye reads
+    neither, so it had documented every created resource 200 and every `void` POST 201.
+  - Every error response, `default` included, gets the `ErrorView` body. **401 is the one skipped** —
+    it carries no body, and being named it takes precedence over `default` for a client.
+  - Adding an `@APIResponse` is rarely the answer, and never for an error: **a lone one replaces the
+    success response SmallRye derives rather than adding to it**, so it has to restate the 200/201/204
+    as well. `JobResource.createJob` is the one place that does, for its `JobStatusView` schema.
 

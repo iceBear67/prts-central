@@ -51,7 +51,7 @@ holds the services and value objects.
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
 | `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
-| `openapi` | Build-time `OASFilter` republishing the annotations into the OpenAPI document |
+| `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |
 
 These groupings move; **do not hand-build a path from this table**, look the class up by name (below).
 
