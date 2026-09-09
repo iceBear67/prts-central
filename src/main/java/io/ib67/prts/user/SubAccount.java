@@ -75,6 +75,12 @@ public class SubAccount extends PanacheEntityBase {
         return account;
     }
 
+    /** Finds a sub-account by its user ID, with the account's own user fetched. */
+    public static Optional<SubAccount> findFetched(UUID userId) {
+        return find("from SubAccount s join fetch s.user where s.userId = ?1", userId)
+                .firstResultOptional();
+    }
+
     /** Finds a sub-account by user ID within a specific project. */
     public static Optional<SubAccount> findInProject(UUID projectId, UUID userId) {
         return find("from SubAccount s join fetch s.user where s.userId = ?1 and s.project.id = ?2",

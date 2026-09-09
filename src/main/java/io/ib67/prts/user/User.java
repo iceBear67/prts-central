@@ -56,6 +56,11 @@ public class User extends PanacheEntityBase {
                 : find("email", email).firstResultOptional();
     }
 
+    /** Every account someone can log in as. Sub-accounts hold no login and are excluded. */
+    public static List<User> listPeople() {
+        return list("id not in (select s.userId from SubAccount s)");
+    }
+
     /** Searches users by name or email with pagination, ordered by creation time descending. */
     public static List<User> search(@Nullable String query, int offset, int limit) {
         var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
