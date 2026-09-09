@@ -5,6 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.dto.ArtifactUsage;
 import io.ib67.prts.project.entity.Artifact;
 import io.ib67.prts.project.entity.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -12,6 +13,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.ws.rs.NotFoundException;
 import org.jboss.logging.Logger;
@@ -52,6 +54,8 @@ public class ArtifactService {
         return thread;
     });
 
+    @Inject
+    EntityManager entityManager;
     @Inject
     StorageService storageService;
     @Inject
@@ -131,6 +135,16 @@ public class ArtifactService {
         storageService.deleteQuietly(objectKey);
     }
 
+    /** Counts every artifact stored across all projects, and the bytes they occupy. */
+    public ArtifactUsage stored() {
+        // sum() returns null when no rows exist, whereas count() returns 0.
+        var row = (Object[]) entityManager
+                .createQuery("select count(a), sum(a.sizeBytes) from Artifact a")
+                .getSingleResult();
+        var bytes = (Long) row[1];
+        return new ArtifactUsage((long) row[0], bytes == null ? 0 : bytes);
+    }
+
     /** Cancels in-flight uploads and deletes partial objects for a job. */
     public void discardPendingOf(UUID jobId) {
         for (var session : List.copyOf(pending.asMap().values())) {
@@ -175,8 +189,9 @@ public class ArtifactService {
         pending.put(session.uploadId(), session);
     }
 
-    private Reservations reservedFor(UUID jobId) {
-        var count = 0;
+    /** Active quota reservations for in-flight uploads. */
+    private ArtifactUsage reservedFor(UUID jobId) {
+        var count = 0L;
         long bytes = 0;
         for (var session : pending.asMap().values()) {
             if (jobId.equals(session.jobId())) {
@@ -184,11 +199,7 @@ public class ArtifactService {
                 bytes += session.sizeBytes();
             }
         }
-        return new Reservations(count, bytes);
-    }
-
-    /** Active quota reservations for in-flight uploads. */
-    private record Reservations(int count, long bytes) {
+        return new ArtifactUsage(count, bytes);
     }
 
     /** Records an uploaded artifact in the database. */

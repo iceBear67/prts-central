@@ -21,9 +21,12 @@ import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Represents a programmatic sub-account (service account) tied to a project rather than a human user.
@@ -93,5 +96,18 @@ public class SubAccount extends PanacheEntityBase {
                 .setParameter(1, userId)
                 .getResultStream()
                 .findFirst();
+    }
+
+    /** Maps sub-account IDs to their owning project IDs; users who are not sub-accounts are omitted. */
+    public static Map<UUID, UUID> owningProjectsOf(Collection<UUID> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+        return getEntityManager()
+                .createQuery("select s.userId, s.project.id from SubAccount s where s.userId in ?1",
+                        Object[].class)
+                .setParameter(1, userIds)
+                .getResultList().stream()
+                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (UUID) row[1]));
     }
 }

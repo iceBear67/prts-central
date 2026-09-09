@@ -9,13 +9,13 @@ import io.ib67.prts.dto.admin.UserDetailView;
 import io.ib67.prts.dto.admin.UserView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
 import io.ib67.prts.user.PermissionService;
+import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserService;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
-import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
@@ -31,9 +31,7 @@ import jakarta.ws.rs.core.MediaType;
 
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Administrative endpoints for managing users and permissions across projects.
@@ -43,8 +41,6 @@ import java.util.stream.Collectors;
 @RequirePermission(Perm.ADMIN_OF_ALL)
 public class AdminUserResource {
 
-    @Inject
-    EntityManager entityManager;
     @Inject
     UserService userService;
     @Inject
@@ -60,21 +56,8 @@ public class AdminUserResource {
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
         var users = User.search(query, Pages.clampOffset(offset, window), window);
-        var owners = owningProjects(users.stream().map(User::getId).toList());
+        var owners = SubAccount.owningProjectsOf(users.stream().map(User::getId).toList());
         return users.stream().map(user -> UserView.of(user, owners.get(user.getId()))).toList();
-    }
-
-    /** Maps sub-account IDs to their owning project IDs; human users are omitted. */
-    private Map<UUID, UUID> owningProjects(List<UUID> userIds) {
-        if (userIds.isEmpty()) {
-            return Map.of();
-        }
-        return entityManager
-                .createQuery("select s.userId, s.project.id from SubAccount s where s.userId in ?1",
-                        Object[].class)
-                .setParameter(1, userIds)
-                .getResultList().stream()
-                .collect(Collectors.toMap(row -> (UUID) row[0], row -> (UUID) row[1]));
     }
 
     @GET
@@ -134,7 +117,7 @@ public class AdminUserResource {
                 .sorted(Comparator.comparing(UserDetailView.Membership::projectName))
                 .toList();
         return new UserDetailView(
-                UserView.of(user, owningProjects(List.of(userId)).get(userId)),
+                UserView.of(user, SubAccount.owningProjectOf(userId).orElse(null)),
                 memberships,
                 grants.global(),
                 grants.byProject());

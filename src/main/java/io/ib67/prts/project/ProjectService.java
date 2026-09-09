@@ -56,10 +56,6 @@ public class ProjectService {
         return Project.findByIdOptional(id);
     }
 
-    public List<Project> listAll() {
-        return Project.listAll();
-    }
-
     public Project require(UUID id) {
         return Project.<Project>findByIdOptional(id)
                 .orElseThrow(() -> new NoSuchElementException("no such project: " + id));
