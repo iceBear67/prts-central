@@ -13,6 +13,12 @@ Configured via `quarkus.http.auth.permission` in `application.yml`:
 | **OIDC Auth Code** | Browser redirect / callback on `/api/*` | 1001 | Authorization-code flow against Gitea. `UserIdentityAugmenter` maps `(issuer, subject)` to local `User` record; provisions on first login via `UserService.provision`. Disabled in `%dev` and `%test`. |
 | **Worker Auth** | `X-Worker-Token` on `/ws/worker` | Dedicated | Validates header against `worker.secret`. Grants shared `"worker"` principal. |
 
+`HttpAuthenticationMechanism`, `IdentityProvider` and `SecurityIdentityAugmentor` all run on the IO
+thread. Their database work belongs inside `context.runBlocking` (`AccessTokenIdentityProvider`,
+`UserIdentityAugmenter`), and **no bean they inject may query from its constructor or `@PostConstruct`** —
+dereferencing a client proxy is what creates the bean, so that construction would run on the IO thread
+too. `DevAdminSeeder` seeds from a `StartupEvent` observer for this reason.
+
 ### Token Storage & Lifecycle
 - **Storage**: Stored as un-salted `sha256:<base64url>` in `user_access_token` (one row per user). Lookup queries by hashed token directly.
 - **Issuing & Rotation**: `AccessTokenService.issue(userId)` updates the existing row in place. Generating a new token immediately invalidates the previous token.
