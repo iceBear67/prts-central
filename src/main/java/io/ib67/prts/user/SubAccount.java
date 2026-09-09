@@ -85,4 +85,13 @@ public class SubAccount extends PanacheEntityBase {
     public static boolean isSubAccount(UUID userId) {
         return count("userId", userId) > 0;
     }
+
+    /** Returns the project owning the account, or empty if the user is not a sub-account. */
+    public static Optional<UUID> owningProjectOf(UUID userId) {
+        return getEntityManager()
+                .createQuery("select s.project.id from SubAccount s where s.userId = ?1", UUID.class)
+                .setParameter(1, userId)
+                .getResultStream()
+                .findFirst();
+    }
 }

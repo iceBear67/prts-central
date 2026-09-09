@@ -65,6 +65,12 @@ within the same transaction would return pre-commit data.
 
 Listing page sizes are capped by `admin.list.max-page-size` (`AdminConfig`), matching `job.list`.
 
+## Current User
+
+`GET /api/user` returns the account the request authenticated as — identity, `subAccountOf` (the owning project, or null for a person), the permission identifiers granted globally (`admin:all` among them), and `projects`, the caller's standing in each project they reach, keyed by project ID.
+
+A `projects` entry carries the `role` held and the `permissions` granted on top of it. Either half alone puts a project in the map: a member with no explicit grant reports its role against an empty list, and a grant made in a project the caller is no member of reports `NONE`. Permissions a role already implies are never listed, so a client gating on this must read the role too. Authentication is the only requirement, so sub-accounts reach it as well.
+
 ## Token & Secret Endpoints
 
 - `GET /api/user/token` & `PUT /api/user/token`: Personal access token management for the current user. Returns the plaintext token only upon initial `PUT`. Sub-accounts cannot access this endpoint.

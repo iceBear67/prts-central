@@ -127,6 +127,11 @@ and the entities both have been), so a path is the part that goes stale while th
   supplied field is gated.
 - **Authorization lives at the endpoint**, not in the services. Services take plain arguments or domain
   values (`JobRequest`), never wire DTOs; request-shape validation stays in the resource.
+- **Don't grow a service for a view.** When a resource can get there from the service's existing public
+  methods, shape the result in the resource or on the view record —
+  `ScopedGrants.of(permissionService.grantsOf(id))`, not a new `PermissionService.grantsByScope`. Two
+  callers wanting the same shape is no reason to push it down; share it on the view type. A new service
+  method earns its place with domain logic or a query the resource cannot express.
 - **Every mutating project endpoint must call `ProjectService.requireWritable(projectId)` first.**
   Archived projects return 409 Conflict for all modifications other than unarchive and delete. This check
   is explicit rather than interceptor-based, so **new mutating endpoints must include it**. Worker reporting

@@ -4,10 +4,10 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.Pages;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.ScopedGrants;
 import io.ib67.prts.dto.admin.UserDetailView;
 import io.ib67.prts.dto.admin.UserView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
-import io.ib67.prts.user.Permission;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserService;
@@ -29,13 +29,9 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -132,8 +128,7 @@ public class AdminUserResource {
      */
     private UserDetailView detailOf(UUID userId) {
         var user = requireUser(userId);
-        var grouped = byScope(permissionService.grantsOf(userId));
-        var global = grouped.remove(Permission.GLOBAL);
+        var grants = ScopedGrants.of(permissionService.grantsOf(userId));
         var memberships = userService.listMemberships(userId).stream()
                 .map(UserDetailView.Membership::of)
                 .sorted(Comparator.comparing(UserDetailView.Membership::projectName))
@@ -141,18 +136,8 @@ public class AdminUserResource {
         return new UserDetailView(
                 UserView.of(user, owningProjects(List.of(userId)).get(userId)),
                 memberships,
-                global == null ? List.of() : global,
-                grouped);
-    }
-
-    /** Groups permissions by project scope, using {@link Permission#GLOBAL} for global permissions. */
-    private static Map<UUID, List<String>> byScope(Collection<Permission.Id> grants) {
-        var grouped = new TreeMap<UUID, List<String>>();
-        grants.forEach(grant -> grouped
-                .computeIfAbsent(grant.getProjectId(), scope -> new ArrayList<>())
-                .add(grant.getPermission()));
-        grouped.values().forEach(Collections::sort);
-        return grouped;
+                grants.global(),
+                grants.byProject());
     }
 
     private static User requireUser(UUID userId) {
