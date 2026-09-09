@@ -1,7 +1,7 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
-import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.job.entity.Project;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;

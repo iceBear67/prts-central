@@ -1,7 +1,7 @@
 package io.ib67.prts.pending;
 
-import io.ib67.prts.project.entity.JobRequest;
-import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.job.entity.JobRequest;
+import io.ib67.prts.job.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.CheckConstraint;

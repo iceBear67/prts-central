@@ -2,8 +2,8 @@ package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
-import io.ib67.prts.project.entity.JobState;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;

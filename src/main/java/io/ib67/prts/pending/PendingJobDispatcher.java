@@ -1,9 +1,9 @@
 package io.ib67.prts.pending;
 
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.project.JobLauncher;
-import io.ib67.prts.project.JobService;
-import io.ib67.prts.project.JobConfig;
+import io.ib67.prts.job.JobLauncher;
+import io.ib67.prts.job.JobService;
+import io.ib67.prts.job.JobConfig;
 import io.quarkus.runtime.StartupEvent;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;

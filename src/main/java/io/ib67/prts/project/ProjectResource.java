@@ -1,4 +1,4 @@
-package io.ib67.prts.project.resource;
+package io.ib67.prts.project;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
@@ -11,9 +11,8 @@ import io.ib67.prts.dto.request.RenameProjectRequest;
 import io.ib67.prts.dto.request.SetMemberRoleRequest;
 import io.ib67.prts.dto.request.TransferProjectRequest;
 import io.ib67.prts.pending.PendingJob;
-import io.ib67.prts.project.ProjectService;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;

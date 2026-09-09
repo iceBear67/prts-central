@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.job;
 
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;

@@ -1,6 +1,6 @@
 package io.ib67.prts.dto;
 
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 

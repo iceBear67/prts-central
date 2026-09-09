@@ -3,7 +3,7 @@ package io.ib67.prts.agent.worker;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.storage.ArtifactService;
-import io.ib67.prts.project.JobService;
+import io.ib67.prts.job.JobService;
 import io.quarkus.websockets.next.*;
 import io.smallrye.common.annotation.Blocking;
 import jakarta.inject.Inject;

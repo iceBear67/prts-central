@@ -2,7 +2,7 @@ package io.ib67.prts.agent.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
-import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.job.entity.Project;
 import io.quarkus.security.ForbiddenException;
 import jakarta.ws.rs.BadRequestException;
 import org.junit.jupiter.api.Test;

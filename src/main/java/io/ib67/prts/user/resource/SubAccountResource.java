@@ -8,7 +8,7 @@ import io.ib67.prts.dto.request.CreateSubAccountRequest;
 import io.ib67.prts.dto.IssuedTokenView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
 import io.ib67.prts.dto.project.SubAccountView;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
 import io.ib67.prts.user.SubAccount;

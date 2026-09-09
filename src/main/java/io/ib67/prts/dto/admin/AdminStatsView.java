@@ -1,7 +1,7 @@
 package io.ib67.prts.dto.admin;
 
 import io.ib67.prts.pending.PendingJobState;
-import io.ib67.prts.project.entity.JobState;
+import io.ib67.prts.job.entity.JobState;
 
 import java.util.Map;
 import java.util.Objects;

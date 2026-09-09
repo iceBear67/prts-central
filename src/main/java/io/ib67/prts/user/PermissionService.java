@@ -1,7 +1,7 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.quarkus.cache.Cache;
 import io.quarkus.cache.CacheName;
 import io.quarkus.runtime.Startup;

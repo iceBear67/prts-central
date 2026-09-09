@@ -1,6 +1,6 @@
 package io.ib67.prts.dto.job;
 
-import io.ib67.prts.project.entity.JobLog;
+import io.ib67.prts.job.entity.JobLog;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;

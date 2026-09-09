@@ -1,6 +1,6 @@
 package io.ib67.prts.secret.user.resource;
 
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;

@@ -1,7 +1,7 @@
 package io.ib67.prts.dto.request;
 
 import io.ib67.prts.agent.job.JobSpecOverride;
-import io.ib67.prts.project.entity.JobRequest;
+import io.ib67.prts.job.entity.JobRequest;
 import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotNull;
 

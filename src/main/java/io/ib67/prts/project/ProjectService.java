@@ -2,12 +2,13 @@ package io.ib67.prts.project;
 
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.job.JobService;
 import io.ib67.prts.pending.PendingJob;
-import io.ib67.prts.project.entity.Artifact;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.JobState;
-import io.ib67.prts.project.entity.Project;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.Artifact;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import io.ib67.prts.user.PermissionService;

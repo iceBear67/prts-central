@@ -2,7 +2,7 @@ package io.ib67.prts.user.resource;
 
 import io.ib67.prts.dto.CurrentUserView;
 import io.ib67.prts.dto.ScopedGrants;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.UserContext;

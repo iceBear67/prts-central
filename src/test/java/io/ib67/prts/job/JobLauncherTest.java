@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.job;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
@@ -7,8 +7,9 @@ import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
-import io.ib67.prts.project.entity.JobRequest;
-import io.ib67.prts.project.entity.Project;
+import io.ib67.prts.job.entity.JobRequest;
+import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.SecretService;
 import io.ib67.prts.testing.InlineTransactions;
 import io.quarkus.security.ForbiddenException;
@@ -28,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;

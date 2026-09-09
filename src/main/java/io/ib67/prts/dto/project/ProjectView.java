@@ -1,7 +1,7 @@
 package io.ib67.prts.dto.project;
 
-import io.ib67.prts.project.entity.Project;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.entity.ProjectRole;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;

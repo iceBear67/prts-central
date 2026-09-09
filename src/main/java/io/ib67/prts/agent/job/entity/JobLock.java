@@ -1,9 +1,7 @@
 package io.ib67.prts.agent.job.entity;
 
-import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.Project;
-import io.ib67.prts.project.entity.JobState;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.persistence.Column;
 import jakarta.persistence.Embeddable;

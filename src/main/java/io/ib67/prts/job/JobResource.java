@@ -1,4 +1,4 @@
-package io.ib67.prts.project.resource;
+package io.ib67.prts.job;
 
 import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
@@ -13,15 +13,11 @@ import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
-import io.ib67.prts.project.JobAccess;
-import io.ib67.prts.project.JobConfig;
-import io.ib67.prts.project.JobLauncher;
-import io.ib67.prts.project.JobService;
 import io.ib67.prts.project.ProjectService;
-import io.ib67.prts.project.entity.Artifact;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.JobRequest;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.Artifact;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobRequest;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import jakarta.annotation.Nullable;

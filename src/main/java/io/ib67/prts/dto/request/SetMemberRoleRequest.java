@@ -1,6 +1,6 @@
 package io.ib67.prts.dto.request;
 
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.BadRequestException;
 

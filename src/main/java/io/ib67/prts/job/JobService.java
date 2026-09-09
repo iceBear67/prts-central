@@ -1,11 +1,11 @@
-package io.ib67.prts.project;
+package io.ib67.prts.job;
 
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.JobLog;
-import io.ib67.prts.project.entity.JobState;
-import io.ib67.prts.storage.ArtifactService;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobLog;
+import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.project.ProjectService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;

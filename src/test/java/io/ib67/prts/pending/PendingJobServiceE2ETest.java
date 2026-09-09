@@ -1,7 +1,7 @@
 package io.ib67.prts.pending;
 
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.project.JobConfig;
+import io.ib67.prts.job.JobConfig;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;

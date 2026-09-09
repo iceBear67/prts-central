@@ -1,4 +1,4 @@
-package io.ib67.prts.project;
+package io.ib67.prts.job;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.entity.JobLock;
@@ -7,12 +7,13 @@ import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobState;
-import io.ib67.prts.project.entity.Artifact;
-import io.ib67.prts.project.entity.Job;
-import io.ib67.prts.project.entity.JobLog;
-import io.ib67.prts.project.entity.JobState;
-import io.ib67.prts.project.entity.Project;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.Artifact;
+import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobLog;
+import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.ProjectSecret;
 import io.ib67.prts.secret.user.UserAccessToken;
 import io.ib67.prts.testing.DatabaseCleaner;
