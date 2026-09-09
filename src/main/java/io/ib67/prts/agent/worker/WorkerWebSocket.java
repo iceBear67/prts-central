@@ -49,6 +49,7 @@ public class WorkerWebSocket {
             case ServerboundMessage.JobCreated created -> handleJobCreated(created);
             case ServerboundMessage.JobStateUpdate u -> handleJobStateUpdate(u);
             case ServerboundMessage.UploadArtifactRequest r -> handleUploadArtifactRequest(r);
+            case ServerboundMessage.VolumeAck ack -> handleVolumeAck(ack);
         };
     }
 
@@ -99,6 +100,11 @@ public class WorkerWebSocket {
 
     private ClientboundMessage handleJobCreated(ServerboundMessage.JobCreated created) {
         var accepted = workerService.onJobCreated(workerId(), created.requestId());
+        return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
+    }
+
+    private ClientboundMessage handleVolumeAck(ServerboundMessage.VolumeAck ack) {
+        var accepted = workerService.onVolumeAck(workerId(), ack.requestId(), ack.ok(), ack.message());
         return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
     }
 

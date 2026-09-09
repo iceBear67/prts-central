@@ -11,18 +11,21 @@ import java.util.UUID;
  * Request payload to submit or queue a new job.
  *
  * <p>Also embedded in {@code JobView.createRequest} to describe the original request parameters.
+ *
+ * @param taskId task whose scope the job runs under, or null to run outside any task
  */
 public record CreateJobRequest(
         @NotNull(message = "templateId is required") UUID templateId,
         @Nullable JobSpecOverride override,
-        @Nullable String resourceClass
-        //todo link outer resources
+        @Nullable String resourceClass,
+        @Nullable UUID taskId
 ) {
     public JobRequest toRequest() {
-        return new JobRequest(templateId, override, resourceClass);
+        return new JobRequest(templateId, override, resourceClass, taskId);
     }
 
     public static CreateJobRequest of(JobRequest request) {
-        return new CreateJobRequest(request.templateId(), request.override(), request.resourceClass());
+        return new CreateJobRequest(
+                request.templateId(), request.override(), request.resourceClass(), request.taskId());
     }
 }

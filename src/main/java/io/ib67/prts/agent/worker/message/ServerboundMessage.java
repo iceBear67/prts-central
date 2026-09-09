@@ -24,6 +24,7 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ServerboundMessage.JobCreated.class, name = "jobCreated"),
         @JsonSubTypes.Type(value = ServerboundMessage.JobStateUpdate.class, name = "jobStateUpdate"),
         @JsonSubTypes.Type(value = ServerboundMessage.UploadArtifactRequest.class, name = "uploadArtifactRequest"),
+        @JsonSubTypes.Type(value = ServerboundMessage.VolumeAck.class, name = "volumeAck"),
 })
 public sealed interface ServerboundMessage {
     record Register(UUID workerId, String name, @Nullable RegisteredWorker.Info info)
@@ -67,6 +68,18 @@ public sealed interface ServerboundMessage {
         public UploadArtifactRequest {
             Objects.requireNonNull(jobId, "jobId");
             Objects.requireNonNull(name, "name");
+        }
+    }
+
+    /**
+     * Reports the outcome of a {@link ClientboundMessage.CreateVolume} or
+     * {@link ClientboundMessage.DeleteVolume}.
+     *
+     * @param message reason for the failure, ignored when {@code ok}
+     */
+    record VolumeAck(UUID requestId, boolean ok, @Nullable String message) implements ServerboundMessage {
+        public VolumeAck {
+            Objects.requireNonNull(requestId, "requestId");
         }
     }
 }

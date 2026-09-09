@@ -61,7 +61,13 @@ public record JobSpec(
     }
 
     /**
-     * Validates that all requested volumes exist and belong to the specified project.
+     * Validates that all requested volumes exist, belong to the specified project, are ready, and are
+     * hosted on a single worker.
+     *
+     * <p>The affinity check is here rather than left to placement because {@code WorkerScheduler} has no
+     * way to report it: every reason it cannot place a job collapses into one message, so a spec naming
+     * volumes on two workers would be requeued with backoff until it expired, saying only that no worker
+     * could take it.
      */
     public void requireVolumesIn(UUID projectId) {
         if (volumes.isEmpty()) {
@@ -71,9 +77,22 @@ public record JobSpec(
         if (rows.size() != volumes.size()) {
             throw new BadRequestException("unknown volume in job spec");
         }
+        UUID host = null;
         for (var row : rows) {
             if (!row.getProject().getId().equals(projectId)) {
                 throw new ForbiddenException("volume " + row.getId() + " belongs to another project");
+            }
+            if (!row.getState().isUsable()) {
+                throw new BadRequestException(
+                        "volume " + row.getId() + " is not ready: " + row.getState());
+            }
+            var worker = row.getWorker().getId();
+            if (host == null) {
+                host = worker;
+            } else if (!host.equals(worker)) {
+                throw new BadRequestException(
+                        "a job cannot mount volumes from more than one worker: "
+                                + host + " and " + worker);
             }
         }
     }

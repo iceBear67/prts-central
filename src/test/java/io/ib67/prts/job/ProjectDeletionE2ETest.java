@@ -13,6 +13,9 @@ import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.Project;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.job.task.TaskScope;
+import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.job.task.entity.TaskVolume;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.ProjectSecret;
 import io.ib67.prts.secret.user.UserAccessToken;
@@ -194,6 +197,9 @@ class ProjectDeletionE2ETest {
                         rows(() -> ResourceClass.count("projectId", projectId)), "resource_class"),
                 () -> assertEquals(0,
                         rows(() -> WorkerVolume.count("project.id", projectId)), "worker_volume"),
+                () -> assertEquals(0, rows(() -> Task.count("project.id", projectId)), "task"),
+                () -> assertEquals(0,
+                        rows(() -> TaskVolume.count("task.project.id", projectId)), "task_volume"),
                 () -> assertEquals(0,
                         rows(() -> ProjectSecret.count("id.projectId", projectId)), "project_secret"),
                 () -> assertEquals(0, rows(() -> SubAccount.count("project.id", projectId)), "sub_account"),
@@ -218,7 +224,9 @@ class ProjectDeletionE2ETest {
         // Acquire lock with completed job to test cascading deletion of JobLock.
         inTx(() -> JobLock.tryAcquire("deploy", done));
         fixtures.createJob(projectId, owner, klass, JobState.RUNNING, fixtures.createWorker("w-" + projectId));
-        fixtures.createVolume(projectId, fixtures.createWorker("v-" + projectId), "cache");
+        var volume = fixtures.createVolume(projectId, fixtures.createWorker("v-" + projectId), "cache");
+        var task = fixtures.createTask(projectId, owner, "pr-42", TaskScope.EMPTY);
+        fixtures.mountVolume(task, volume, "/data");
         fixtures.createQueuedJob(projectId, owner, template, "small");
         return new Filled(owner, subAccount);
     }

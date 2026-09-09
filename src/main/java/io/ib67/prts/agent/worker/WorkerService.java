@@ -183,6 +183,54 @@ public class WorkerService {
         return true;
     }
 
+    boolean onVolumeAck(UUID workerId, UUID requestId, boolean ok, @Nullable String message) {
+        var worker = activeWorkers.get(workerId);
+        if (worker == null) {
+            return false;
+        }
+        worker.getRpc().completeVolume(requestId, ok, message);
+        return true;
+    }
+
+    /**
+     * Picks a worker to host a new volume.
+     *
+     * @throws ClientErrorException with HTTP 409 Conflict if no worker can take it
+     */
+    public UUID selectVolumeHost() {
+        return scheduler.selectVolumeHost().orElseThrow(() -> new ClientErrorException(
+                "no worker is available to host a volume", Response.Status.CONFLICT));
+    }
+
+    /**
+     * Asks a worker to allocate a volume, blocking until it acknowledges.
+     *
+     * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
+     * @throws IllegalStateException if the worker refuses or does not answer
+     */
+    public void createVolume(UUID workerId, UUID volumeId, UUID projectId, String name, long sizeBytes) {
+        requireConnected(workerId).getRpc().createVolume(volumeId, projectId, name, sizeBytes);
+    }
+
+    /**
+     * Asks a worker to discard a volume, blocking until it acknowledges.
+     *
+     * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
+     * @throws IllegalStateException if the worker refuses or does not answer
+     */
+    public void deleteVolume(UUID workerId, UUID volumeId) {
+        requireConnected(workerId).getRpc().deleteVolume(volumeId);
+    }
+
+    private RegisteredWorker requireConnected(UUID workerId) {
+        var worker = activeWorkers.get(workerId);
+        if (worker == null) {
+            throw new ClientErrorException(
+                    "worker " + workerId + " is not connected", Response.Status.CONFLICT);
+        }
+        return worker;
+    }
+
     /**
      * Attempts to place a job on an eligible worker.
      *

@@ -2,20 +2,18 @@ package io.ib67.prts.project;
 
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
-import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.Project;
 import io.ib67.prts.job.entity.ProjectRole;
-import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.SubAccountService;
 import io.ib67.prts.user.UserService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
-import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
@@ -26,9 +24,11 @@ import org.jboss.logging.Logger;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @ApplicationScoped
 public class ProjectService {
@@ -48,8 +48,6 @@ public class ProjectService {
     JobService jobService;
     @Inject
     WorkerService workerService;
-    @Inject
-    ArtifactService artifactService;
     @Inject
     StorageService storageService;
 
@@ -134,6 +132,7 @@ public class ProjectService {
         for (var round = 1; ; round++) {
             stopWork(id, DELETE_REASON);
             deleteObjects(id);
+            deleteVolumes(id);
             var rows = QuarkusTransaction.requiringNew().call(() -> deleteRows(id));
             if (rows != Rows.BUSY) {
                 return rows == Rows.DELETED;
@@ -158,24 +157,31 @@ public class ProjectService {
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot cancel the queued jobs of project %s", projectId);
         }
-        for (var job : openJobs(projectId)) {
-            try {
-                jobService.applyState(job.id(), JobState.CANCELLED);
-            } catch (RuntimeException e) {
-                LOG.errorf(e, "cannot cancel job %s of project %s", job.id(), projectId);
-            }
-            if (job.worker() != null) {
-                try {
-                    if (!workerService.interrupt(job.worker(), job.id(), reason)) {
-                        LOG.warnf("worker %s is not connected: job %s may still be running there",
-                                job.worker(), job.id());
-                    }
-                } catch (RuntimeException e) {
-                    LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
-                }
-            }
-            artifactService.discardPendingOf(job.id());
+        jobService.stopOpen(openJobs(projectId), reason);
+    }
+
+    /**
+     * Tells workers to discard the project's volumes.
+     *
+     * <p>{@code worker_volume.project_id} cascades, so without this the rows vanish while the data stays
+     * on the workers with nothing left pointing at it.
+     */
+    private void deleteVolumes(UUID projectId) {
+        Map<UUID, UUID> hosts;
+        try {
+            hosts = QuarkusTransaction.requiringNew().call(() -> WorkerVolume.listByProject(projectId).stream()
+                    .collect(Collectors.toMap(WorkerVolume::getId, volume -> volume.getWorker().getId())));
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "cannot list the volumes of project %s; they are left on their workers", projectId);
+            return;
         }
+        hosts.forEach((volumeId, workerId) -> {
+            try {
+                workerService.deleteVolume(workerId, volumeId);
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "cannot discard volume %s on worker %s; it is left behind", volumeId, workerId);
+            }
+        });
     }
 
     private void deleteObjects(UUID projectId) {
@@ -223,13 +229,9 @@ public class ProjectService {
 
     private enum Rows { DELETED, ABSENT, BUSY }
 
-    private static List<OpenJob> openJobs(UUID projectId) {
+    private static List<Job.Open> openJobs(UUID projectId) {
         return QuarkusTransaction.requiringNew().call(() -> Job.listOpenByProject(projectId).stream()
-                .map(job -> new OpenJob(job.getId(), job.getWorker()))
+                .map(Job.Open::of)
                 .toList());
-    }
-
-    /** Detached job descriptor used when interrupting worker jobs outside a transaction. */
-    private record OpenJob(UUID id, @Nullable UUID worker) {
     }
 }

@@ -34,6 +34,24 @@ threshold. The threshold must exceed the 30s `createJob` timeout, or it will fai
 legitimately in flight. It belongs in `project`, not `pending` — the row is a `Job`. The `VISIBLE`
 predicate goes with it.
 
+## `worker_volume.used` is never written
+
+`WorkerVolume.setUsed` has no call site anywhere. `used` is therefore always `0`, `remaining()` always
+equals `length`, and the DB check constraint `worker_volume_usage` is never exercised.
+
+The one reader is `WorkerScheduler.workersForVolumes`, where `row.remaining() < need.sizeLimit()` reads
+as a reservation but is only a static capacity check: N concurrent jobs each asking for the whole volume
+all pass, and none of them consumes anything. It is not a correctness problem today because nothing
+depends on the number being true — placement still succeeds, and the worker is what actually runs out of
+disk.
+
+Task-shared volumes make it more visible: several jobs of one task mount the same volume at once, which
+is exactly the case the check pretends to guard.
+
+Closing it means the worker reporting real usage — a serverbound message alongside `UpdateResourceInfo`,
+or a field on it — and `VolumeService` writing it. A control-plane-side reservation would be the wrong
+shape: only the worker knows what a job actually wrote.
+
 ## Test gaps
 
 Remaining testing gaps and current constraints:

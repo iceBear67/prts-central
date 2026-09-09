@@ -137,25 +137,35 @@ public class JobResource {
         template.delete();
     }
 
-    /** Lists both running/completed jobs and queued pending jobs in reverse chronological order. */
+    /**
+     * Lists both running/completed jobs and queued pending jobs in reverse chronological order.
+     *
+     * @param taskId narrows the listing to one task's jobs; omitted lists the whole project's
+     */
     @GET
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
     public List<JobStatusView> listJobs(
             @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("task") @Nullable UUID taskId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, jobConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
         var depth = start + window;
         var mayCreate = jobAccess.mayCreate(projectId);
-        var jobs = jobService.listVisible(projectId, depth);
+        var jobs = taskId == null
+                ? jobService.listVisible(projectId, depth)
+                : jobService.listVisibleInTask(projectId, taskId, depth);
+        var queued = taskId == null
+                ? PendingJob.listUnplacedByProject(projectId, depth)
+                : PendingJob.listUnplacedByTask(taskId, depth);
         var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
                 .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
         return Stream.<JobStatusView>concat(
                         jobs.stream().map(job -> JobView.of(job,
                                 artifacts.getOrDefault(job.getId(), List.of()), requestFor(mayCreate, job.toRequest()))),
-                        PendingJob.listUnplacedByProject(projectId, depth).stream()
+                        queued.stream()
                                 .map(pending -> PendingJobView.of(pending, requestFor(mayCreate, pending.getRequest()))))
                 .sorted(Comparator.comparing(JobStatusView::createdAt).reversed())
                 .skip(start)
@@ -199,7 +209,12 @@ public class JobResource {
         return request != null && mayCreate ? CreateJobRequest.of(request) : null;
     }
 
-    /** Enqueues a new job creation request after authorizing requested overrides. */
+    /**
+     * Enqueues a new job creation request after authorizing requested overrides.
+     *
+     * <p>A request naming a task is validated by {@code JobLauncher.resolve}, which needs the task
+     * anyway to merge its scope in — a closing or closed task conflicts there rather than here.
+     */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @ResponseStatus(RestResponse.StatusCode.CREATED)

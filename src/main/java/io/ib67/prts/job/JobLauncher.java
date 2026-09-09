@@ -1,6 +1,7 @@
 package io.ib67.prts.job;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.WorkerService;
@@ -9,6 +10,8 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.task.TaskScope;
+import io.ib67.prts.job.task.TaskService;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.SecretService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -40,6 +43,8 @@ public class JobLauncher {
     WorkerService workerService;
     @Inject
     SecretService secretService;
+    @Inject
+    TaskService taskService;
 
     /**
      * Validates and authorizes a job request without persisting or launching it.
@@ -106,6 +111,7 @@ public class JobLauncher {
                 .spec(resolved.spec())
                 .resourceClass(resolved.resourceClass())
                 .templateId(request.templateId())
+                .taskId(request.taskId())
                 .createOverride(request.override())
                 .requestedBy(requestedBy)
                 .build();
@@ -115,6 +121,19 @@ public class JobLauncher {
                 job, resolved.spec().withSecret(secretService.resolve(projectId)), resolved.resourceClass());
     }
 
+    /**
+     * Merges the layers a job's spec is built from.
+     *
+     * <p>Order is template &lt; task defaults &lt; caller override &lt; task binding. The task contributes
+     * twice on purpose: what a job may specialize goes underneath the override, and what it may not —
+     * the task's volumes and its identity — goes on top of everything.
+     *
+     * <p>Task values never pass through {@link JobSpecOverride#applyTo}: that path gates every supplied
+     * field against the caller's {@code job:spec:*} permissions, and the task's own were authorized when
+     * it was written.
+     *
+     * <p>Runs once at enqueue and again per dispatch attempt, so the task is re-read each time.
+     */
     private ResolvedCreate resolve(UUID projectId, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
         var project = projectService.findById(projectId).orElseThrow(NotFoundException::new);
         var template = JobSpecTemplate.findVisibleFetched(projectId, request.templateId())
@@ -122,34 +141,50 @@ public class JobLauncher {
         if (template.getSpec() == null) {
             throw new BadRequestException("template has no job spec");
         }
+        var task = request.taskId() == null ? null : taskService.requireOpen(projectId, request.taskId());
+        var scope = task == null ? TaskScope.EMPTY : task.getScope();
         var override = request.override();
-        var spec = override == null
-                ? template.getSpec()
-                : override.applyTo(template.getSpec(), authorizer);
+        var base = scope.defaultsTo(template.getSpec());
+        var spec = override == null ? base : override.applyTo(base, authorizer);
+        if (task != null) {
+            spec = TaskScope.bindTo(spec, task.getId(), taskService.mountsOf(task.getId()));
+        }
         spec.requireVolumesIn(projectId);
         return new ResolvedCreate(
                 project,
                 spec,
-                resolveResourceClass(projectId, request.resourceClass(), template.getResourceClass(), authorizer));
+                resolveResourceClass(projectId, request.resourceClass(), scope.resourceClass(),
+                        template.getResourceClass(), authorizer));
     }
 
     /**
-     * Resolves the resource class, validating permissions if overriding the template's class.
+     * Resolves the resource class, validating permissions only if the caller asked for a different one.
+     *
+     * <p>A task's class stands in for the template's where present. Both were chosen by someone already
+     * permitted to choose them, so neither costs the requester {@code job:resource-class}.
      */
     private ResourceClass resolveResourceClass(
             UUID projectId,
             @Nullable String requestedName,
+            @Nullable String taskDefault,
             @Nullable ResourceClass templateClass,
             JobSpecOverrideAuthorizer authorizer) {
-        if (requestedName == null || requestedName.equals(nameOf(templateClass))) {
-            if (templateClass == null || templateClass.getName() == null) {
-                throw new BadRequestException("resource class is required");
-            }
-            return requireVisible(projectId, templateClass);
+        var defaultName = taskDefault != null ? taskDefault : nameOf(templateClass);
+        if (requestedName != null && !requestedName.equals(defaultName)) {
+            authorizer.resourceClass(requestedName);
+            return findVisible(projectId, requestedName);
         }
-        authorizer.resourceClass(requestedName);
-        return ResourceClass.findVisible(projectId, requestedName)
-                .orElseThrow(() -> new NotFoundException("no such resource class: " + requestedName));
+        if (defaultName == null) {
+            throw new BadRequestException("resource class is required");
+        }
+        return taskDefault != null
+                ? findVisible(projectId, taskDefault)
+                : requireVisible(projectId, templateClass);
+    }
+
+    private static ResourceClass findVisible(UUID projectId, String name) {
+        return ResourceClass.findVisible(projectId, name)
+                .orElseThrow(() -> new NotFoundException("no such resource class: " + name));
     }
 
     private static String nameOf(@Nullable ResourceClass klass) {

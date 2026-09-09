@@ -37,8 +37,8 @@ flowchart LR
 
 | Component | Responsibilities | Excluded Operations |
 | --- | --- | --- |
-| `JobLauncher` | Merge template + override, validate spec & volumes, persist `Job`, pass to scheduler. | Terminal state handling, queue decisions, unplaceable cleanup. |
-| `JobService` | Terminal state transitions (`applyState`, `cancel`), cleanups (`discard`), `JobLock` release, logs. | Job creation, worker scheduling. |
+| `JobLauncher` | Merge template + task scope + override, validate spec & volumes, persist `Job`, pass to scheduler. | Terminal state handling, queue decisions, unplaceable cleanup. |
+| `JobService` | Terminal state transitions (`applyState`, `cancel`), cleanups (`discard`), `JobLock` release, logs, `stopOpen`. | Job creation, worker scheduling. |
 | `PendingJobService` | Queue persistence, active queue counting, status transitions. | Dispatch execution logic. |
 | `PendingJobDispatcher` | Periodic polling, worker eligibility check, batch claiming, dispatch & retry orchestration. | Direct entity persistence. |
 | `WorkerScheduler` | Worker selection, capacity checks, volume affinity, `JobLock` acquisition. | Queueing, HTTP error handling. |
@@ -66,8 +66,12 @@ sequenceDiagram
 ```
 
 - **Asynchronous Enqueue**: `POST .../job` never creates an active job synchronously; it persists a `PendingJob` and returns `201 Created` with `PendingJobView`.
-- **Request Immutability**: `JobRequest` embeds `templateId`, `create_override`, and the resolved `resourceClass`. Secrets are not stored in queue rows.
+- **Request Immutability**: `JobRequest` embeds `templateId`, `create_override`, the resolved `resourceClass`, and an optional `taskId`. Secrets are not stored in queue rows.
 - **Requester Identity**: `requested_by` is stored explicitly on `PendingJob` and carried to `Job`.
+- **Task Scope**: a request naming a task is merged against it in `JobLauncher.resolve` — which runs at
+  enqueue *and* on every dispatch attempt, so the task is re-read each time. A task that closed in
+  between conflicts, and the dispatcher fails the entry as it does for a deleted template. `taskId`
+  carries no foreign key, for the same reason `templateId` does not. See [task-scope.md](task-scope.md).
 
 ## Dispatch Flow (`PendingJobDispatcher`)
 

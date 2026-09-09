@@ -6,9 +6,9 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 
 | Scope | Min Role | Permissions | Endpoints & Operations |
 | --- | --- | --- | --- |
-| **Project Read** | `VIEWER` | `project:read`, `job:read`, `job:log:read`, `job:artifact:read` | `GET /project/{projectId}`<br/>`GET .../job`<br/>`GET .../job/{id}`<br/>`GET .../job/{id}/log`<br/>`GET .../job/artifact/{id}` |
-| **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `project:secret:read` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only) |
-| **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}` |
+| **Project Read** | `VIEWER` | `project:read`, `job:read`, `job:log:read`, `job:artifact:read`, `task:read` | `GET /project/{projectId}`<br/>`GET .../job`<br/>`GET .../job/{id}`<br/>`GET .../job/{id}/log`<br/>`GET .../job/artifact/{id}`<br/>`GET .../volume`<br/>`GET .../task[/{id}]`<br/>`GET .../task/{id}/volume` |
+| **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
+| **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
 | **Project Creation** | None (global) | `project:create` | `POST /project` — the caller becomes its `OWNER`. Sub-accounts cannot (409): they hold no project role. |
 | **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
 
@@ -22,7 +22,9 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 
 `POST /project/{projectId}/archive` sets a project to read-only status. During archiving, `ProjectService.archive` invokes `stopWork` to cancel pending queue items and interrupt active running jobs.
 
-Mutating endpoints within a project call `ProjectService.requireWritable(projectId)` and return **409 Conflict** when the project is archived (such as renaming, ownership transfer, member/subaccount management, secrets, job creation/cancellation, template operations, and artifact deletion). Read requests remain allowed, as do `POST .../unarchive` and `DELETE /project/{projectId}`.
+Mutating endpoints within a project call `ProjectService.requireWritable(projectId)` and return **409 Conflict** when the project is archived (such as renaming, ownership transfer, member/subaccount management, secrets, job creation/cancellation, template operations, artifact deletion, task and volume operations). Read requests remain allowed, as do `POST .../unarchive` and `DELETE /project/{projectId}`.
+
+`TaskService.requireOpen` is the same idea one level down: a task that is `CLOSING` or `CLOSED` conflicts on any write to it, and on any job naming it.
 
 Because writability is checked explicitly rather than through an interceptor, any new mutating project endpoint must call `requireWritable(projectId)`. Worker reporting endpoints (`JobService.applyState`, `appendLog`, `ArtifactService.record`) intentionally omit this check so in-flight status reports are not rejected.
 
@@ -39,7 +41,27 @@ Because writability is checked explicitly rather than through an interceptor, an
 - The `PendingJob` queue entry UUID (automatically resolves to the resulting `Job` once placed).
 
 ### 3. Replay & Re-runs
-No server-side automatic re-run endpoint exists. Clients retrieve the original `createRequest` from `JobView` and submit it as a new `POST .../job`. The request pins the resolved `resourceClass` from the original execution.
+No server-side automatic re-run endpoint exists. Clients retrieve the original `createRequest` from `JobView` and submit it as a new `POST .../job`. The request pins the resolved `resourceClass` from the original execution, and its `taskId`, so a replay lands back in the same task.
+
+### 4. Tasks
+A job joins a task through `CreateJobRequest.taskId`, not a nested path — `GET .../job?task={taskId}`
+narrows the listing. This keeps job creation under `/project/{projectId}/...`, which
+`JobSpecOverridePermissions` depends on: its gating methods take no `@ProjectId` parameter and resolve
+scope from the literal `{projectId}` path parameter, so moving the endpoint would silently disable
+per-field override checks.
+
+`JobResource.createJob` does **not** repeat a task check. `JobLauncher.resolve` needs the task anyway to
+merge its scope, and conflicts there (409) if it is closing or closed. See [task-scope.md](task-scope.md).
+
+## Volumes
+
+`POST /project/{projectId}/volume` blocks on the worker's acknowledgment and returns its refusal reason
+verbatim when it has no room; `DELETE .../volume/{volumeId}` returns 409 while any task still mounts it.
+Mounting and unmounting are task operations (`PUT|DELETE .../task/{taskId}/volume/{volumeId}`) and cost
+only `task:manage` — allocating disk is the privileged part, not choosing a path.
+
+The scheduler picks the host; a caller never names a worker. `/worker/{id}/volume` remains the admin's
+cross-project view.
 
 ## Admin Surface (`/api/admin`, all `admin:all`)
 

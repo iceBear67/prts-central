@@ -24,6 +24,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/build-and-run.md](agent-docs/build-and-run.md) | building, running, or touching the schema / local Postgres / S3 |
 | [agent-docs/job-lifecycle.md](agent-docs/job-lifecycle.md) | anything about creating, scheduling, cancelling or ending a job, or the pending queue |
 | [agent-docs/job-spec.md](agent-docs/job-spec.md) | changing `JobSpec`, secrets, templates, resource classes, or the override gating |
+| [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, worker volumes, or task teardown |
 | [agent-docs/worker-protocol.md](agent-docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
 | [agent-docs/authorization.md](agent-docs/authorization.md) | auth mechanisms, `Perm`, `@RequirePermission`, roles, sub-accounts |
 | [agent-docs/http-surface.md](agent-docs/http-surface.md) | adding or changing an endpoint, a DTO, a mapper, or the OpenAPI filter |
@@ -41,15 +42,17 @@ holds the services and value objects.
 
 | Package | Role |
 | --- | --- |
-| `agent.worker` | Live worker sessions, the WebSocket protocol (`.message`), and scheduling; `.entity` = `Worker`, `ResourceClass`, `WorkerVolume` |
+| `agent.worker` | Live worker sessions, the WebSocket protocol (`.message`), scheduling, `VolumeService`; `.entity` = `Worker`, `ResourceClass`, `WorkerVolume`, `VolumeState` |
 | `agent.job` | `JobSpec` value object, override/permission gating; `.entity` = `JobSpecTemplate`, `JobLock` |
-| `project` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads), `ProjectService`, `JobAccess`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` plus the `JobRequest` value |
+| `job` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads, `stopOpen`), `JobResource`, `JobAccess`, `JobConfig`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` / `JobState` / `ProjectRole` plus the `JobRequest` value |
+| `job.task` | `Task` scopes: `TaskScope` value object, `TaskService`, `TaskTeardownDispatcher`; `.entity` = `Task`, `TaskState`, `TaskVolume` |
+| `project` | `ProjectService` and `ProjectResource` |
 | `pending` | The job queue: `PendingJob` entity, `PendingJobService`, `PendingJobDispatcher` |
 | `user` | `User`, project membership, permission grants + cached lookup, sub-accounts |
 | `auth` | OIDC identity augmentation, worker token mechanism, `@RequirePermission` interceptor |
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
-| `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
+| `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |
 

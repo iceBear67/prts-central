@@ -4,8 +4,12 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.job.task.TaskScope;
+import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.job.task.entity.TaskVolume;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobState;
 import io.ib67.prts.project.ProjectService;
@@ -193,7 +197,7 @@ public class Fixtures {
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
                 // resource_class is required on pending_job.
-                .request(new JobRequest(templateId, null, resourceClass))
+                .request(new JobRequest(templateId, null, resourceClass, null))
                 .state(PendingJobState.QUEUED)
                 .expiresAt(expiresAt)
                 .nextAttemptAt(nextAttemptAt)
@@ -210,18 +214,47 @@ public class Fixtures {
         return id;
     }
 
-    /** Creates a worker volume record. */
+    /** Creates a worker volume record, already provisioned as far as the control plane is concerned. */
     @Transactional
     public UUID createVolume(UUID projectId, UUID workerId, String name) {
+        return createVolume(projectId, workerId, name, VolumeState.READY);
+    }
+
+    @Transactional
+    public UUID createVolume(UUID projectId, UUID workerId, String name, VolumeState state) {
         var volume = WorkerVolume.builder()
                 .name(name)
                 .worker(Worker.<Worker>findById(workerId))
                 .project(Project.<Project>findById(projectId))
                 .length(1024)
                 .used(0)
+                .state(state)
                 .build();
         volume.persistAndFlush();
         return volume.getId();
+    }
+
+    /** Opens a task in a project. */
+    @Transactional
+    public UUID createTask(UUID projectId, Actor createdBy, String name, TaskScope scope) {
+        var task = Task.builder()
+                .project(Project.<Project>findById(projectId))
+                .name(name)
+                .scope(scope == null ? TaskScope.EMPTY : scope)
+                .createdBy(createdBy.id())
+                .build();
+        task.persistAndFlush();
+        return task.getId();
+    }
+
+    /** Mounts a volume into a task. */
+    @Transactional
+    public void mountVolume(UUID taskId, UUID volumeId, String mountPoint) {
+        TaskVolume.of(
+                        Task.<Task>findById(taskId),
+                        WorkerVolume.<WorkerVolume>findById(volumeId),
+                        mountPoint)
+                .persistAndFlush();
     }
 
     /** Returns a RestAssured RequestSpecification with the actor's bearer token. */

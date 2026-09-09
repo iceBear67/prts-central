@@ -144,6 +144,29 @@ final class WorkerScheduler {
         locked.remove(workerId);
     }
 
+    /**
+     * Picks a connected worker to host a new volume, spreading volumes across the roster.
+     *
+     * <p>Size does not participate: {@code WorkerVolume.used} is never written and
+     * {@link RegisteredWorker.Info.Resources#getNumDisks()} counts resource-class slots rather than
+     * bytes, so there is no free-space signal here to honour. A worker short on disk refuses the
+     * {@code CreateVolume} and the reason reaches the caller through the acknowledgment.
+     */
+    Optional<UUID> selectVolumeHost() {
+        var candidates = workers.entrySet().stream()
+                .filter(entry -> !entry.getValue().isDisabled())
+                .map(Map.Entry::getKey)
+                .toList();
+        if (candidates.isEmpty()) {
+            return Optional.empty();
+        }
+        var hosted = QuarkusTransaction.requiringNew().call(() -> WorkerVolume.countByWorkers(candidates));
+        return candidates.stream()
+                .min(Comparator
+                        .comparingLong((UUID id) -> hosted.getOrDefault(id, 0L))
+                        .thenComparing(Comparator.naturalOrder()));
+    }
+
     private Optional<Selection> select(ResourceClass required, Set<UUID> allowed) {
         return workers.entrySet().stream()
                 .filter(entry -> isEligible(entry.getKey(), entry.getValue(), required, allowed))
@@ -175,6 +198,9 @@ final class WorkerScheduler {
             }
             UUID owner = null;
             for (var row : rows) {
+                if (!row.getState().isUsable()) {
+                    return Set.of();
+                }
                 var need = volumes.get(row.getId());
                 if (need != null && row.remaining() < need.sizeLimit()) {
                     return Set.of();

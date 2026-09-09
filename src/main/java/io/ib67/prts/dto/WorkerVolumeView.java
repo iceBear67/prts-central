@@ -1,5 +1,6 @@
 package io.ib67.prts.dto;
 
+import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 
 import java.time.Instant;
@@ -17,16 +18,20 @@ public record WorkerVolumeView(
         String name,
         UUID projectId,
         String projectName,
+        UUID workerId,
         Instant createdAt,
         long length,
-        long used
+        long used,
+        VolumeState state
 ) {
     public WorkerVolumeView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(projectId, "projectId");
         Objects.requireNonNull(projectName, "projectName");
+        Objects.requireNonNull(workerId, "workerId");
         Objects.requireNonNull(createdAt, "createdAt");
+        Objects.requireNonNull(state, "state");
     }
 
     public static WorkerVolumeView of(WorkerVolume volume) {
@@ -36,8 +41,10 @@ public record WorkerVolumeView(
                 volume.getName(),
                 project.getId(),
                 project.getName(),
+                volume.getWorker().getId(),
                 volume.getCreatedAt(),
                 volume.getLength(),
-                volume.getUsed());
+                volume.getUsed(),
+                volume.getState());
     }
 }

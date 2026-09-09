@@ -48,7 +48,7 @@ class PendingJobDispatcherTest {
 
     private static PendingJobService.Attempt anAttempt() {
         return new PendingJobService.Attempt(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
-                new JobRequest(UUID.randomUUID(), null, "small"));
+                new JobRequest(UUID.randomUUID(), null, "small", null));
     }
 
     private void due(PendingJobService.Attempt... attempts) {

@@ -154,10 +154,25 @@ public class PendingJob extends PanacheEntityBase {
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
+    /** Lists undispatched pending jobs scoped to a task. */
+    public static List<PendingJob> listUnplacedByTask(UUID taskId, int limit) {
+        return PendingJob.<PendingJob>find(
+                        "request.taskId = ?1 and jobId is null order by createdAt desc, id desc", taskId)
+                .page(0, limit)
+                .list();
+    }
+
     /** Cancels all active pending jobs for a project. */
     public static int cancelActive(UUID projectId) {
         return update("state = ?1 where project.id = ?2 and state in ?3",
                 PendingJobState.CANCELLED, projectId,
+                List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
+    }
+
+    /** Cancels all active pending jobs scoped to a task. */
+    public static int cancelActiveInTask(UUID taskId) {
+        return update("state = ?1 where request.taskId = ?2 and state in ?3",
+                PendingJobState.CANCELLED, taskId,
                 List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING));
     }
 

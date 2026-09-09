@@ -23,11 +23,22 @@ Plaintext secrets are never stored in the database or serialized inside `job.spe
 - **Global Sentinel**: Global classes use `ResourceClass.GLOBAL` (`Reserved.ID`).
 - **Shadowing**: `ResourceClass.findVisible(projectId, name)` queries the project-specific row first, falling back to global if absent. Project-specific classes shadow global classes sharing the same name.
 - **Foreign Keys**: References use two-column FKs `(resource_class, resource_class_project)` on `job` and `job_spec_template`.
-- **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the template's default class does not require this permission.
+- **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the default does not — and a `TaskScope.resourceClass` stands in for the template's as that default, since both were set by someone already permitted to.
 
 ## Volume Isolation
 
-A job may only mount worker volumes owned by its project (`JobSpec.requireVolumesIn(project)`). Mounting volumes from another project is rejected.
+`JobSpec.requireVolumesIn(project)` rejects a spec whose volumes are unknown, belong to another project,
+are not `READY`, or **span more than one worker**. The last check belongs here rather than at placement:
+`WorkerScheduler` collapses every reason it cannot place a job into `"no available worker can run this
+job"`, so a cross-worker spec would silently back off until it expired.
+
+## Task Layer
+
+Values a `Task` contributes are merged in `JobLauncher.resolve` around the override, never through it:
+`TaskScope.defaultsTo` goes underneath (a job may specialize), `TaskScope.bindTo` on top (volumes and
+identity, which it may not). Neither takes a `JobSpecOverrideAuthorizer` — see
+[task-scope.md](task-scope.md) for why routing them through `applyTo` would charge the requester for the
+task's own permissions.
 
 ## Per-Field Override Gating (`JobSpecOverride`)
 

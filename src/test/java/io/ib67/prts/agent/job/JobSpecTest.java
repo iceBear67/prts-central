@@ -1,6 +1,8 @@
 package io.ib67.prts.agent.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.ib67.prts.agent.worker.entity.VolumeState;
+import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.entity.Project;
 import io.quarkus.security.ForbiddenException;
@@ -22,8 +24,11 @@ import static org.mockito.Mockito.mockStatic;
 class JobSpecTest {
 
     private static final UUID VOLUME = UUID.fromString("00000000-0000-0000-0000-0000000000aa");
+    private static final UUID OTHER_VOLUME = UUID.fromString("00000000-0000-0000-0000-0000000000ab");
     private static final UUID PROJECT = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
     private static final UUID OTHER_PROJECT = UUID.fromString("00000000-0000-0000-0000-0000000000b2");
+    private static final UUID WORKER = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+    private static final UUID OTHER_WORKER = UUID.fromString("00000000-0000-0000-0000-0000000000c2");
 
     private final ObjectMapper mapper = new ObjectMapper();
 
@@ -104,11 +109,21 @@ class JobSpecTest {
         assertEquals(Map.of(), mapper.readValue(json, JobSpec.class).secret());
     }
 
-    private static WorkerVolume volumeOwnedBy(UUID projectId) {
+    // Every fixture here must be built before mockStatic(WorkerVolume.class) opens: @Builder.Default
+    // compiles the state initializer into a static $default$state(), so even `new WorkerVolume()`
+    // touches the static mock once it is active.
+    private static WorkerVolume volume(UUID id, UUID projectId, UUID workerId, VolumeState state) {
         var volume = new WorkerVolume();
-        volume.setId(VOLUME);
+        volume.setId(id);
         volume.setProject(Project.builder().id(projectId).name("p").build());
+        volume.setWorker(Worker.builder().id(workerId).name("w").build());
+        volume.setState(state);
+        volume.setLength(4096L);
         return volume;
+    }
+
+    private static WorkerVolume volumeOwnedBy(UUID projectId) {
+        return volume(VOLUME, projectId, WORKER, VolumeState.READY);
     }
 
     private static JobSpec specRequiring(Map<UUID, JobSpec.VolumeSpec> volumes) {
@@ -126,10 +141,11 @@ class JobSpecTest {
 
     @Test
     void aVolumeOfThisProjectIsAccepted() {
+        var rows = List.of(volumeOwnedBy(PROJECT));
+        var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
+
         try (var workerVolume = mockStatic(WorkerVolume.class)) {
-            workerVolume.when(() -> WorkerVolume.listByIds(any()))
-                    .thenReturn(List.of(volumeOwnedBy(PROJECT)));
-            var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
+            workerVolume.when(() -> WorkerVolume.listByIds(any())).thenReturn(rows);
 
             assertDoesNotThrow(() -> spec.requireVolumesIn(PROJECT));
         }
@@ -137,10 +153,11 @@ class JobSpecTest {
 
     @Test
     void aVolumeOfAnotherProjectIsForbidden() {
+        var rows = List.of(volumeOwnedBy(OTHER_PROJECT));
+        var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
+
         try (var workerVolume = mockStatic(WorkerVolume.class)) {
-            workerVolume.when(() -> WorkerVolume.listByIds(any()))
-                    .thenReturn(List.of(volumeOwnedBy(OTHER_PROJECT)));
-            var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
+            workerVolume.when(() -> WorkerVolume.listByIds(any())).thenReturn(rows);
 
             assertThrows(ForbiddenException.class, () -> spec.requireVolumesIn(PROJECT));
         }
@@ -153,6 +170,57 @@ class JobSpecTest {
             var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
 
             assertThrows(BadRequestException.class, () -> spec.requireVolumesIn(PROJECT));
+        }
+    }
+
+    @Test
+    void aVolumeThatIsNotReadyIsRejected() {
+        var rows = List.of(volume(VOLUME, PROJECT, WORKER, VolumeState.PROVISIONING));
+        var spec = specRequiring(Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)));
+
+        try (var workerVolume = mockStatic(WorkerVolume.class)) {
+            workerVolume.when(() -> WorkerVolume.listByIds(any())).thenReturn(rows);
+
+            var thrown = assertThrows(BadRequestException.class, () -> spec.requireVolumesIn(PROJECT));
+            assertTrue(thrown.getMessage().contains("PROVISIONING"), thrown.getMessage());
+        }
+    }
+
+    /**
+     * Placement can only ever report that no worker was free, so the spec has to say this itself or the
+     * job is requeued with backoff until it expires for no visible reason.
+     */
+    @Test
+    void volumesOnTwoWorkersAreRejectedWithBothNamed() {
+        var rows = List.of(
+                volume(VOLUME, PROJECT, WORKER, VolumeState.READY),
+                volume(OTHER_VOLUME, PROJECT, OTHER_WORKER, VolumeState.READY));
+        var spec = specRequiring(Map.of(
+                VOLUME, new JobSpec.VolumeSpec("/data", 1024L),
+                OTHER_VOLUME, new JobSpec.VolumeSpec("/cache", 1024L)));
+
+        try (var workerVolume = mockStatic(WorkerVolume.class)) {
+            workerVolume.when(() -> WorkerVolume.listByIds(any())).thenReturn(rows);
+
+            var thrown = assertThrows(BadRequestException.class, () -> spec.requireVolumesIn(PROJECT));
+            assertTrue(thrown.getMessage().contains(WORKER.toString()), thrown.getMessage());
+            assertTrue(thrown.getMessage().contains(OTHER_WORKER.toString()), thrown.getMessage());
+        }
+    }
+
+    @Test
+    void volumesOnOneWorkerAreAccepted() {
+        var rows = List.of(
+                volume(VOLUME, PROJECT, WORKER, VolumeState.READY),
+                volume(OTHER_VOLUME, PROJECT, WORKER, VolumeState.READY));
+        var spec = specRequiring(Map.of(
+                VOLUME, new JobSpec.VolumeSpec("/data", 1024L),
+                OTHER_VOLUME, new JobSpec.VolumeSpec("/cache", 1024L)));
+
+        try (var workerVolume = mockStatic(WorkerVolume.class)) {
+            workerVolume.when(() -> WorkerVolume.listByIds(any())).thenReturn(rows);
+
+            assertDoesNotThrow(() -> spec.requireVolumesIn(PROJECT));
         }
     }
 }

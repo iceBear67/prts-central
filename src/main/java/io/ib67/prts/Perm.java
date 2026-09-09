@@ -33,6 +33,12 @@ public enum Perm {
     /** View project secret names (never secret values). */
     PROJECT_SECRET_READ("project:secret:read", false),
     PROJECT_SECRET_MANAGE("project:secret:manage", false),
+    /** Allocate and release worker volumes, which consume shared cluster disk. */
+    PROJECT_VOLUME_MANAGE("project:volume:manage", false),
+
+    TASK_READ("task:read", false),
+    /** Open, close, and edit tasks, including which volumes they mount. */
+    TASK_MANAGE("task:manage", false),
 
     JOB_READ("job:read", false),
     JOB_LOG_READ("job:log:read", false),

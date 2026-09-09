@@ -5,7 +5,9 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.project.ProjectService;
+import io.ib67.prts.storage.ArtifactService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -34,6 +36,8 @@ public class JobService {
     ProjectService projectService;
     @Inject
     WorkerService workerService;
+    @Inject
+    ArtifactService artifactService;
 
     public Job require(UUID id) {
         return Job.<Job>findByIdOptional(id)
@@ -62,6 +66,13 @@ public class JobService {
     public List<Job> listVisible(UUID projectId, int limit) {
         projectService.require(projectId);
         return Job.listVisibleByProject(projectId, limit);
+    }
+
+    /** Lists visible jobs a task scoped, up to the given limit. */
+    public List<Job> listVisibleInTask(UUID projectId, UUID taskId, int limit) {
+        Task.findInProject(projectId, taskId)
+                .orElseThrow(() -> new NotFoundException("no such task in project " + projectId + ": " + taskId));
+        return Job.listVisibleByTask(taskId, limit);
     }
 
     /**
@@ -134,6 +145,36 @@ public class JobService {
         }
         persistLog(job, "state", previous + " -> " + state, state == JobState.FAILED);
         return found;
+    }
+
+    /**
+     * Cancels unfinished jobs and tells their workers to drop the containers.
+     *
+     * <p>This is the "quiesce" half of tearing a scope down, shared by project deletion, project
+     * archiving and task closure — each of those differs only in which rows it hands over. Every step is
+     * best effort: a worker that cannot be reached is logged and the rest still stop.
+     *
+     * @param jobs detached descriptors, read in a transaction that has already committed
+     */
+    public void stopOpen(List<Job.Open> jobs, String reason) {
+        for (var job : jobs) {
+            try {
+                applyState(job.id(), JobState.CANCELLED);
+            } catch (RuntimeException e) {
+                LOG.errorf(e, "cannot cancel job %s", job.id());
+            }
+            if (job.worker() != null) {
+                try {
+                    if (!workerService.interrupt(job.worker(), job.id(), reason)) {
+                        LOG.warnf("worker %s is not connected: job %s may still be running there",
+                                job.worker(), job.id());
+                    }
+                } catch (RuntimeException e) {
+                    LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
+                }
+            }
+            artifactService.discardPendingOf(job.id());
+        }
     }
 
     /**

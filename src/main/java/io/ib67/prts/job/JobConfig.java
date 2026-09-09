@@ -13,6 +13,8 @@ public interface JobConfig {
 
     Pending pending();
 
+    Task task();
+
     interface Log {
         @WithDefault("20")
         int maxPageSize();
@@ -45,5 +47,19 @@ public interface JobConfig {
         /** Maximum number of pending jobs to claim and attempt per dispatch tick. */
         @WithDefault("20")
         int batch();
+    }
+
+    /** Configuration for task scopes and their teardown. */
+    interface Task {
+        /** How often closing tasks are swept for leftover work. */
+        @WithDefault("PT5S")
+        Duration teardownInterval();
+
+        /** Maximum number of closing tasks to tear down per sweep. */
+        @WithDefault("20")
+        int teardownBatch();
+
+        @WithDefault("50")
+        int maxPageSize();
     }
 }

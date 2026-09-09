@@ -91,6 +91,9 @@ quarkus:
     pending:
       # Disable automatic dispatcher ticks; ticks are driven manually in tests.
       interval: PT24H
+    task:
+      # Same for the task teardown sweep.
+      teardown-interval: PT24H
 
 "%prod":
   quarkus:
@@ -127,3 +130,8 @@ job:
     backoff: PT2S
     max-backoff: PT30S
     batch: 20
+  task:
+    # Finishes tearing down tasks whose closing pass could not complete.
+    teardown-interval: PT5S
+    teardown-batch: 20
+    max-page-size: 50

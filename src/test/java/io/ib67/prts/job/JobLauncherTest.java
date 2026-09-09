@@ -6,15 +6,22 @@ import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.entity.VolumeState;
+import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.task.TaskScope;
+import io.ib67.prts.job.task.TaskService;
+import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.SecretService;
 import io.ib67.prts.testing.InlineTransactions;
 import io.quarkus.security.ForbiddenException;
 import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.core.Response;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -22,6 +29,7 @@ import org.mockito.MockedStatic;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -40,10 +48,15 @@ class JobLauncherTest {
     private static final UUID TEMPLATE = UUID.fromString("00000000-0000-0000-0000-0000000000d3");
     private static final UUID VOLUME = UUID.fromString("00000000-0000-0000-0000-0000000000d4");
 
+    private static final UUID TASK = UUID.fromString("00000000-0000-0000-0000-0000000000d5");
+    private static final UUID WORKER = UUID.fromString("00000000-0000-0000-0000-0000000000d6");
+    private static final UUID REQUESTER = UUID.fromString("00000000-0000-0000-0000-0000000000d7");
+
     private final ProjectService projectService = mock(ProjectService.class);
     private final JobService jobService = mock(JobService.class);
     private final WorkerService workerService = mock(WorkerService.class);
     private final SecretService secretService = mock(SecretService.class);
+    private final TaskService taskService = mock(TaskService.class);
 
     // Pass-through mock authorizer that returns arguments directly.
     private final JobSpecOverrideAuthorizer authorizer =
@@ -68,11 +81,24 @@ class JobLauncherTest {
         launcher.jobService = jobService;
         launcher.workerService = workerService;
         launcher.secretService = secretService;
+        launcher.taskService = taskService;
         when(projectService.findById(PROJECT)).thenReturn(Optional.of(project));
     }
 
     private static JobRequest request(String resourceClass) {
-        return new JobRequest(TEMPLATE, null, resourceClass);
+        return new JobRequest(TEMPLATE, null, resourceClass, null);
+    }
+
+    private static JobRequest inTask(String resourceClass) {
+        return new JobRequest(TEMPLATE, null, resourceClass, TASK);
+    }
+
+    /** Registers an open task carrying the given scope, and the volumes it mounts. */
+    private void openTask(TaskScope scope, Map<UUID, JobSpec.VolumeSpec> mounts) {
+        var task = Task.builder().id(TASK).project(project).name("pr-42")
+                .scope(scope).createdBy(REQUESTER).build();
+        when(taskService.requireOpen(PROJECT, TASK)).thenReturn(task);
+        when(taskService.mountsOf(TASK)).thenReturn(mounts);
     }
 
     /** Helper context mocking static entity methods and managing transactions for authorize() tests. */
@@ -228,7 +254,7 @@ class JobLauncherTest {
             volumes.when(() -> WorkerVolume.listByIds(any())).thenReturn(List.of(borrowed));
 
             assertThrows(ForbiddenException.class, () -> launcher
-                    .authorize(PROJECT, new JobRequest(TEMPLATE, override, null), authorizer));
+                    .authorize(PROJECT, new JobRequest(TEMPLATE, override, null, null), authorizer));
         }
     }
 
@@ -240,5 +266,78 @@ class JobLauncherTest {
         }
 
         verifyNoInteractions(workerService, jobService, secretService);
+    }
+
+    /**
+     * A task's values were authorized when the task was written, so they must not be routed through the
+     * override path — that gates every supplied field against the caller's own {@code job:spec:*}.
+     */
+    @Test
+    void aTasksContributionIsNotGatedAgainstTheCaller() {
+        openTask(new TaskScope(Map.of("SHARED", "1"), Map.of("tier", "task"), null), Map.of());
+
+        try (var ignored = new Scope()) {
+            launcher.authorize(PROJECT, inTask(null), authorizer);
+        }
+
+        verifyNoInteractions(authorizer);
+    }
+
+    /** A task's class stands in for the template's, and costs no job:resource-class either. */
+    @Test
+    void aTasksResourceClassReplacesTheTemplates() {
+        openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
+
+        try (var scope = new Scope()) {
+            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "big")).thenReturn(Optional.of(big));
+
+            assertEquals("big", launcher.authorize(PROJECT, inTask(null), authorizer).resourceClass());
+            verifyNoInteractions(authorizer);
+        }
+    }
+
+    /** Asking for something other than the task's default is still an override. */
+    @Test
+    void namingAnotherClassUnderATaskIsStillGated() {
+        openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
+
+        try (var scope = new Scope()) {
+            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "small")).thenReturn(Optional.of(small));
+
+            assertEquals("small", launcher.authorize(PROJECT, inTask("small"), authorizer).resourceClass());
+            verify(authorizer).resourceClass("small");
+        }
+    }
+
+    /** The task's mounts join the spec and are validated like any other volume. */
+    @Test
+    void aTasksVolumesAreBoundAndChecked() {
+        openTask(TaskScope.EMPTY, Map.of(VOLUME, new JobSpec.VolumeSpec("/shared", 4096L)));
+        // Built before the static mock: @Builder.Default routes the state initializer through a static
+        // $default$state(), so even `new WorkerVolume()` would interact with it.
+        var mounted = new WorkerVolume();
+        mounted.setId(VOLUME);
+        mounted.setProject(project);
+        mounted.setWorker(Worker.builder().id(WORKER).name("w").build());
+        mounted.setState(VolumeState.READY);
+
+        try (var ignored = new Scope(); var volumes = mockStatic(WorkerVolume.class)) {
+            volumes.when(() -> WorkerVolume.listByIds(any())).thenReturn(List.of(mounted));
+
+            launcher.authorize(PROJECT, inTask(null), authorizer);
+
+            volumes.verify(() -> WorkerVolume.listByIds(Set.of(VOLUME)));
+        }
+    }
+
+    @Test
+    void aClosedTaskRefusesTheJob() {
+        when(taskService.requireOpen(PROJECT, TASK))
+                .thenThrow(new ClientErrorException("task is CLOSED", Response.Status.CONFLICT));
+
+        try (var ignored = new Scope()) {
+            assertThrows(ClientErrorException.class,
+                    () -> launcher.authorize(PROJECT, inTask(null), authorizer));
+        }
     }
 }
