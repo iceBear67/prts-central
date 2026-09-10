@@ -146,9 +146,8 @@ class SubAccountResourceE2ETest {
     @Test
     void theListHoldsOnlyThisProjectsSubAccounts() {
         var alice = fixtures.createActor("alice");
-        var other = fixtures.createProject("theirs");
+        var other = fixtures.createProject("theirs", alice);
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.join(alice, other, ProjectRole.OWNER);
         fixtures.createSubAccount(project, "mine-ci", alice);
         fixtures.createSubAccount(other, "theirs-ci", alice);
 
@@ -172,9 +171,8 @@ class SubAccountResourceE2ETest {
     @Test
     void aSubAccountOfAnotherProjectIsNotFoundHere() {
         var alice = fixtures.createActor("alice");
-        var other = fixtures.createProject("theirs");
+        var other = fixtures.createProject("theirs", alice);
         fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.join(alice, other, ProjectRole.OWNER);
         var ci = fixtures.createSubAccount(other, "theirs-ci", alice);
 
         as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then()

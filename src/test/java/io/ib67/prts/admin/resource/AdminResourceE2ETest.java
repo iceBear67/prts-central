@@ -65,8 +65,8 @@ class AdminResourceE2ETest {
 
     @Test
     void theStatsCountEverything() {
-        var project = fixtures.createProject("mine");
-        var archived = fixtures.createProject("old");
+        var project = fixtures.createProject("mine", alice);
+        var archived = fixtures.createProject("old", alice);
         fixtures.archive(archived);
         var small = fixtures.createResourceClass("small", null);
         var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
@@ -89,10 +89,9 @@ class AdminResourceE2ETest {
 
     @Test
     void theProjectListingCountsMembersJobsAndQueue() {
-        var project = fixtures.createProject("mine");
+        var project = fixtures.createProject("mine", alice);
         var small = fixtures.createResourceClass("small", null);
         var template = fixtures.createTemplate("build", project, small);
-        fixtures.join(alice, project, ProjectRole.OWNER);
         fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
         fixtures.createQueuedJob(project, alice, template, "small");
 
@@ -125,8 +124,7 @@ class AdminResourceE2ETest {
 
     @Test
     void aSubAccountIsListedWithItsProject() {
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
         var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(admin).queryParam("query", "ci").get("/api/admin/user/{u}", ci.id()).then()
@@ -265,8 +263,7 @@ class AdminResourceE2ETest {
                 .body("name", contains("shared"));
 
         // Global templates are visible to projects.
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
         as(alice).get("/api/project/{p}/job/template", project).then()
                 .statusCode(200)
                 .body("name", hasItem("shared"));

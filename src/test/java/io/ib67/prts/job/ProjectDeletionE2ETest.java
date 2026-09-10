@@ -12,7 +12,6 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.Project;
-import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.job.task.TaskScope;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.job.task.entity.TaskVolume;
@@ -56,19 +55,23 @@ class ProjectDeletionE2ETest {
     @Inject
     ProjectService projectService;
 
+    private Fixtures.Actor owner;
+    private Fixtures.Actor neighbour;
     private UUID mine;
     private UUID theirs;
 
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        mine = fixtures.createProject("mine");
-        theirs = fixtures.createProject("theirs");
+        owner = fixtures.createActor("owner");
+        neighbour = fixtures.createActor("neighbour");
+        mine = fixtures.createProject("mine", owner);
+        theirs = fixtures.createProject("theirs", neighbour);
     }
 
     @Test
     void everyRowThatHangsOffTheProjectGoes() {
-        fill(mine);
+        fill(mine, owner);
 
         assertTrue(projectService.delete(mine));
 
@@ -78,35 +81,35 @@ class ProjectDeletionE2ETest {
     /** Sub-account user records are deleted along with the project. */
     @Test
     void aSubAccountIsTakenDownWithTheProject() {
-        var filled = fill(mine);
+        var subAccount = fill(mine, owner);
 
         projectService.delete(mine);
 
         assertAll(
-                () -> assertEquals(0, rows(() -> User.count("id", filled.subAccount().id())), "user"),
+                () -> assertEquals(0, rows(() -> User.count("id", subAccount.id())), "user"),
                 () -> assertEquals(0,
-                        rows(() -> UserAccessToken.count("userId", filled.subAccount().id())), "token"));
-        as(filled.subAccount()).get("/api/project").then().statusCode(401);
+                        rows(() -> UserAccessToken.count("userId", subAccount.id())), "token"));
+        as(subAccount).get("/api/project").then().statusCode(401);
     }
 
     /** User accounts of project members are preserved when the project is deleted. */
     @Test
     void aMemberOutlivesTheProjectTheyWereIn() {
-        var filled = fill(mine);
+        fill(mine, owner);
 
         projectService.delete(mine);
 
         assertAll(
-                () -> assertEquals(1, rows(() -> User.count("id", filled.owner().id())), "user"),
+                () -> assertEquals(1, rows(() -> User.count("id", owner.id())), "user"),
                 () -> assertEquals(1,
-                        rows(() -> UserAccessToken.count("userId", filled.owner().id())), "token"));
-        as(filled.owner()).get("/api/project").then().statusCode(200).body("$", empty());
+                        rows(() -> UserAccessToken.count("userId", owner.id())), "token"));
+        as(owner).get("/api/project").then().statusCode(200).body("$", empty());
     }
 
     @Test
     void anotherProjectKeepsEverythingOfItsOwn() {
-        fill(mine);
-        fill(theirs);
+        fill(mine, owner);
+        fill(theirs, neighbour);
 
         projectService.delete(mine);
 
@@ -147,7 +150,7 @@ class ProjectDeletionE2ETest {
     void theGlobalDefinitionsAreNotTheProjectsToTake() {
         var global = fixtures.createResourceClass("shared", null);
         fixtures.createTemplate("shared", null, global);
-        fill(mine);
+        fill(mine, owner);
 
         projectService.delete(mine);
 
@@ -163,7 +166,7 @@ class ProjectDeletionE2ETest {
     void aGlobalGrantIsNotAProjectGrant() {
         var admin = fixtures.createActor("admin");
         fixtures.makeAdmin(admin);
-        fill(mine);
+        fill(mine, owner);
 
         projectService.delete(mine);
 
@@ -177,7 +180,7 @@ class ProjectDeletionE2ETest {
 
     @Test
     void deletingTwiceReportsNothingTheSecondTime() {
-        fill(mine);
+        fill(mine, owner);
 
         assertTrue(projectService.delete(mine));
         assertFalse(projectService.delete(mine));
@@ -209,10 +212,8 @@ class ProjectDeletionE2ETest {
                         rows(() -> Permission.count("id.projectId", projectId)), "user_permission"));
     }
 
-    // Populates sample data across all project-related tables.
-    private Filled fill(UUID projectId) {
-        var owner = fixtures.createActor("owner");
-        fixtures.join(owner, projectId, ProjectRole.OWNER);
+    // Populates sample data across all project-related tables; returns the sub-account it opened.
+    private Fixtures.Actor fill(UUID projectId, Fixtures.Actor owner) {
         fixtures.grant(owner, Perm.JOB_CREATE, projectId);
         var subAccount = fixtures.createSubAccount(projectId, "ci", owner);
         fixtures.createSecret(projectId, "TOKEN", "s3cret");
@@ -228,13 +229,10 @@ class ProjectDeletionE2ETest {
         var task = fixtures.createTask(projectId, owner, "pr-42", TaskScope.EMPTY);
         fixtures.mountVolume(task, volume, "/data");
         fixtures.createQueuedJob(projectId, owner, template, "small");
-        return new Filled(owner, subAccount);
+        return subAccount;
     }
 
     private static long rows(Supplier<Long> count) {
         return inTx(count);
-    }
-
-    private record Filled(Fixtures.Actor owner, Fixtures.Actor subAccount) {
     }
 }

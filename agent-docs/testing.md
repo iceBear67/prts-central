@@ -26,6 +26,7 @@ Tests are divided into three distinct execution tiers:
 - **Authentication in Tests (`Fixtures`)**:
   - Dev auto-login is disabled under `%test`.
   - Standard tests authenticate using real Personal Access Tokens generated via `Fixtures#actor` and `Fixtures.as(actor)`.
+- **Project Ownership (`Fixtures#createProject`)**: `ProjectService.create` takes an owner, so every fixture project has one. Pass the `Actor` that should own it; the `createProject(name)` overload registers a throwaway `nobody` user instead, which counts towards `user` and `user_to_project` rows.
 - **Worker Cleanup**: Active worker registrations in `WorkerService.activeWorkers` reside in-memory; tests interacting with WebSockets must disconnect workers and clear sessions in `@AfterEach`.
 - **E2E Filtering**: Tier C test classes must follow the naming pattern `*E2ETest.java` to be excluded from standard `./gradlew test` runs.
 

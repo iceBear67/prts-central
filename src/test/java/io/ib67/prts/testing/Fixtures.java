@@ -69,12 +69,21 @@ public class Fixtures {
         return new Actor(user.getId(), accessTokenService.issue(user.getId()).token());
     }
 
+    /**
+     * Creates a project owned by a throwaway user.
+     *
+     * <p>A project always has an owner; use this only where no actor of the test is meant to be in it.
+     */
     public UUID createProject(String name) {
-        return createProject(name, "");
+        return createProject(name, createActor("nobody"));
     }
 
-    public UUID createProject(String name, String description) {
-        return projectService.create(name, description).getId();
+    public UUID createProject(String name, Actor owner) {
+        return createProject(name, "", owner);
+    }
+
+    public UUID createProject(String name, String description, Actor owner) {
+        return projectService.create(name, description, owner.id()).getId();
     }
 
     /** Archives a project directly via ProjectService. */

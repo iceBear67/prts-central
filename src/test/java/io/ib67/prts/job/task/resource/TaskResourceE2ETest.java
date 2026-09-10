@@ -41,12 +41,11 @@ class TaskResourceE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.createProject("mine");
         owner = fixtures.createActor("owner");
+        project = fixtures.createProject("mine", owner);
         member = fixtures.createActor("member");
         viewer = fixtures.createActor("viewer");
         outsider = fixtures.createActor("outsider");
-        fixtures.join(owner, project, ProjectRole.OWNER);
         fixtures.join(member, project, ProjectRole.MEMBER);
         fixtures.join(viewer, project, ProjectRole.VIEWER);
     }

@@ -1,6 +1,5 @@
 package io.ib67.prts.secret.user.resource;
 
-import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
@@ -77,8 +76,7 @@ class UserTokenResourceE2ETest {
     @Test
     void aSubAccountCannotReadItsOwnToken() {
         var alice = fixtures.createActor("alice");
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
         var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(ci).get("/api/user/token").then()
@@ -89,8 +87,7 @@ class UserTokenResourceE2ETest {
     @Test
     void aSubAccountCannotRotateItsOwnToken() {
         var alice = fixtures.createActor("alice");
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
         var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(ci).put("/api/user/token").then()

@@ -40,9 +40,9 @@ class JobFailureNotificationE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.createProject("mine");
-        klass = fixtures.createResourceClass("small", project);
         requester = fixtures.createActor("requester");
+        project = fixtures.createProject("mine", requester);
+        klass = fixtures.createResourceClass("small", project);
     }
 
     @Test

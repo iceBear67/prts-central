@@ -79,8 +79,7 @@ class UserResourceE2ETest {
     @Test
     void aRoleAloneIsReportedWithoutGrants() {
         var alice = fixtures.createActor("alice");
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
 
         as(alice).get("/api/user").then()
                 .statusCode(200)
@@ -105,8 +104,7 @@ class UserResourceE2ETest {
     @Test
     void aSubAccountSeesTheProjectItBelongsTo() {
         var alice = fixtures.createActor("alice");
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var project = fixtures.createProject("mine", alice);
         var ci = fixtures.createSubAccount(project, "ci", alice);
 
         as(ci).get("/api/user").then()

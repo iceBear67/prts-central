@@ -1,7 +1,6 @@
 package io.ib67.prts.agent.worker.resource;
 
 import io.ib67.prts.job.entity.JobState;
-import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
@@ -54,8 +53,7 @@ class WorkerResourceE2ETest {
     @Test
     void aProjectOwnerIsStillNoAdmin() {
         var alice = fixtures.createActor("alice");
-        var project = fixtures.createProject("mine");
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.createProject("mine", alice);
 
         as(alice).get("/api/worker").then().statusCode(403);
     }

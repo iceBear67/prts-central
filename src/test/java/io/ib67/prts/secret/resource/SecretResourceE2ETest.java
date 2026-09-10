@@ -188,9 +188,8 @@ class SecretResourceE2ETest {
     @Test
     void theSameNameInAnotherProjectIsFree() {
         var alice = fixtures.createActor("alice");
-        var other = fixtures.createProject("theirs");
+        var other = fixtures.createProject("theirs", alice);
         fixtures.join(alice, project, ProjectRole.MEMBER);
-        fixtures.join(alice, other, ProjectRole.OWNER);
         fixtures.createSecret(project, "TOKEN", "s3cret");
 
         as(alice).contentType(ContentType.JSON)

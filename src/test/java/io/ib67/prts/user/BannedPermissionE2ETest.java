@@ -3,7 +3,6 @@ package io.ib67.prts.user;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.job.entity.JobState;
-import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
@@ -53,11 +52,10 @@ class BannedPermissionE2ETest {
     @BeforeEach
     void reset() {
         databaseCleaner.clean();
-        project = fixtures.createProject("mine");
+        alice = fixtures.createActor("alice");
+        project = fixtures.createProject("mine", alice);
         small = fixtures.createResourceClass("small", null);
         template = fixtures.createTemplate("build", project, small);
-        alice = fixtures.createActor("alice");
-        fixtures.join(alice, project, ProjectRole.OWNER);
     }
 
     /** Verifies that project roles do not grant access when the required permission is globally banned. */
