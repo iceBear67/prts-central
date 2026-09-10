@@ -19,7 +19,6 @@ import static io.ib67.prts.testing.Fixtures.as;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -87,9 +86,11 @@ class SubAccountResourceE2ETest {
         var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
-        as(admin).get("/api/project/{p}/subaccount", UUID.randomUUID()).then()
+        var missing = UUID.randomUUID();
+
+        as(admin).get("/api/project/{p}/subaccount", missing).then()
                 .statusCode(404)
-                .body(emptyString());
+                .body("message", equalTo("no such project: " + missing));
     }
 
     @Test

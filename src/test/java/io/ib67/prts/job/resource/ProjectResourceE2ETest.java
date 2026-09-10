@@ -105,12 +105,12 @@ class ProjectResourceE2ETest {
                 .body("access", equalTo("MEMBER"));
     }
 
-    /** Verifies that non-members receive an empty 403 Forbidden. */
+    /** Verifies that non-members are refused with 403 Forbidden. */
     @Test
     void aStrangerCannotReadTheProject() {
         as(alice).get("/api/project/{id}", project).then()
                 .statusCode(403)
-                .body(emptyString());
+                .body("message", equalTo("missing permission: project:read"));
     }
 
     /** Non-members receive 403 for non-existent projects to prevent project enumeration. */

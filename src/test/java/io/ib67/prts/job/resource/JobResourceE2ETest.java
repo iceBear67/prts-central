@@ -23,7 +23,6 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
-import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
@@ -234,9 +233,7 @@ class JobResourceE2ETest {
                 .then().statusCode(403);
     }
 
-    /**
-     * Quarkus ForbiddenException produces an empty 403 response without invoking ClientErrorMapper.
-     */
+    /** Quarkus's ForbiddenException reaches ForbiddenMapper, not ClientErrorMapper. */
     @Test
     void aViewerCannotCreateAJob() {
         var alice = fixtures.createActor("alice");
@@ -245,7 +242,7 @@ class JobResourceE2ETest {
         as(alice).contentType(ContentType.JSON).body(Map.of("templateId", template))
                 .post("/api/project/{p}/job", project).then()
                 .statusCode(403)
-                .body(emptyString());
+                .body("message", equalTo("missing permission: job:create"));
     }
 
     /** An explicit JOB_CREATE grant allows job creation without project membership. */

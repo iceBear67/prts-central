@@ -16,7 +16,6 @@ import java.util.UUID;
 import static io.ib67.prts.testing.Fixtures.as;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
-import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -46,7 +45,7 @@ class WorkerResourceE2ETest {
     void anOrdinaryUserCannotListWorkers() {
         as(fixtures.createActor("alice")).get("/api/worker").then()
                 .statusCode(403)
-                .body(emptyString());
+                .body("message", equalTo("missing permission: admin:all"));
     }
 
     /** Project-level roles do not grant global worker management permissions. */
@@ -114,9 +113,11 @@ class WorkerResourceE2ETest {
         var admin = fixtures.createActor("root");
         fixtures.makeAdmin(admin);
 
-        as(admin).post("/api/worker/{id}/disable", UUID.randomUUID()).then()
+        var missing = UUID.randomUUID();
+
+        as(admin).post("/api/worker/{id}/disable", missing).then()
                 .statusCode(404)
-                .body(emptyString());
+                .body("message", equalTo("no such worker: " + missing));
     }
 
     @Test
