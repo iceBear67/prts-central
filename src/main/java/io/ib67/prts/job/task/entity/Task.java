@@ -79,6 +79,26 @@ public class Task extends PanacheEntityBase {
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
 
+    /**
+     * What the task is about; empty string if nobody said.
+     *
+     * <p>Carries a DDL default so {@code schema-management.strategy: update} can add the column to a
+     * database that already holds task rows.
+     */
+    @Builder.Default
+    @Column(name = "description", nullable = false, columnDefinition = "varchar default ''")
+    private String description = "";
+
+    /**
+     * Where this task came from — an issue, a pull request, a ticket. Empty string if it tracks nothing.
+     *
+     * <p>A link for people to follow, nothing more: the control plane never fetches it, and it reaches
+     * neither the job spec nor the worker.
+     */
+    @Builder.Default
+    @Column(name = "tracked_at", nullable = false, columnDefinition = "varchar default ''")
+    private String trackedAt = "";
+
     @Builder.Default
     @Enumerated(EnumType.STRING)
     @Column(name = "state", nullable = false, columnDefinition = "varchar")

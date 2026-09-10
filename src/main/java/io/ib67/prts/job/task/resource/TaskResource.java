@@ -96,7 +96,12 @@ public class TaskResource {
             @NotNull(message = "a request body is required") @Valid CreateTaskRequest request) {
         projectService.requireWritable(projectId);
         return TaskView.of(taskService.create(
-                projectId, request.name(), request.scopeOrEmpty(), userContext.require().getId()));
+                projectId,
+                request.name(),
+                request.description(),
+                request.trackedAt(),
+                request.scopeOrEmpty(),
+                userContext.require().getId()));
     }
 
     /**
@@ -112,7 +117,8 @@ public class TaskResource {
             @PathParam("taskId") UUID taskId,
             @NotNull(message = "a request body is required") @Valid UpdateTaskRequest request) {
         projectService.requireWritable(projectId);
-        return TaskView.of(taskService.update(projectId, taskId, request.name(), request.scope()));
+        return TaskView.of(taskService.update(
+                projectId, taskId, request.name(), request.description(), request.trackedAt(), request.scope()));
     }
 
     /**

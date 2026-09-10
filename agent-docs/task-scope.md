@@ -15,6 +15,9 @@ orchestrate**: it declares no steps, resolves no dependencies, and never creates
 `task_volume` is many-to-many: one volume may be mounted by several tasks, each at a path of its own —
 which is why `mountPoint` sits on the mount row rather than on the volume.
 
+`name`, `description` and `trackedAt` — the issue or pull request the task follows — are for people to
+read. Only `TaskScope` reaches a job; nothing dereferences `trackedAt`.
+
 `Task` deliberately owns nothing that needs its own resolution or its own permission scope. There are no
 task-scoped secrets, templates or resource classes, and no task-scoped grants: `Permission` is keyed
 `(userId, permission, projectId)` and `RequirePermissionInterceptor` resolves exactly one scope, a

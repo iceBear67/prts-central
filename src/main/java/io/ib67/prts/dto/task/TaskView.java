@@ -12,12 +12,15 @@ import java.util.UUID;
 /**
  * View of a task scope.
  *
- * @param closedAt null until teardown finished
+ * @param trackedAt link to the issue, pull request or ticket the task follows; empty if it tracks none
+ * @param closedAt  null until teardown finished
  */
 public record TaskView(
         UUID id,
         UUID projectId,
         String name,
+        String description,
+        String trackedAt,
         TaskState state,
         TaskScope scope,
         UUID createdBy,
@@ -28,6 +31,8 @@ public record TaskView(
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(projectId, "projectId");
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
+        Objects.requireNonNull(trackedAt, "trackedAt");
         Objects.requireNonNull(state, "state");
         Objects.requireNonNull(scope, "scope");
         Objects.requireNonNull(createdBy, "createdBy");
@@ -39,6 +44,8 @@ public record TaskView(
                 task.getId(),
                 task.getProject().getId(),
                 task.getName(),
+                task.getDescription(),
+                task.getTrackedAt(),
                 task.getState(),
                 task.getScope(),
                 task.getCreatedBy(),

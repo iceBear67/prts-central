@@ -146,7 +146,61 @@ class TaskResourceE2ETest {
                 .body(Map.of())
                 .patch(tasks() + "/" + id).then()
                 .statusCode(400)
-                .body("message", equalTo("name or scope is required"));
+                .body("message", equalTo(
+                        "name, description, trackedAt or scope is required; a blank value clears it"));
+    }
+
+    @Test
+    void aTaskCarriesADescriptionAndItsSource() {
+        var id = UUID.fromString(as(member).contentType(ContentType.JSON)
+                .body(Map.of(
+                        "name", "pr-42",
+                        "description", "rebuild the index",
+                        "trackedAt", "https://example.invalid/pr/42"))
+                .post(tasks()).then()
+                .statusCode(201)
+                .body("description", equalTo("rebuild the index"))
+                .body("trackedAt", equalTo("https://example.invalid/pr/42"))
+                .extract().path("id"));
+
+        as(viewer).get(tasks() + "/" + id).then()
+                .statusCode(200)
+                .body("task.description", equalTo("rebuild the index"))
+                .body("task.trackedAt", equalTo("https://example.invalid/pr/42"));
+    }
+
+    /** Both default to empty, and a blank edit clears them again. */
+    @Test
+    void describingIsOptionalAndReversible() {
+        var id = openTask("pr-42");
+
+        as(viewer).get(tasks() + "/" + id).then()
+                .statusCode(200)
+                .body("task.description", equalTo(""))
+                .body("task.trackedAt", equalTo(""));
+
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("description", "why", "trackedAt", "https://example.invalid/issue/1"))
+                .patch(tasks() + "/" + id).then()
+                .statusCode(200)
+                .body("description", equalTo("why"))
+                .body("name", equalTo("pr-42"));
+
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("description", "  ", "trackedAt", ""))
+                .patch(tasks() + "/" + id).then()
+                .statusCode(200)
+                .body("description", equalTo(""))
+                .body("trackedAt", equalTo(""));
+    }
+
+    @Test
+    void aSourceThatIsNotAnHttpUrlIsRejected() {
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("name", "pr-42", "trackedAt", "example.invalid/pr/42"))
+                .post(tasks()).then()
+                .statusCode(400)
+                .body("message", equalTo("trackedAt must be an http or https URL"));
     }
 
     @Test

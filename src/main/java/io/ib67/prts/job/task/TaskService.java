@@ -59,10 +59,18 @@ public class TaskService {
     }
 
     @Transactional
-    public Task create(UUID projectId, String name, TaskScope scope, UUID createdBy) {
+    public Task create(
+            UUID projectId,
+            String name,
+            String description,
+            String trackedAt,
+            TaskScope scope,
+            UUID createdBy) {
         var task = Task.builder()
                 .project(projectService.require(projectId))
                 .name(name)
+                .description(description)
+                .trackedAt(trackedAt)
                 .scope(scope)
                 .createdBy(createdBy)
                 .build();
@@ -72,11 +80,24 @@ public class TaskService {
         return task;
     }
 
+    /** Applies the fields the caller supplied; a null argument leaves that field as it was. */
     @Transactional
-    public Task update(UUID projectId, UUID taskId, @Nullable String name, @Nullable TaskScope scope) {
+    public Task update(
+            UUID projectId,
+            UUID taskId,
+            @Nullable String name,
+            @Nullable String description,
+            @Nullable String trackedAt,
+            @Nullable TaskScope scope) {
         var task = requireOpen(projectId, taskId);
         if (name != null) {
             task.setName(name);
+        }
+        if (description != null) {
+            task.setDescription(description);
+        }
+        if (trackedAt != null) {
+            task.setTrackedAt(trackedAt);
         }
         if (scope != null) {
             task.setScope(scope);
