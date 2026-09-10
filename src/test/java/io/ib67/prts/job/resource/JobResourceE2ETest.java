@@ -1,10 +1,11 @@
-package io.ib67.prts.project.resource;
+package io.ib67.prts.job.resource;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
-import io.ib67.prts.project.JobConfig;
-import io.ib67.prts.project.entity.JobState;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.JobConfig;
+import io.ib67.prts.job.JobResource;
+import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
@@ -51,7 +52,7 @@ class JobResourceE2ETest {
     void reset() {
         databaseCleaner.clean();
         project = fixtures.createProject("mine");
-        small = fixtures.createResourceClass("small", null);
+        small = fixtures.createResourceClass("small");
         template = fixtures.createTemplate("build", project, small);
     }
 

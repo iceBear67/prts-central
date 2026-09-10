@@ -1,7 +1,8 @@
-package io.ib67.prts.project.resource;
+package io.ib67.prts.job.resource;
 
 import io.ib67.prts.Perm;
-import io.ib67.prts.project.entity.ProjectRole;
+import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.project.ProjectResource;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
@@ -81,12 +82,12 @@ class ProjectResourceE2ETest {
     @Test
     void aViewerCanReadTheProject() {
         var bob = fixtures.createActor("bob");
-        fixtures.join(alice, project, ProjectRole.VIEWER);
-        fixtures.join(bob, project, ProjectRole.OWNER);
+        var bobs = fixtures.createProject("theirs", bob);
+        fixtures.join(alice, bobs, ProjectRole.VIEWER);
 
-        as(alice).get("/api/project/{id}", project).then()
+        as(alice).get("/api/project/{id}", bobs).then()
                 .statusCode(200)
-                .body("name", equalTo("mine"))
+                .body("name", equalTo("theirs"))
                 .body("role", equalTo("VIEWER"))
                 .body("access", equalTo("MEMBER"))
                 .body("members.name", containsInAnyOrder("alice", "bob"))
@@ -158,10 +159,12 @@ class ProjectResourceE2ETest {
     void aGrantedUserOpensAProjectAndOwnsIt() {
         fixtures.grant(alice, Perm.PROJECT_CREATE, null);
 
-        var opened = as(alice).contentType(ContentType.JSON).body(Map.of("name", "  fresh  "))
+        var opened = as(alice).contentType(ContentType.JSON)
+                .body(Map.of("name", "  fresh  ", "description", "  what it is for  "))
                 .post("/api/project").then()
                 .statusCode(201)
                 .body("name", equalTo("fresh"))
+                .body("description", equalTo("what it is for"))
                 .body("role", equalTo("OWNER"))
                 .body("archivedAt", nullValue())
                 .extract().path("id");
@@ -364,7 +367,41 @@ class ProjectResourceE2ETest {
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "   "))
                 .patch("/api/project/{id}", project).then()
                 .statusCode(400)
-                .body("message", equalTo("name is required"));
+                .body("message", equalTo("name must not be blank"));
+    }
+
+    /** The patch is partial: a description on its own leaves the name where it was. */
+    @Test
+    void anOwnerCanDescribeTheProjectWithoutRenamingIt() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("description", "  the one I own  "))
+                .patch("/api/project/{id}", project).then()
+                .statusCode(200)
+                .body("name", equalTo("mine"))
+                .body("description", equalTo("the one I own"));
+        as(alice).get("/api/project/{id}", project).then()
+                .body("description", equalTo("the one I own"));
+    }
+
+    @Test
+    void aBlankDescriptionClearsIt() {
+        var described = fixtures.createProject("described", "something", alice);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("description", "   "))
+                .patch("/api/project/{id}", described).then()
+                .statusCode(200)
+                .body("description", emptyString());
+    }
+
+    @Test
+    void aPatchThatAsksForNothingIsRejected() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of())
+                .patch("/api/project/{id}", project).then()
+                .statusCode(400)
+                .body("message", equalTo("name or description is required; a blank description clears it"));
     }
 
     /** Deleting a project cascades to its memberships. */
@@ -455,13 +492,13 @@ class ProjectResourceE2ETest {
 
     @Test
     void theLastOwnerCannotStepDown() {
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var solo = fixtures.createProject("solo", alice);
 
         as(alice).contentType(ContentType.JSON).body(Map.of("role", "MEMBER"))
-                .put("/api/project/{p}/member/{u}", project, alice.id()).then()
+                .put("/api/project/{p}/member/{u}", solo, alice.id()).then()
                 .statusCode(409)
-                .body("message", equalTo("the last owner of project " + project + " cannot step down"));
-        as(alice).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
+                .body("message", equalTo("the last owner of project " + solo + " cannot step down"));
+        as(alice).get("/api/project/{id}", solo).then().body("role", equalTo("OWNER"));
     }
 
     /** Sub-accounts can only hold permissions, not project roles. */
@@ -479,13 +516,13 @@ class ProjectResourceE2ETest {
     @Test
     void anOwnerCanRemoveAMember() {
         var bob = fixtures.createActor("bob");
-        fixtures.join(alice, project, ProjectRole.OWNER);
-        fixtures.join(bob, project, ProjectRole.MEMBER);
+        var mine = fixtures.createProject("mine", alice);
+        fixtures.join(bob, mine, ProjectRole.MEMBER);
 
-        as(alice).delete("/api/project/{p}/member/{u}", project, bob.id()).then().statusCode(204);
+        as(alice).delete("/api/project/{p}/member/{u}", mine, bob.id()).then().statusCode(204);
 
-        as(alice).get("/api/project/{id}", project).then().body("members.name", contains("alice"));
-        as(bob).get("/api/project/{id}", project).then().statusCode(403);
+        as(alice).get("/api/project/{id}", mine).then().body("members.name", contains("alice"));
+        as(bob).get("/api/project/{id}", mine).then().statusCode(403);
     }
 
     /** Any member can remove themselves from a project without administrative permissions. */
@@ -527,11 +564,11 @@ class ProjectResourceE2ETest {
 
     @Test
     void theLastOwnerCannotLeave() {
-        fixtures.join(alice, project, ProjectRole.OWNER);
+        var solo = fixtures.createProject("solo", alice);
 
-        as(alice).delete("/api/project/{p}/member/{u}", project, alice.id()).then()
+        as(alice).delete("/api/project/{p}/member/{u}", solo, alice.id()).then()
                 .statusCode(409)
-                .body("message", equalTo("the last owner of project " + project + " cannot step down"));
-        as(alice).get("/api/project/{id}", project).then().body("role", equalTo("OWNER"));
+                .body("message", equalTo("the last owner of project " + solo + " cannot step down"));
+        as(alice).get("/api/project/{id}", solo).then().body("role", equalTo("OWNER"));
     }
 }

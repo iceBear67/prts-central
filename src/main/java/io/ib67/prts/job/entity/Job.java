@@ -1,4 +1,4 @@
-package io.ib67.prts.project.entity;
+package io.ib67.prts.job.entity;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
@@ -14,7 +14,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinColumns;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -45,7 +44,10 @@ import java.util.stream.Collectors;
 @Entity
 @Table(
         name = "job",
-        indexes = @Index(name = "idx_job_project_id", columnList = "project_id"),
+        indexes = {
+                @Index(name = "idx_job_project_id", columnList = "project_id"),
+                @Index(name = "idx_job_task_id", columnList = "task_id")
+        },
         check = {
                 @CheckConstraint(
                         name = "job_state_values",
@@ -101,17 +103,23 @@ public class Job extends PanacheEntityBase {
 
     /** The resource class assigned to this job, resolved at creation time. */
     @ManyToOne(fetch = FetchType.EAGER, optional = false)
-    @JoinColumns({
-            @JoinColumn(name = "resource_class", referencedColumnName = "name", nullable = false),
-            @JoinColumn(name = "resource_class_project", referencedColumnName = "project_id",
-                    nullable = false)
-    })
+    @JoinColumn(name = "resource_class", referencedColumnName = "name", nullable = false)
     @ToString.Exclude
     private ResourceClass resourceClass;
 
     /** Template ID used to create this job, or {@code null} if not created from a template. */
     @Column(name = "template_id", updatable = false)
     private UUID templateId;
+
+    /**
+     * Task whose scope this job ran under, or {@code null} if it belongs to no task.
+     *
+     * <p>Carries no foreign key: a task is closed rather than deleted, and its jobs outlive it as the
+     * record of what it scoped.
+     */
+    @Nullable
+    @Column(name = "task_id", updatable = false)
+    private UUID taskId;
 
     /** User ID of the requester. */
     @Column(name = "requested_by", nullable = false, updatable = false)
@@ -127,7 +135,9 @@ public class Job extends PanacheEntityBase {
      */
     @Nullable
     public JobRequest toRequest() {
-        return templateId == null ? null : new JobRequest(templateId, createOverride, resourceClass.getName());
+        return templateId == null
+                ? null
+                : new JobRequest(templateId, createOverride, resourceClass.getName(), taskId);
     }
 
     /**
@@ -199,13 +209,47 @@ public class Job extends PanacheEntityBase {
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
+    /** Lists visible jobs of a task in reverse chronological order. */
+    public static List<Job> listVisibleByTask(UUID taskId, int limit) {
+        return find("taskId = :task and " + VISIBLE_ROW + " order by createdAt desc, id desc",
+                Map.of("task", taskId, "pending", JobState.PENDING))
+                .page(0, limit)
+                .list();
+    }
+
     /** Lists all uncompleted (PENDING or RUNNING) jobs for a project. */
     public static List<Job> listOpenByProject(UUID projectId) {
         return list("project.id = ?1 and state in ?2", projectId, List.of(JobState.PENDING, JobState.RUNNING));
     }
 
+    /** Lists all uncompleted jobs scoped to a task. */
+    public static List<Job> listOpenByTask(UUID taskId) {
+        return list("taskId = ?1 and state in ?2", taskId, List.of(JobState.PENDING, JobState.RUNNING));
+    }
+
     /** Lists all uncompleted jobs assigned to a worker. */
     public static List<Job> listOpenByWorker(UUID workerId) {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
+    }
+
+    /** How many jobs hold this resource class. Guards deletion of a class still referenced. */
+    public static long countByResourceClass(String name) {
+        return count("resourceClass.name = ?1", name);
+    }
+
+    /**
+     * Detached descriptor of an unfinished job.
+     *
+     * <p>Reaching a job's worker means an RPC, which cannot run inside a transaction — so the rows are
+     * read and closed over first.
+     */
+    public record Open(UUID id, @Nullable UUID worker) {
+        public Open {
+            Objects.requireNonNull(id, "id");
+        }
+
+        public static Open of(Job job) {
+            return new Open(job.getId(), job.getWorker());
+        }
     }
 }

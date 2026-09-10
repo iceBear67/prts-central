@@ -1,4 +1,4 @@
-package io.ib67.prts.project.entity;
+package io.ib67.prts.job.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import jakarta.annotation.Nullable;
@@ -38,6 +38,16 @@ public class Project extends PanacheEntityBase {
 
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
+
+    /**
+     * What the project is for; empty string if nobody said.
+     *
+     * <p>Carries a DDL default so {@code schema-management.strategy: update} can add the column to a
+     * database that already holds project rows.
+     */
+    @Builder.Default
+    @Column(name = "description", nullable = false, columnDefinition = "varchar default ''")
+    private String description = "";
 
     /**
      * Timestamp when the project was archived, or null if the project is active.

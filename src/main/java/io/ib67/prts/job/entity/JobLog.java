@@ -1,4 +1,4 @@
-package io.ib67.prts.project.entity;
+package io.ib67.prts.job.entity;
 
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
 import io.quarkus.panache.common.Sort;

@@ -1,4 +1,4 @@
-package io.ib67.prts.project.entity;
+package io.ib67.prts.job.entity;
 
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.testing.DatabaseCleaner;
@@ -39,7 +39,7 @@ class JobFinderE2ETest {
         databaseCleaner.clean();
         project = fixtures.createProject("mine");
         alice = fixtures.createActor("alice");
-        small = fixtures.createResourceClass("small", null);
+        small = fixtures.createResourceClass("small");
     }
 
     @Test
