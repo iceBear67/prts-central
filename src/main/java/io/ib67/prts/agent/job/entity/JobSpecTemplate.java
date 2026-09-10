@@ -11,7 +11,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinColumns;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -60,10 +59,7 @@ public class JobSpecTemplate extends PanacheEntityBase {
     private JobSpec spec;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumns({
-            @JoinColumn(name = "resource_class", referencedColumnName = "name"),
-            @JoinColumn(name = "resource_class_project", referencedColumnName = "project_id")
-    })
+    @JoinColumn(name = "resource_class", referencedColumnName = "name")
     @ToString.Exclude
     private ResourceClass resourceClass;
 
@@ -98,5 +94,10 @@ public class JobSpecTemplate extends PanacheEntityBase {
 
     public static Optional<JobSpecTemplate> findGlobalFetched(UUID id) {
         return find(GLOBAL + " and t.id = ?1", id).firstResultOptional();
+    }
+
+    /** How many templates name this resource class. Guards deletion of a class still referenced. */
+    public static long countByResourceClass(String name) {
+        return count("resourceClass.name = ?1", name);
     }
 }

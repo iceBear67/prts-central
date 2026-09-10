@@ -54,7 +54,7 @@ class BannedPermissionE2ETest {
         databaseCleaner.clean();
         alice = fixtures.createActor("alice");
         project = fixtures.createProject("mine", alice);
-        small = fixtures.createResourceClass("small", null);
+        small = fixtures.createResourceClass("small");
         template = fixtures.createTemplate("build", project, small);
     }
 

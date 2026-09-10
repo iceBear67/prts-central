@@ -42,7 +42,7 @@ class JobFailureNotificationE2ETest {
         databaseCleaner.clean();
         requester = fixtures.createActor("requester");
         project = fixtures.createProject("mine", requester);
-        klass = fixtures.createResourceClass("small", project);
+        klass = fixtures.createResourceClass("small");
     }
 
     @Test

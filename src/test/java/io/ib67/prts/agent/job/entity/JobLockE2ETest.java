@@ -42,7 +42,7 @@ class JobLockE2ETest {
         databaseCleaner.clean();
         project = fixtures.createProject("mine");
         alice = fixtures.createActor("alice");
-        small = fixtures.createResourceClass("small", null);
+        small = fixtures.createResourceClass("small");
     }
 
     /** A job that already holds a lock can re-acquire it. */

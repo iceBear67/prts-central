@@ -170,7 +170,7 @@ class WorkerResourceE2ETest {
         fixtures.makeAdmin(admin);
         var worker = fixtures.createWorker("w1");
         var project = fixtures.createProject("mine");
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         fixtures.createJob(project, admin, small, JobState.RUNNING, worker);
 
         as(admin).delete("/api/worker/{id}", worker).then()
@@ -197,7 +197,7 @@ class WorkerResourceE2ETest {
         fixtures.makeAdmin(admin);
         var worker = fixtures.createWorker("w1");
         var project = fixtures.createProject("mine");
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         fixtures.createJob(project, admin, small, JobState.RUNNING, worker);
         fixtures.createJob(project, admin, small, JobState.SUCCESS, worker);
 

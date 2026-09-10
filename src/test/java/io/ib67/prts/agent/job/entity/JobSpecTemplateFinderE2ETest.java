@@ -41,7 +41,7 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void aProjectSeesItsOwnAndTheGlobalOnes() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         fixtures.createTemplate("ours", mine, small);
         fixtures.createTemplate("shared", null, small);
         fixtures.createTemplate("theirs", theirs, small);
@@ -57,7 +57,7 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void aProjectWithNoTemplatesOfItsOwnStillSeesTheGlobalOnes() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         fixtures.createTemplate("shared", null, small);
 
         var names = inTx(() -> JobSpecTemplate.listVisibleFetched(theirs).stream()
@@ -69,7 +69,7 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void oneOfAnothersIsNotVisible() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var id = fixtures.createTemplate("theirs", theirs, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isEmpty());
@@ -77,7 +77,7 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void aGlobalOneIsVisibleById() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var id = fixtures.createTemplate("shared", null, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isPresent());
@@ -85,7 +85,7 @@ class JobSpecTemplateFinderE2ETest {
 
     @Test
     void aProjectFindsItsOwnById() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var id = fixtures.createTemplate("ours", mine, small);
 
         assertTrue(inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).isPresent());
@@ -96,7 +96,7 @@ class JobSpecTemplateFinderE2ETest {
      */
     @Test
     void theResourceClassComesBackAlreadyLoaded() {
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var id = fixtures.createTemplate("ours", mine, small);
 
         var template = inTx(() -> JobSpecTemplate.findVisibleFetched(mine, id)).orElseThrow();

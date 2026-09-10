@@ -57,7 +57,7 @@ class PendingJobServiceE2ETest {
         databaseCleaner.clean();
         project = fixtures.createProject("mine");
         alice = fixtures.createActor("alice");
-        template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small", null));
+        template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small"));
     }
 
     @Test

@@ -60,6 +60,7 @@ class AdminResourceE2ETest {
         as(alice).get("/api/admin/project").then().statusCode(403);
         as(alice).get("/api/admin/user").then().statusCode(403);
         as(alice).get("/api/admin/template").then().statusCode(403);
+        as(alice).get("/api/admin/resource-class").then().statusCode(403);
         as(alice).get("/api/admin/permission").then().statusCode(403);
     }
 
@@ -68,7 +69,7 @@ class AdminResourceE2ETest {
         var project = fixtures.createProject("mine", alice);
         var archived = fixtures.createProject("old", alice);
         fixtures.archive(archived);
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
         fixtures.createArtifact(job, "out.txt");
         fixtures.createWorker("w1");
@@ -90,7 +91,7 @@ class AdminResourceE2ETest {
     @Test
     void theProjectListingCountsMembersJobsAndQueue() {
         var project = fixtures.createProject("mine", alice);
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var template = fixtures.createTemplate("build", project, small);
         fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
         fixtures.createQueuedJob(project, alice, template, "small");
@@ -248,7 +249,7 @@ class AdminResourceE2ETest {
 
     @Test
     void anAdminDefinesAndDropsAGlobalTemplate() {
-        fixtures.createResourceClass("small", null);
+        fixtures.createResourceClass("small");
 
         var created = as(admin).contentType(ContentType.JSON).body(Map.of(
                         "name", "shared", "resourceClass", "small", "spec", Map.of("image", "alpine")))
@@ -272,22 +273,18 @@ class AdminResourceE2ETest {
         as(admin).get("/api/admin/template").then().body("$", empty());
     }
 
-    /** Global templates require a global resource class. */
     @Test
-    void aGlobalTemplateNeedsAGlobalResourceClass() {
-        var project = fixtures.createProject("mine");
-        fixtures.createResourceClass("small", project);
-
+    void aGlobalTemplateNeedsAnExistingResourceClass() {
         as(admin).contentType(ContentType.JSON).body(Map.of(
                         "name", "shared", "resourceClass", "small", "spec", Map.of("image", "alpine")))
                 .post("/api/admin/template").then()
                 .statusCode(404)
-                .body("message", equalTo("no such global resource class: small"));
+                .body("message", equalTo("no such resource class: small"));
     }
 
     @Test
     void aGlobalTemplateCannotMountVolumes() {
-        fixtures.createResourceClass("small", null);
+        fixtures.createResourceClass("small");
         var project = fixtures.createProject("mine");
         var volume = fixtures.createVolume(project, fixtures.createWorker("w1"), "data");
 
@@ -305,11 +302,83 @@ class AdminResourceE2ETest {
     @Test
     void aProjectTemplateIsNotVisibleToTheGlobalListing() {
         var project = fixtures.createProject("mine");
-        var small = fixtures.createResourceClass("small", null);
+        var small = fixtures.createResourceClass("small");
         var theirs = fixtures.createTemplate("build", project, small);
 
         as(admin).get("/api/admin/template").then().body("$", empty());
         as(admin).delete("/api/admin/template/{t}", theirs).then().statusCode(404);
+    }
+
+    @Test
+    void anAdminDefinesUpdatesAndDropsAResourceClass() {
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "memory-small", "numCpus", 2, "memCount", 512, "diskSize", 1024))
+                .post("/api/admin/resource-class").then()
+                .statusCode(201)
+                .body("name", equalTo("memory-small"))
+                .body("numCpus", equalTo(2));
+
+        as(admin).get("/api/admin/resource-class").then()
+                .statusCode(200)
+                .body("name", contains("memory-small"));
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("numCpus", 8))
+                .patch("/api/admin/resource-class/memory-small").then()
+                .statusCode(200)
+                .body("numCpus", equalTo(8))
+                .body("memCount", equalTo(512));
+
+        as(admin).delete("/api/admin/resource-class/memory-small").then().statusCode(204);
+        as(admin).get("/api/admin/resource-class").then().body("$", empty());
+    }
+
+    /** A class has to exist before anything can name one, so this is how an install bootstraps. */
+    @Test
+    void aClassDefinedHereUnblocksTemplatesAndThenResistsDeletion() {
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "small", "numCpus", 1, "memCount", 512, "diskSize", 1024))
+                .post("/api/admin/resource-class").then().statusCode(201);
+
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "shared", "resourceClass", "small", "spec", Map.of("image", "alpine")))
+                .post("/api/admin/template").then().statusCode(201);
+
+        as(admin).delete("/api/admin/resource-class/small").then()
+                .statusCode(409)
+                .body("message", equalTo(
+                        "resource class small is still named by 0 job(s) and 1 template(s)"));
+    }
+
+    @Test
+    void aResourceClassNameIsTakenOnlyOnce() {
+        fixtures.createResourceClass("small");
+
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "small", "numCpus", 1, "memCount", 1, "diskSize", 1))
+                .post("/api/admin/resource-class").then()
+                .statusCode(409)
+                .body("message", equalTo("a resource class named small already exists"));
+    }
+
+    @Test
+    void aResourceClassRejectsNegativeCapacityAndBadNames() {
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "small", "numCpus", -1, "memCount", 1, "diskSize", 1))
+                .post("/api/admin/resource-class").then()
+                .statusCode(400)
+                .body("message", equalTo("numCpus must not be negative"));
+
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "-nope", "numCpus", 1, "memCount", 1, "diskSize", 1))
+                .post("/api/admin/resource-class").then()
+                .statusCode(400)
+                .body("message", equalTo("name must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}"));
+
+        fixtures.createResourceClass("small");
+        as(admin).contentType(ContentType.JSON).body(Map.of())
+                .patch("/api/admin/resource-class/small").then()
+                .statusCode(400)
+                .body("message", equalTo("numCpus, memCount or diskSize is required"));
     }
 
     /** Lists all available permissions when no permissions are banned. */

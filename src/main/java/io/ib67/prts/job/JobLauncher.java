@@ -154,7 +154,7 @@ public class JobLauncher {
         return new ResolvedCreate(
                 project,
                 spec,
-                resolveResourceClass(projectId, request.resourceClass(), scope.resourceClass(),
+                resolveResourceClass(request.resourceClass(), scope.resourceClass(),
                         template.getResourceClass(), authorizer));
     }
 
@@ -165,7 +165,6 @@ public class JobLauncher {
      * permitted to choose them, so neither costs the requester {@code job:resource-class}.
      */
     private ResourceClass resolveResourceClass(
-            UUID projectId,
             @Nullable String requestedName,
             @Nullable String taskDefault,
             @Nullable ResourceClass templateClass,
@@ -173,34 +172,21 @@ public class JobLauncher {
         var defaultName = taskDefault != null ? taskDefault : nameOf(templateClass);
         if (requestedName != null && !requestedName.equals(defaultName)) {
             authorizer.resourceClass(requestedName);
-            return findVisible(projectId, requestedName);
+            return requireClass(requestedName);
         }
         if (defaultName == null) {
             throw new BadRequestException("resource class is required");
         }
-        return taskDefault != null
-                ? findVisible(projectId, taskDefault)
-                : requireVisible(projectId, templateClass);
+        return taskDefault != null ? requireClass(taskDefault) : templateClass;
     }
 
-    private static ResourceClass findVisible(UUID projectId, String name) {
-        return ResourceClass.findVisible(projectId, name)
+    private static ResourceClass requireClass(String name) {
+        return ResourceClass.findByName(name)
                 .orElseThrow(() -> new NotFoundException("no such resource class: " + name));
     }
 
     private static String nameOf(@Nullable ResourceClass klass) {
         return klass == null ? null : klass.getName();
-    }
-
-    /**
-     * Ensures the resource class is either global or belongs to the specified project.
-     */
-    private static ResourceClass requireVisible(UUID projectId, ResourceClass klass) {
-        if (klass.isGlobal() || klass.getProjectId().equals(projectId)) {
-            return klass;
-        }
-        throw new BadRequestException(
-                "template names a resource class of another project: " + klass.getName());
     }
 
     /** @param spec the merged spec <em>with</em> the project's secrets — never the persisted one. */

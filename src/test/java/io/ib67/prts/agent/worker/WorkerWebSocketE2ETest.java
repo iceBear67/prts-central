@@ -196,7 +196,7 @@ class WorkerWebSocketE2ETest {
     void disconnectingFailsOnlyTheJobsThatWorkerWasRunning() {
         var alice = fixtures.createActor("alice");
         var project = fixtures.createProject("mine");
-        var klass = fixtures.createResourceClass("small", null);
+        var klass = fixtures.createResourceClass("small");
         var workerId = UUID.randomUUID();
         var session = connect();
         assertTrue(session.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());

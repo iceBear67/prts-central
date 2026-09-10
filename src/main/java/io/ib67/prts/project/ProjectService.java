@@ -1,7 +1,6 @@
 package io.ib67.prts.project;
 
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.pending.PendingJob;
@@ -222,9 +221,6 @@ public class ProjectService {
         subAccountService.list(id).forEach(account -> userService.delete(account.getUserId()));
         permissionService.revokeAllInProject(id);
         project.delete();
-        // Explicitly flush project removal before running bulk delete on resource_class
-        Project.flush();
-        ResourceClass.deleteByProject(id);
         return Rows.DELETED;
     }
 

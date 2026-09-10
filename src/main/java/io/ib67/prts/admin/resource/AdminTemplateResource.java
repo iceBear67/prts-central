@@ -57,7 +57,7 @@ public class AdminTemplateResource {
         var template = JobSpecTemplate.builder()
                 .name(request.name())
                 .spec(spec)
-                .resourceClass(requireGlobalClass(request.resourceClass()))
+                .resourceClass(requireClass(request.resourceClass()))
                 .build();
         template.persist();
         return JobSpecTemplateView.of(template, true);
@@ -72,10 +72,8 @@ public class AdminTemplateResource {
                 .delete();
     }
 
-    /** Ensures the referenced resource class is globally scoped. */
-    private static ResourceClass requireGlobalClass(String name) {
-        return ResourceClass.<ResourceClass>findByIdOptional(
-                        new ResourceClass.Key(name, ResourceClass.GLOBAL))
-                .orElseThrow(() -> new NotFoundException("no such global resource class: " + name));
+    private static ResourceClass requireClass(String name) {
+        return ResourceClass.findByName(name)
+                .orElseThrow(() -> new NotFoundException("no such resource class: " + name));
     }
 }

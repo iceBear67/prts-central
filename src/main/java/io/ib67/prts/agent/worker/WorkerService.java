@@ -278,11 +278,11 @@ public class WorkerService {
         if (resourceClass == null || resourceClass.getName() == null) {
             throw new IllegalArgumentException("resource class name is required");
         }
-        var key = resourceClass.key();
+        var name = resourceClass.getName();
         return QuarkusTransaction.requiringNew().call(() -> {
-            var found = ResourceClass.<ResourceClass>findById(key);
+            var found = ResourceClass.<ResourceClass>findById(name);
             if (found == null) {
-                throw new NoSuchElementException("no such resource class: " + resourceClass.getName());
+                throw new NoSuchElementException("no such resource class: " + name);
             }
             return found;
         });

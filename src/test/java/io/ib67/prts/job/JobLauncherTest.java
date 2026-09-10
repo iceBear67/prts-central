@@ -65,14 +65,14 @@ class JobLauncherTest {
     private final JobLauncher launcher = new JobLauncher();
 
     private final Project project = Project.builder().id(PROJECT).name("p").build();
-    private final ResourceClass small = resourceClass("small", PROJECT);
-    private final ResourceClass big = resourceClass("big", PROJECT);
+    private final ResourceClass small = resourceClass("small");
+    private final ResourceClass big = resourceClass("big");
     private final JobSpec spec = new JobSpec("img:1", null, null, null, null, null, 60L, null, null);
     private final JobSpecTemplate template =
             JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec).resourceClass(small).build();
 
-    private static ResourceClass resourceClass(String name, UUID projectId) {
-        return ResourceClass.builder().name(name).projectId(projectId).build();
+    private static ResourceClass resourceClass(String name) {
+        return ResourceClass.builder().name(name).build();
     }
 
     @BeforeEach
@@ -147,7 +147,7 @@ class JobLauncherTest {
     @Test
     void overridingTheResourceClassIsGatedAndLookedUp() {
         try (var scope = new Scope()) {
-            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "big")).thenReturn(Optional.of(big));
+            scope.classes.when(() -> ResourceClass.findByName("big")).thenReturn(Optional.of(big));
 
             var authorized = launcher.authorize(PROJECT, request("big"), authorizer);
 
@@ -159,7 +159,7 @@ class JobLauncherTest {
     @Test
     void anOverrideResourceClassThatDoesNotExistIsNotFound() {
         try (var scope = new Scope()) {
-            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "huge")).thenReturn(Optional.empty());
+            scope.classes.when(() -> ResourceClass.findByName("huge")).thenReturn(Optional.empty());
 
             assertThrows(NotFoundException.class,
                     () -> launcher.authorize(PROJECT, request("huge"), authorizer));
@@ -213,34 +213,6 @@ class JobLauncherTest {
         }
     }
 
-    /** Resource classes referenced by a template must belong to the template's project or be global. */
-    @Test
-    void aTemplateNamingAnotherProjectsResourceClassIsRejected() {
-        var foreign = JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec)
-                .resourceClass(resourceClass("small", OTHER_PROJECT)).build();
-
-        try (var scope = new Scope()) {
-            scope.templates.when(() -> JobSpecTemplate.findVisibleFetched(PROJECT, TEMPLATE))
-                    .thenReturn(Optional.of(foreign));
-
-            assertThrows(BadRequestException.class,
-                    () -> launcher.authorize(PROJECT, request(null), authorizer));
-        }
-    }
-
-    @Test
-    void aGlobalResourceClassIsVisibleToEveryProject() {
-        var global = JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec)
-                .resourceClass(resourceClass("shared", ResourceClass.GLOBAL)).build();
-
-        try (var scope = new Scope()) {
-            scope.templates.when(() -> JobSpecTemplate.findVisibleFetched(PROJECT, TEMPLATE))
-                    .thenReturn(Optional.of(global));
-
-            assertEquals("shared", launcher.authorize(PROJECT, request(null), authorizer).resourceClass());
-        }
-    }
-
     /** Volumes introduced via override must belong to the project. */
     @Test
     void aVolumeAddedByAnOverrideIsStillCheckedAgainstTheProject() {
@@ -289,7 +261,7 @@ class JobLauncherTest {
         openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
 
         try (var scope = new Scope()) {
-            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "big")).thenReturn(Optional.of(big));
+            scope.classes.when(() -> ResourceClass.findByName("big")).thenReturn(Optional.of(big));
 
             assertEquals("big", launcher.authorize(PROJECT, inTask(null), authorizer).resourceClass());
             verifyNoInteractions(authorizer);
@@ -302,7 +274,7 @@ class JobLauncherTest {
         openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
 
         try (var scope = new Scope()) {
-            scope.classes.when(() -> ResourceClass.findVisible(PROJECT, "small")).thenReturn(Optional.of(small));
+            scope.classes.when(() -> ResourceClass.findByName("small")).thenReturn(Optional.of(small));
 
             assertEquals("small", launcher.authorize(PROJECT, inTask("small"), authorizer).resourceClass());
             verify(authorizer).resourceClass("small");

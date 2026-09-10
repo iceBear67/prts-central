@@ -33,5 +33,4 @@ flowchart TD
 - **Manual Removals** (tables lacking project foreign keys):
   - **Permissions**: `PermissionService.revokeAllInProject(projectId)` removes `user_permission` records and invalidates user permission caches.
   - **Sub-Accounts**: Explicitly deletes associated `prts_user` records for sub-accounts owned by the project.
-  - **Resource Classes**: Deletes project-scoped `ResourceClass` entities via bulk JPQL following an explicit `flush()` (to prevent constraint violations with `job` FKs).
 

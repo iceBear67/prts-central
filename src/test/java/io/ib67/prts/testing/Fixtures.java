@@ -119,12 +119,10 @@ public class Fixtures {
         secretService.create(projectId, name, null, value);
     }
 
-    /** Creates a project-scoped or global resource class. */
     @Transactional
-    public ResourceClass createResourceClass(String name, @Nullable UUID projectId) {
+    public ResourceClass createResourceClass(String name) {
         var klass = ResourceClass.builder()
                 .name(name)
-                .projectId(ResourceClass.scopeOf(projectId))
                 .numCpus(1)
                 .memCount(512)
                 .diskSize(1024)
@@ -293,7 +291,7 @@ public class Fixtures {
 
     /** Re-attaches a detached entity to the current persistence context. */
     private static ResourceClass attach(ResourceClass klass) {
-        return ResourceClass.findById(klass.key());
+        return ResourceClass.findById(klass.getName());
     }
 
     public record Actor(UUID id, String token) {

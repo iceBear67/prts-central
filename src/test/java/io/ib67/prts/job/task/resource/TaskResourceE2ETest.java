@@ -172,7 +172,7 @@ class TaskResourceE2ETest {
                 .body(Map.of("name", "renamed"))
                 .patch(tasks() + "/" + id).then().statusCode(409);
 
-        var template = fixtures.createTemplate("t", project, fixtures.createResourceClass("small", project));
+        var template = fixtures.createTemplate("t", project, fixtures.createResourceClass("small"));
         as(member).contentType(ContentType.JSON)
                 .body(Map.of("templateId", template.toString(), "taskId", id.toString()))
                 .post("/api/project/" + project + "/job").then()

@@ -107,7 +107,7 @@ public class JobResource {
         var template = JobSpecTemplate.builder()
                 .name(request.name())
                 .spec(spec)
-                .resourceClass(ResourceClass.findVisible(projectId, request.resourceClass())
+                .resourceClass(ResourceClass.findByName(request.resourceClass())
                         .orElseThrow(() -> new NotFoundException(
                                 "no such resource class: " + request.resourceClass())))
                 .project(project)

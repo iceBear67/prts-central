@@ -10,7 +10,7 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 | **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
 | **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
 | **Project Creation** | None (global) | `project:create` | `POST /project` — the caller becomes its `OWNER`. Sub-accounts cannot (409): they hold no project role. |
-| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
+| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
 
 ### Special Permission Rules
 - **Template Spec Hiding**: `GET .../job/template` requires `project:read`. However, reading template `spec` and `resourceClass` requires explicit `job:template:read` (`defaultRole = NONE`). Without it, those fields are returned as `null`. When creating a template, the response returns the full template definition directly.
@@ -76,6 +76,7 @@ cross-project view.
 | `DELETE /admin/user/{userId}/permission` | Revokes every grant, in any scope. |
 | `GET /admin/permission` | The whole `Perm` catalogue with each one's ban state. Read-only — bans come from `permission.banned`, see [authorization.md](authorization.md). |
 | `GET\|POST /admin/template`, `DELETE /admin/template/{id}` | The templates every project may use. Project templates are invisible here (404 on delete). |
+| `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | The only way a resource class is ever created — a worker reports its capacity but never declares a class, so nothing can be run until one exists. The catalogue is service-wide, keyed by name alone. `DELETE` is 409 while a job or template still names it. |
 | `PATCH /worker/{id}` | Rename. Holds only until the worker registers again under a name of its own — `Worker.upsert` takes the name from the registration. |
 | `DELETE /worker/{id}` | Drops the registration. 409 while connected, holding unfinished jobs, or hosting volumes (`worker_volume` carries a plain foreign key). |
 | `POST /worker/{id}/disconnect` | Closes the session; its unfinished jobs fail as on any disconnect. Deliberately separate from the delete. |

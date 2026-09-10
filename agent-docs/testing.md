@@ -4,7 +4,7 @@ Tests are divided into three distinct execution tiers:
 
 | Tier | Boots Quarkus | Needs Docker | Scope & Characteristics |
 | --- | --- | --- | --- |
-| **Tier A** (Pure) | No | No | Pure functions, algorithms, and value objects (`JobSpecTest`, `JobSpecOverrideTest`, `SecretCipherTest`, `ResourceClassTest`). |
+| **Tier A** (Pure) | No | No | Pure functions, algorithms, and value objects (`JobSpecTest`, `JobSpecOverrideTest`, `SecretCipherTest`, `TaskScopeTest`). |
 | **Tier B** (Mocked) | No | No | Isolated beans with mocked collaborators (`JobLauncherTest`, auth mechanism tests, dispatcher tests). Executes in milliseconds. |
 | **Tier C** (E2E) | Yes | Yes (Dev Services) | Integration tests tagged `@Tag("e2e")` (`*E2ETest.java`). Exercises persistence, transactions, and HTTP API over real containers. |
 
@@ -15,7 +15,7 @@ Tests are divided into three distinct execution tiers:
 
 - **Collaborator Injection**: All `@Inject` dependencies are package-private, allowing direct assignment in tests without CDI or reflection (`launcher.projectService = mock(...)`).
 - **Panache Static Mocking**:
-  - Hand-written entity static finders (`JobSpecTemplate.findVisibleFetched`, `ResourceClass.findVisible`) can be mocked via `Mockito.mockStatic`.
+  - Hand-written entity static finders (`JobSpecTemplate.findVisibleFetched`, `ResourceClass.findByName`) can be mocked via `Mockito.mockStatic`. `ResourceClass.findByName` exists only to wrap `findByIdOptional` for exactly this reason — keep the wrapper when a mocked caller depends on it.
   - Inherited Panache static methods (`findById`, `persist`, `listAll`) fail outside Quarkus augmentation; beans relying on them must be tested in Tier C.
   - *Caution*: `mockStatic(Entity.class)` stubs **every** static the class has, including ones Lombok generates. That is `builder()`, and — for any entity with a `@Builder.Default` field, such as `Job.state` and `WorkerVolume.state` — the `$default$<field>()` the no-arg constructor calls, so even `new Entity()` interacts with the mock. Always construct entity test fixtures *before* opening a `mockStatic` block, including inside `thenReturn(...)` arguments: an exception thrown while evaluating one leaves the stubbing unfinished, and the `UnfinishedStubbingException` raised at close hides the real cause.
 - **Transaction Stubbing**: Use `io.ib67.prts.testing.InlineTransactions` in a try-with-resources block to execute `QuarkusTransaction.requiringNew()` synchronously on the test thread.

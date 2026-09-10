@@ -30,7 +30,7 @@ too. `DevAdminSeeder` seeds from a `StartupEvent` observer for this reason.
 - Typed enum representing `(permission, isGlobal)`. String representations match database entries in `user_permission`.
 - Global permissions are `admin:all` and `project:create`; every other permission is scoped to a project. `Perm.ADMIN_OF_ALL` bypasses all `@RequirePermission` checks except a ban (below).
 - Rows are keyed `(userId, permission, projectId)`. Cached per user in Caffeine (5 min TTL), invalidated on transaction commit upon grant/revoke.
-- **`Reserved.ID` (`00000000-0000-0000-0000-000000000000`)**: Sentinel UUID used in non-null PK columns for global scope (`Permission.GLOBAL`, `ResourceClass.GLOBAL`). Nullable columns use SQL `NULL` instead.
+- **`Reserved.ID` (`00000000-0000-0000-0000-000000000000`)**: Sentinel UUID used in non-null PK columns for global scope (`Permission.GLOBAL`). Nullable columns use SQL `NULL` instead.
 
 ### 2. `@RequirePermission` Interceptor
 CDI interceptor binding (`RequirePermissionInterceptor`) evaluated on annotated methods:

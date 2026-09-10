@@ -14,15 +14,15 @@ Plaintext secrets are never stored in the database or serialized inside `job.spe
 - **Scoping**: `project_id = null` indicates a global template accessible across all projects; otherwise scoped to a single project.
 - **Resolution**: `JobSpecTemplate.findVisibleFetched(projectId, id)` resolves templates visible to a project; `listGlobalFetched` and `findGlobalFetched` query only global templates.
 - **Management Endpoints**: Project-scoped templates are managed via `POST|DELETE /project/{projectId}/job/template[/{id}]` (`job:template:manage`). Global templates are managed via `/api/admin/template`. Each endpoint only operates within its designated scope.
-- **Global Template Constraints**: Global templates may only reference global resource classes and cannot mount volumes, since volumes and project-scoped resource classes belong to specific projects.
+- **Global Template Constraints**: Global templates cannot mount volumes, since volumes belong to specific projects. Resource classes carry no such restriction — they are service-wide.
 - **Request Payloads**: Inbound templates accept `JobSpecRequest` rather than `JobSpec`. Bean Validation validates required fields such as `image`, returning informative validation errors.
 - **Template Deletion and Pending Jobs**: Deleting a template does not alter existing queue entries (`job.template_id` does not enforce a foreign key, and pending entries store the request payload as `jsonb`). If a pending job's referenced template no longer exists during dispatch, `PendingJobDispatcher` catches the `NotFoundException` and transitions the job to `FAILED`.
 
 ### Resource Classes (`ResourceClass`)
-- **Keying**: Composite primary key `(name, projectId)` via `@IdClass(ResourceClassId.class)`.
-- **Global Sentinel**: Global classes use `ResourceClass.GLOBAL` (`Reserved.ID`).
-- **Shadowing**: `ResourceClass.findVisible(projectId, name)` queries the project-specific row first, falling back to global if absent. Project-specific classes shadow global classes sharing the same name.
-- **Foreign Keys**: References use two-column FKs `(resource_class, resource_class_project)` on `job` and `job_spec_template`.
+- **Keying**: `name` is the whole primary key. The catalogue is service-wide — a class belongs to no project, and every project draws from the same one.
+- **Foreign Keys**: `job.resource_class` and `job_spec_template.resource_class` reference `resource_class (name)`.
+- **Lookup**: `ResourceClass.findByName(name)`, hand-written rather than a bare `findByIdOptional` so `JobLauncherTest` can mock it with `mockStatic`.
+- **Management**: `/api/admin/resource-class` (`admin:all`) is the only write path — a worker reports the capacity it has but never declares a class, so a fresh install can create neither a template nor a job until an admin defines one. Deletion is refused (409) while a job or template still names it, since both hold the FK above and a job is kept as the record of what ran.
 - **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the default does not — and a `TaskScope.resourceClass` stands in for the template's as that default, since both were set by someone already permitted to.
 
 ## Volume Isolation

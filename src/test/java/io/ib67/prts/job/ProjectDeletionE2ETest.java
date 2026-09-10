@@ -122,7 +122,8 @@ class ProjectDeletionE2ETest {
                 () -> assertEquals(1, rows(() -> PendingJob.count("project.id", theirs)), "pending_job"),
                 () -> assertEquals(1,
                         rows(() -> JobSpecTemplate.count("project.id", theirs)), "job_spec_template"),
-                () -> assertEquals(1, rows(() -> ResourceClass.count("projectId", theirs)), "resource_class"),
+                () -> assertEquals(1, rows(() -> ResourceClass.count("name", className(theirs))),
+                        "resource_class"),
                 () -> assertEquals(1, rows(() -> WorkerVolume.count("project.id", theirs)), "worker_volume"),
                 () -> assertEquals(1, rows(() -> ProjectSecret.count("id.projectId", theirs)), "project_secret"),
                 () -> assertEquals(1, rows(() -> SubAccount.count("project.id", theirs)), "sub_account"),
@@ -135,7 +136,7 @@ class ProjectDeletionE2ETest {
     @Test
     void anotherProjectsQueueStaysInLine() {
         var alice = fixtures.createActor("alice");
-        var template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small", null));
+        var template = fixtures.createTemplate("build", null, fixtures.createResourceClass("small"));
         var queued = fixtures.createQueuedJob(theirs, alice, template, "small");
         fixtures.createQueuedJob(mine, alice, template, "small");
 
@@ -145,18 +146,18 @@ class ProjectDeletionE2ETest {
                 inTx(() -> PendingJob.<PendingJob>findById(queued).getState()));
     }
 
-    /** Global resource classes and templates are preserved when a project is deleted. */
+    /** Resource classes and global templates are preserved when a project is deleted. */
     @Test
     void theGlobalDefinitionsAreNotTheProjectsToTake() {
-        var global = fixtures.createResourceClass("shared", null);
-        fixtures.createTemplate("shared", null, global);
+        var shared = fixtures.createResourceClass("shared");
+        fixtures.createTemplate("shared", null, shared);
         fill(mine, owner);
 
         projectService.delete(mine);
 
         assertAll(
-                () -> assertEquals(1,
-                        rows(() -> ResourceClass.count("projectId", ResourceClass.GLOBAL)), "resource_class"),
+                // Both "shared" and the class the deleted project's jobs named.
+                () -> assertEquals(2, rows(() -> ResourceClass.count()), "resource_class"),
                 () -> assertEquals(1,
                         rows(() -> JobSpecTemplate.count("project is null")), "job_spec_template"));
     }
@@ -197,8 +198,6 @@ class ProjectDeletionE2ETest {
                 () -> assertEquals(0,
                         rows(() -> JobSpecTemplate.count("project.id", projectId)), "job_spec_template"),
                 () -> assertEquals(0,
-                        rows(() -> ResourceClass.count("projectId", projectId)), "resource_class"),
-                () -> assertEquals(0,
                         rows(() -> WorkerVolume.count("project.id", projectId)), "worker_volume"),
                 () -> assertEquals(0, rows(() -> Task.count("project.id", projectId)), "task"),
                 () -> assertEquals(0,
@@ -217,7 +216,8 @@ class ProjectDeletionE2ETest {
         fixtures.grant(owner, Perm.JOB_CREATE, projectId);
         var subAccount = fixtures.createSubAccount(projectId, "ci", owner);
         fixtures.createSecret(projectId, "TOKEN", "s3cret");
-        var klass = fixtures.createResourceClass("small", projectId);
+        // Classes are service-wide, so each project's fill names its own to stay independent.
+        var klass = fixtures.createResourceClass(className(projectId));
         var template = fixtures.createTemplate("run", projectId, klass);
         var done = fixtures.createJob(projectId, owner, klass, JobState.SUCCESS, null);
         fixtures.createLog(done, "state", "RUNNING -> SUCCESS");
@@ -228,8 +228,12 @@ class ProjectDeletionE2ETest {
         var volume = fixtures.createVolume(projectId, fixtures.createWorker("v-" + projectId), "cache");
         var task = fixtures.createTask(projectId, owner, "pr-42", TaskScope.EMPTY);
         fixtures.mountVolume(task, volume, "/data");
-        fixtures.createQueuedJob(projectId, owner, template, "small");
+        fixtures.createQueuedJob(projectId, owner, template, className(projectId));
         return subAccount;
+    }
+
+    private static String className(UUID projectId) {
+        return "small-" + projectId;
     }
 
     private static long rows(Supplier<Long> count) {
