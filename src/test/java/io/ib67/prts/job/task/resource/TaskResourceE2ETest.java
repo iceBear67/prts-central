@@ -72,7 +72,8 @@ class TaskResourceE2ETest {
                 .body("state", equalTo("OPEN"))
                 .body("projectId", equalTo(project.toString()))
                 .body("closedAt", nullValue())
-                .body("id", notNullValue());
+                .body("id", notNullValue())
+                .body("createdAt", notNullValue());
     }
 
     @Test

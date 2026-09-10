@@ -66,7 +66,9 @@ public class TaskService {
                 .scope(scope)
                 .createdBy(createdBy)
                 .build();
-        task.persist();
+        // Flushed so @CreationTimestamp runs: the caller's transaction is still open when it maps the
+        // task into a view, and createdAt would otherwise still be null there.
+        task.persistAndFlush();
         return task;
     }
 
