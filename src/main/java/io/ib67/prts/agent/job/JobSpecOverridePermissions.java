@@ -11,7 +11,7 @@ import java.util.UUID;
 /**
  * Validates caller permissions for each overridable {@link JobSpec} field via {@link RequirePermission}.
  *
- * <p>Note: The class name is inspected by {@link io.ib67.prts.openapi.PermissionOASFilter}
+ * <p>Note: The class name is inspected by {@link io.ib67.prts.openapi.EndpointOASFilter}
  * to document override permissions in OpenAPI specifications.
  */
 @ApplicationScoped
@@ -20,6 +20,12 @@ public class JobSpecOverridePermissions implements JobSpecOverrideAuthorizer {
     @Override
     @RequirePermission(Perm.JOB_SPEC_IMAGE)
     public String image(String value) {
+        return value;
+    }
+
+    @Override
+    @RequirePermission(Perm.JOB_SPEC_DESCRIPTION)
+    public String description(String value) {
         return value;
     }
 

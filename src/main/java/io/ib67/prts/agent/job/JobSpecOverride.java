@@ -18,6 +18,7 @@ import java.util.function.Function;
  */
 public record JobSpecOverride(
         @Nullable String image,
+        @Nullable String description,
         @Nullable Map<String, String> environment,
         @Nullable Map<String, String> labels,
         @Nullable List<String> command,
@@ -30,6 +31,7 @@ public record JobSpecOverride(
         Objects.requireNonNull(authorizer, "authorizer");
         return new JobSpec(
                 apply(image, authorizer::image, base.image()),
+                apply(description, authorizer::description, base.description()),
                 mergeMap(environment, authorizer::environment, base.environment()),
                 mergeMap(labels, authorizer::labels, base.labels()),
                 mergeList(command, authorizer::command, base.command()),

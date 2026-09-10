@@ -22,7 +22,7 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 
 `POST /project/{projectId}/archive` sets a project to read-only status. During archiving, `ProjectService.archive` invokes `stopWork` to cancel pending queue items and interrupt active running jobs.
 
-Mutating endpoints within a project call `ProjectService.requireWritable(projectId)` and return **409 Conflict** when the project is archived (such as renaming, ownership transfer, member/subaccount management, secrets, job creation/cancellation, template operations, artifact deletion, task and volume operations). Read requests remain allowed, as do `POST .../unarchive` and `DELETE /project/{projectId}`.
+Mutating endpoints within a project call `ProjectService.requireWritable(projectId)` and return **409 Conflict** when the project is archived (such as renaming or describing, ownership transfer, member/subaccount management, secrets, job creation/cancellation, template operations, artifact deletion, task and volume operations). Read requests remain allowed, as do `POST .../unarchive` and `DELETE /project/{projectId}`.
 
 `TaskService.requireOpen` is the same idea one level down: a task that is `CLOSING` or `CLOSED` conflicts on any write to it, and on any job naming it.
 
@@ -103,7 +103,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
 ## DTO & Exception Architecture
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
-- **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
+- **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest` and `UpdateProjectRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
 - **Exception Mapping**: All 4xx and 5xx responses return `{ "message": ... }`, with the exception of 401.
   - `NoSuchElementException`: Mapped to 404 by `NotFoundMapper` with the exception message.
   - `ClientErrorMapper`: Formats 4xx exceptions into `{ "message": ... }`.

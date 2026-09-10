@@ -14,6 +14,7 @@ import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.SubAccountService;
 import io.ib67.prts.user.UserService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
@@ -74,26 +75,32 @@ public class ProjectService {
     }
 
     @Transactional
-    public Project create(String name) {
-        var project = Project.builder().name(name).build();
+    public Project create(String name, String description) {
+        var project = Project.builder().name(name).description(description).build();
         project.persist();
         return project;
     }
 
     /** Creates a new project and assigns the specified user as its owner. */
     @Transactional
-    public Project create(String name, UUID ownerId) {
-        var project = create(name);
+    public Project create(String name, String description, UUID ownerId) {
+        var project = create(name, description);
         // Flush so foreign key references to the new project row can succeed.
         Project.flush();
         userService.grant(ownerId, project.getId(), ProjectRole.OWNER);
         return project;
     }
 
+    /** Applies the fields the caller supplied; a null argument leaves that field as it was. */
     @Transactional
-    public Project rename(UUID id, String name) {
+    public Project update(UUID id, @Nullable String name, @Nullable String description) {
         var project = require(id);
-        project.setName(name);
+        if (name != null) {
+            project.setName(name);
+        }
+        if (description != null) {
+            project.setDescription(description);
+        }
         return project;
     }
 

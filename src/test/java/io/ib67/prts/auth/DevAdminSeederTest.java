@@ -6,6 +6,7 @@ import io.ib67.prts.testing.InlineTransactions;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserService;
+import io.quarkus.runtime.StartupEvent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -52,7 +53,7 @@ class DevAdminSeederTest {
     // Execute seed() within an inline transaction.
     private void seed() {
         try (var ignored = new InlineTransactions()) {
-            seeder.seed();
+            seeder.seed(new StartupEvent());
         }
     }
 

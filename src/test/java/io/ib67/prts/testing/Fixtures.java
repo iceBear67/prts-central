@@ -70,7 +70,11 @@ public class Fixtures {
     }
 
     public UUID createProject(String name) {
-        return projectService.create(name).getId();
+        return createProject(name, "");
+    }
+
+    public UUID createProject(String name, String description) {
+        return projectService.create(name, description).getId();
     }
 
     /** Archives a project directly via ProjectService. */
@@ -275,7 +279,7 @@ public class Fixtures {
     }
 
     public static JobSpec spec(String image) {
-        return new JobSpec(image, null, null, null, null, 0, "", null);
+        return new JobSpec(image, null, null, null, null, null, 0, "", null);
     }
 
     /** Re-attaches a detached entity to the current persistence context. */

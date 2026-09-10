@@ -19,6 +19,7 @@ import java.util.UUID;
 public record ProjectDetailView(
         UUID id,
         String name,
+        String description,
         ProjectRole role,
         Access access,
         @Nullable Instant archivedAt,
@@ -28,6 +29,7 @@ public record ProjectDetailView(
     public ProjectDetailView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
         Objects.requireNonNull(role, "role");
         Objects.requireNonNull(access, "access");
         Objects.requireNonNull(members, "members");
@@ -48,7 +50,7 @@ public record ProjectDetailView(
 
     public static ProjectDetailView of(
             Project project, ProjectRole role, Access access, List<ProjectMemberView> members, Jobs jobs) {
-        return new ProjectDetailView(
-                project.getId(), project.getName(), role, access, project.getArchivedAt(), members, jobs);
+        return new ProjectDetailView(project.getId(), project.getName(), project.getDescription(),
+                role, access, project.getArchivedAt(), members, jobs);
     }
 }

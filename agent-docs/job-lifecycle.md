@@ -111,6 +111,11 @@ stateDiagram-v2
 - **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent worker reports are ignored.
 - **Worker Disconnect**: When a worker disconnects, `WorkerService.failJobsOf` transitions all open jobs on that worker to `FAILED`.
 - **`JobService.discard`**: Deletes a `PENDING` job only if `job.worker` is null. Throws `IllegalStateException` if a worker was already assigned.
+- **Failure Notification**: Every transition into `FAILED` leaves `requested_by` a message, so a worker's
+  own report, the disconnect that orphaned the job and a scheduler that threw all reach the requester
+  from the one place. It goes through `NotificationService.notifyIfPresent` rather than `notify`:
+  `requested_by` carries no foreign key, and a miss thrown from `applyState`'s transaction would roll
+  back the transition being reported. Terminal states other than `FAILED` say nothing.
 
 ## Mutual Exclusion (`JobLock`)
 

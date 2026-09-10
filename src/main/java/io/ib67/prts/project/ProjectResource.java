@@ -7,9 +7,9 @@ import io.ib67.prts.dto.project.ProjectDetailView;
 import io.ib67.prts.dto.project.ProjectMemberView;
 import io.ib67.prts.dto.project.ProjectView;
 import io.ib67.prts.dto.request.CreateProjectRequest;
-import io.ib67.prts.dto.request.RenameProjectRequest;
 import io.ib67.prts.dto.request.SetMemberRoleRequest;
 import io.ib67.prts.dto.request.TransferProjectRequest;
+import io.ib67.prts.dto.request.UpdateProjectRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.ProjectRole;
@@ -71,7 +71,8 @@ public class ProjectResource {
     public ProjectView createProject(
             @NotNull(message = "a request body is required") @Valid CreateProjectRequest request) {
         return ProjectView.of(
-                projectService.create(request.name(), requireUser().getId()), ProjectRole.OWNER);
+                projectService.create(request.name(), request.description(), requireUser().getId()),
+                ProjectRole.OWNER);
     }
 
     /** Retrieves detailed project information, member roster, and job counts. */
@@ -98,11 +99,12 @@ public class ProjectResource {
     @Consumes(MediaType.APPLICATION_JSON)
     @Transactional
     @RequirePermission(value = Perm.PROJECT_UPDATE, defaultRole = ProjectRole.OWNER)
-    public ProjectView renameProject(
+    public ProjectView updateProject(
             @ProjectId @PathParam("projectId") UUID projectId,
-            @NotNull(message = "a request body is required") @Valid RenameProjectRequest request) {
+            @NotNull(message = "a request body is required") @Valid UpdateProjectRequest request) {
         projectService.requireWritable(projectId);
-        return ProjectView.of(projectService.rename(projectId, request.name()), roleOf(projectId));
+        return ProjectView.of(
+                projectService.update(projectId, request.name(), request.description()), roleOf(projectId));
     }
 
     /**

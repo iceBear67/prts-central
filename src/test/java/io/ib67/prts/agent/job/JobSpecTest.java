@@ -33,20 +33,21 @@ class JobSpecTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private static JobSpec spec(String lock, Map<String, String> secret) {
-        return new JobSpec("img:1", Map.of("A", "1"), Map.of("team", "core"),
+        return new JobSpec("img:1", "builds the thing", Map.of("A", "1"), Map.of("team", "core"),
                 List.of("run"), Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)),
                 60L, lock, secret);
     }
 
     @Test
     void nullContainersNormalizeToEmpty() {
-        var spec = new JobSpec("img:1", null, null, null, null, 0L, null, null);
+        var spec = new JobSpec("img:1", null, null, null, null, null, 0L, null, null);
 
         assertEquals(Map.of(), spec.environment());
         assertEquals(Map.of(), spec.labels());
         assertEquals(List.of(), spec.command());
         assertEquals(Map.of(), spec.volumes());
         assertEquals(Map.of(), spec.secret());
+        assertEquals("", spec.description());
         assertEquals("", spec.lock());
     }
 
@@ -58,9 +59,14 @@ class JobSpecTest {
     }
 
     @Test
+    void aBlankDescriptionReadsAsNone() {
+        assertEquals("", new JobSpec("img:1", "   ", null, null, null, null, 0L, null, null).description());
+    }
+
+    @Test
     void imageIsRequired() {
         assertThrows(NullPointerException.class,
-                () -> new JobSpec(null, null, null, null, null, 0L, null, null));
+                () -> new JobSpec(null, null, null, null, null, null, 0L, null, null));
     }
 
     @Test
@@ -75,6 +81,7 @@ class JobSpecTest {
 
         assertEquals(Map.of("TOKEN", "s3cr3t"), attached.secret());
         assertEquals(base.image(), attached.image());
+        assertEquals(base.description(), attached.description());
         assertEquals(base.environment(), attached.environment());
         assertEquals(base.volumes(), attached.volumes());
         assertEquals(base.lock(), attached.lock());
@@ -127,7 +134,7 @@ class JobSpecTest {
     }
 
     private static JobSpec specRequiring(Map<UUID, JobSpec.VolumeSpec> volumes) {
-        return new JobSpec("img:1", null, null, null, volumes, 0L, null, null);
+        return new JobSpec("img:1", null, null, null, null, volumes, 0L, null, null);
     }
 
     @Test

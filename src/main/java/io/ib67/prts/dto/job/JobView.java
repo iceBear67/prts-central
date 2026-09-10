@@ -59,6 +59,7 @@ public record JobView(
     /** Public view of a {@link JobSpec}, excluding sensitive values such as secrets. */
     public record SpecView(
             String image,
+            String description,
             Map<String, String> environment,
             Map<String, String> labels,
             List<String> command,
@@ -68,6 +69,7 @@ public record JobView(
     ) {
         public SpecView {
             Objects.requireNonNull(image, "image");
+            Objects.requireNonNull(description, "description");
             Objects.requireNonNull(environment, "environment");
             Objects.requireNonNull(labels, "labels");
             Objects.requireNonNull(command, "command");
@@ -82,6 +84,7 @@ public record JobView(
             }
             return new SpecView(
                     spec.image(),
+                    spec.description(),
                     spec.environment(),
                     spec.labels(),
                     spec.command(),

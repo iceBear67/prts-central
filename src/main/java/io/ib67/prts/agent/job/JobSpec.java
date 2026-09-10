@@ -13,11 +13,13 @@ import java.util.UUID;
 /**
  * Container execution specification for a job.
  *
- * @param lock   Mutual exclusion lock name scoped to the project; empty string if no lock is required.
- * @param secret Decrypted project secrets attached at dispatch time. Excluded from serialization to avoid persistence or exposure.
+ * @param description What this spec runs, for readers; empty string if none was given.
+ * @param lock        Mutual exclusion lock name scoped to the project; empty string if no lock is required.
+ * @param secret      Decrypted project secrets attached at dispatch time. Excluded from serialization to avoid persistence or exposure.
  */
 public record JobSpec(
         String image,
+        String description,
         Map<String, String> environment,
         Map<String, String> labels,
         List<String> command,
@@ -33,6 +35,7 @@ public record JobSpec(
         command = Objects.requireNonNullElse(command, List.of());
         volumes = Objects.requireNonNullElse(volumes, Map.of());
         secret = Objects.requireNonNullElse(secret, Map.of());
+        description = description == null || description.isBlank() ? "" : description;
         lock = lock == null || lock.isBlank() ? "" : lock;
     }
 
@@ -49,13 +52,15 @@ public record JobSpec(
      * Returns a copy of this spec with the given secrets attached.
      */
     public JobSpec withSecret(Map<String, String> secret) {
-        return new JobSpec(image, environment, labels, command, volumes, timeout, lock, secret);
+        return new JobSpec(
+                image, description, environment, labels, command, volumes, timeout, lock, secret);
     }
 
     // Redacted toString to prevent logging decrypted secret values.
     @Override
     public String toString() {
-        return "JobSpec[image=" + image + ", environment=" + environment + ", labels=" + labels
+        return "JobSpec[image=" + image + ", description=" + description
+                + ", environment=" + environment + ", labels=" + labels
                 + ", command=" + command + ", volumes=" + volumes + ", timeout=" + timeout
                 + ", lock=" + lock + ", secret=" + secret.size() + " entries]";
     }

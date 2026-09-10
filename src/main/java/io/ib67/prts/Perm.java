@@ -50,6 +50,7 @@ public enum Perm {
     JOB_CREATE("job:create", false),
     JOB_CANCEL("job:cancel", false),
     JOB_SPEC_IMAGE("job:spec:image", false),
+    JOB_SPEC_DESCRIPTION("job:spec:description", false),
     JOB_SPEC_ENVIRONMENT("job:spec:environment", false),
     JOB_SPEC_LABELS("job:spec:labels", false),
     JOB_SPEC_COMMAND("job:spec:command", false),

@@ -7,7 +7,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.NotFoundException;
 
-import java.util.NoSuchElementException;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -17,21 +17,21 @@ import java.util.UUID;
 public class NotificationService {
 
     /**
-     * Leaves a message for one user.
+     * Leaves a message for a recipient who may since have been deleted.
      *
-     * <p>Nobody signs in as a sub-account, so a message addressed to one is handed to whoever created
-     * it, with the sub-account's name carried in {@code from} so the reader can tell which it concerns.
-     * Its creator is always a person: holding {@code project:subaccount:manage} is what it takes to
-     * make one, and a sub-account may not hold it.
+     * <p>Separate from {@link #notify} because a caller reporting on its own work cannot catch the miss:
+     * throwing out of a {@code @Transactional} method that joined the caller's transaction marks it
+     * rollback-only, so the message about the work would undo the work.
+     *
+     * @return empty if neither the recipient nor, for a sub-account, its creator still exists
      */
     @Transactional
-    public Notification notify(UUID recipient, String from, String title, String content) {
+    public Optional<Notification> notifyIfPresent(
+            UUID recipient, String from, String title, String content) {
         var account = SubAccount.findFetched(recipient).orElse(null);
-        if (account == null) {
-            return leave(requireUser(recipient), from, title, content);
-        }
-        return leave(requireUser(account.getCreatedBy()),
-                from + " (" + account.getUser().getName() + ")", title, content);
+        var target = account == null ? recipient : account.getCreatedBy();
+        var sender = account == null ? from : from + " (" + account.getUser().getName() + ")";
+        return User.<User>findByIdOptional(target).map(user -> leave(user, sender, title, content));
     }
 
     /**
@@ -52,11 +52,6 @@ public class NotificationService {
         Notification.findForRecipient(recipient, notificationId)
                 .orElseThrow(() -> new NotFoundException("no such notification: " + notificationId))
                 .setRead(read);
-    }
-
-    private static User requireUser(UUID id) {
-        return User.<User>findByIdOptional(id)
-                .orElseThrow(() -> new NoSuchElementException("no such user: " + id));
     }
 
     private static Notification leave(User recipient, String from, String title, String content) {

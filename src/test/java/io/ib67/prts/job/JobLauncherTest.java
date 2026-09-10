@@ -67,7 +67,7 @@ class JobLauncherTest {
     private final Project project = Project.builder().id(PROJECT).name("p").build();
     private final ResourceClass small = resourceClass("small", PROJECT);
     private final ResourceClass big = resourceClass("big", PROJECT);
-    private final JobSpec spec = new JobSpec("img:1", null, null, null, null, 60L, null, null);
+    private final JobSpec spec = new JobSpec("img:1", null, null, null, null, null, 60L, null, null);
     private final JobSpecTemplate template =
             JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec).resourceClass(small).build();
 
@@ -244,7 +244,7 @@ class JobLauncherTest {
     /** Volumes introduced via override must belong to the project. */
     @Test
     void aVolumeAddedByAnOverrideIsStillCheckedAgainstTheProject() {
-        var override = new JobSpecOverride(null, null, null, null,
+        var override = new JobSpecOverride(null, null, null, null, null,
                 Map.of(VOLUME, new JobSpec.VolumeSpec("/data", 1024L)), null, null);
         var borrowed = new WorkerVolume();
         borrowed.setId(VOLUME);

@@ -21,7 +21,8 @@ class TaskScopeTest {
     private static final UUID VOLUME = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
 
     private static JobSpec spec(Map<String, String> environment, Map<String, String> labels) {
-        return new JobSpec("img:1", environment, labels, List.of("run"), Map.of(), 60L, "", Map.of());
+        return new JobSpec(
+                "img:1", "builds it", environment, labels, List.of("run"), Map.of(), 60L, "", Map.of());
     }
 
     @Test
@@ -54,7 +55,8 @@ class TaskScopeTest {
     void aCallerOverrideStillBeatsTheDefaults() {
         var scope = new TaskScope(Map.of("A", "task", "B", "task"), Map.of(), null);
         var base = scope.defaultsTo(spec(Map.of("A", "template"), Map.of()));
-        var override = new JobSpecOverride(null, Map.of("A", "caller"), null, null, null, null, null);
+        var override =
+                new JobSpecOverride(null, null, Map.of("A", "caller"), null, null, null, null, null);
 
         var merged = override.applyTo(base, JobLauncher.PRE_AUTHORIZED);
 
@@ -97,6 +99,7 @@ class TaskScopeTest {
         var bound = TaskScope.bindTo(base, TASK, Map.of());
 
         assertEquals(base.image(), bound.image());
+        assertEquals(base.description(), bound.description());
         assertEquals(base.command(), bound.command());
         assertEquals(base.timeout(), bound.timeout());
         assertEquals(base.lock(), bound.lock());

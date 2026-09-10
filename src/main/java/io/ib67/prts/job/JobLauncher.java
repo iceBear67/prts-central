@@ -79,6 +79,7 @@ public class JobLauncher {
     /** Authorizer implementation that accepts all override values without checking permissions. */
     public static final JobSpecOverrideAuthorizer PRE_AUTHORIZED = new JobSpecOverrideAuthorizer() {
         @Override public String image(String value) { return value; }
+        @Override public String description(String value) { return value; }
         @Override public Map<String, String> environment(Map<String, String> value) { return value; }
         @Override public Map<String, String> labels(Map<String, String> value) { return value; }
         @Override public List<String> command(List<String> value) { return value; }

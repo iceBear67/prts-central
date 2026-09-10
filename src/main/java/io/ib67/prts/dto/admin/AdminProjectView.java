@@ -16,6 +16,7 @@ import java.util.UUID;
 public record AdminProjectView(
         UUID id,
         String name,
+        String description,
         @Nullable Instant archivedAt,
         long members,
         long jobs,
@@ -24,10 +25,11 @@ public record AdminProjectView(
     public AdminProjectView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
     }
 
     public static AdminProjectView of(Project project, long members, long jobs, long queued) {
-        return new AdminProjectView(
-                project.getId(), project.getName(), project.getArchivedAt(), members, jobs, queued);
+        return new AdminProjectView(project.getId(), project.getName(), project.getDescription(),
+                project.getArchivedAt(), members, jobs, queued);
     }
 }

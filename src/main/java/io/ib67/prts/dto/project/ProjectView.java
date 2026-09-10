@@ -17,16 +17,19 @@ import java.util.UUID;
 public record ProjectView(
         UUID id,
         String name,
+        String description,
         ProjectRole role,
         @Nullable Instant archivedAt
 ) {
     public ProjectView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
+        Objects.requireNonNull(description, "description");
         Objects.requireNonNull(role, "role");
     }
 
     public static ProjectView of(Project project, ProjectRole role) {
-        return new ProjectView(project.getId(), project.getName(), role, project.getArchivedAt());
+        return new ProjectView(project.getId(), project.getName(), project.getDescription(), role,
+                project.getArchivedAt());
     }
 }

@@ -23,6 +23,7 @@ class JobSpecOverrideTest {
 
     private static final JobSpec BASE = new JobSpec(
             "base:1",
+            "the template's own words",
             Map.of("A", "1", "B", "2"),
             Map.of("team", "core"),
             List.of("echo", "base"),
@@ -38,7 +39,7 @@ class JobSpecOverrideTest {
     private static JobSpecOverride override(
             String image, Map<String, String> environment, Map<String, String> labels,
             List<String> command, Map<UUID, JobSpec.VolumeSpec> volumes, Long timeout, String lock) {
-        return new JobSpecOverride(image, environment, labels, command, volumes, timeout, lock);
+        return new JobSpecOverride(image, null, environment, labels, command, volumes, timeout, lock);
     }
 
     private static JobSpecOverride nothing() {
@@ -50,6 +51,7 @@ class JobSpecOverrideTest {
         var result = nothing().applyTo(BASE, authorizer);
 
         assertEquals(BASE.image(), result.image());
+        assertEquals(BASE.description(), result.description());
         assertEquals(BASE.environment(), result.environment());
         assertEquals(BASE.labels(), result.labels());
         assertEquals(BASE.command(), result.command());
@@ -104,6 +106,7 @@ class JobSpecOverrideTest {
         verify(authorizer).environment(Map.of("C", "3"));
         verify(authorizer).command(List.of("extra"));
         verify(authorizer, never()).image(any());
+        verify(authorizer, never()).description(any());
         verify(authorizer, never()).labels(any());
         verify(authorizer, never()).volumes(any());
         verify(authorizer, never()).timeout(anyLong());
@@ -133,6 +136,18 @@ class JobSpecOverrideTest {
         var result = override("over:2", null, null, null, null, null, null).applyTo(BASE, authorizer);
 
         assertEquals(BASE.secret(), result.secret());
+    }
+
+    /** A run says why it was asked for; the template says what it does. */
+    @Test
+    void aDescriptionOverrideReplacesTheTemplatesAndIsGated() {
+        var override = new JobSpecOverride(
+                null, "rebuild for 1.2", null, null, null, null, null, null);
+
+        var result = override.applyTo(BASE, authorizer);
+
+        assertEquals("rebuild for 1.2", result.description());
+        verify(authorizer).description("rebuild for 1.2");
     }
 
     @Test

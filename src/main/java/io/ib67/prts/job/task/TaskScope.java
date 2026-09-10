@@ -50,6 +50,7 @@ public record TaskScope(
         }
         return new JobSpec(
                 base.image(),
+                base.description(),
                 merged(base.environment(), environment),
                 merged(base.labels(), labels),
                 base.command(),
@@ -73,6 +74,7 @@ public record TaskScope(
         Objects.requireNonNull(volumes, "volumes");
         return new JobSpec(
                 spec.image(),
+                spec.description(),
                 merged(spec.environment(), Map.of(TASK_ID_ENV, taskId.toString())),
                 merged(spec.labels(), Map.of(TASK_ID_LABEL, taskId.toString())),
                 spec.command(),

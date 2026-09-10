@@ -14,6 +14,8 @@ public interface JobSpecOverrideAuthorizer {
 
     String image(String value);
 
+    String description(String value);
+
     Map<String, String> environment(Map<String, String> value);
 
     Map<String, String> labels(Map<String, String> value);

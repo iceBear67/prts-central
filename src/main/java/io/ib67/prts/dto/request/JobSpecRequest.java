@@ -4,6 +4,7 @@ import io.ib67.prts.agent.job.JobSpec;
 import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 import java.util.Map;
@@ -16,6 +17,8 @@ import java.util.UUID;
  */
 public record JobSpecRequest(
         @NotBlank(message = "spec.image is required") String image,
+        @Nullable @Size(max = 256, message = "spec.description must be at most 256 characters")
+        String description,
         @Nullable Map<String, String> environment,
         @Nullable Map<String, String> labels,
         @Nullable List<String> command,
@@ -25,10 +28,11 @@ public record JobSpecRequest(
 ) {
     public JobSpecRequest {
         image = image == null ? null : image.strip();
+        description = description == null ? null : description.strip();
     }
 
     /** Converts this request to a {@link JobSpec}, omitting secrets which are resolved at dispatch. */
     public JobSpec toSpec() {
-        return new JobSpec(image, environment, labels, command, volumes, timeout, lock, null);
+        return new JobSpec(image, description, environment, labels, command, volumes, timeout, lock, null);
     }
 }

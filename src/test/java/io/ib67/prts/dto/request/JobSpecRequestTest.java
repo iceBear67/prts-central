@@ -42,13 +42,14 @@ class JobSpecRequestTest {
     }
 
     private static JobSpecRequest of(String image, long timeout) {
-        return new JobSpecRequest(image, null, null, null, null, timeout, null);
+        return new JobSpecRequest(image, null, null, null, null, null, timeout, null);
     }
 
     @Test
     void everyFieldCarriesOver() {
         var spec = new JobSpecRequest(
                 "img:1",
+                "builds it",
                 Map.of("A", "1"),
                 Map.of("team", "core"),
                 List.of("run"),
@@ -57,6 +58,7 @@ class JobSpecRequestTest {
                 "build").toSpec();
 
         assertEquals("img:1", spec.image());
+        assertEquals("builds it", spec.description());
         assertEquals(Map.of("A", "1"), spec.environment());
         assertEquals(Map.of("team", "core"), spec.labels());
         assertEquals(List.of("run"), spec.command());
@@ -79,12 +81,21 @@ class JobSpecRequestTest {
         assertEquals(Map.of(), spec.labels());
         assertEquals(List.of(), spec.command());
         assertEquals(Map.of(), spec.volumes());
+        assertEquals("", spec.description());
         assertEquals("", spec.lock());
     }
 
     @Test
     void theImageIsStripped() {
         assertEquals("img:1", of("  img:1  ", 0L).image());
+    }
+
+    @Test
+    void anOverlongDescriptionIsRejected() {
+        var request = new JobSpecRequest(
+                "img:1", "d".repeat(257), null, null, null, null, 0L, null);
+
+        assertEquals("spec.description must be at most 256 characters", rejection(request));
     }
 
     /** Verifies constraint violation message when image is missing. */

@@ -52,12 +52,12 @@ class ConstraintViolationMapperTest {
 
     @Test
     void aBlankNameReadsTheSameAsBefore() {
-        assertEquals("name is required", messageFor(new CreateProjectRequest("   ")));
+        assertEquals("name is required", messageFor(new CreateProjectRequest("   ", null)));
     }
 
     @Test
     void aNullNameReadsTheSameAsBefore() {
-        assertEquals("name is required", messageFor(new CreateProjectRequest(null)));
+        assertEquals("name is required", messageFor(new CreateProjectRequest(null, null)));
     }
 
     @Test
@@ -93,7 +93,7 @@ class ConstraintViolationMapperTest {
     @Test
     void aNestedSpecViolationIsReached() {
         var request = new CreateTemplateRequest(
-                "deploy", new JobSpecRequest(null, null, null, null, null, 0L, null), "small");
+                "deploy", new JobSpecRequest(null, null, null, null, null, null, 0L, null), "small");
 
         assertEquals("spec.image is required", messageFor(request));
     }
@@ -102,7 +102,7 @@ class ConstraintViolationMapperTest {
     void aNegativeTimeoutReadsTheSameAsBefore() {
         var negative = -1L;
         var request = new CreateTemplateRequest(
-                "deploy", new JobSpecRequest("alpine", null, null, null, null, negative, null), "small");
+                "deploy", new JobSpecRequest("alpine", null, null, null, null, null, negative, null), "small");
 
         assertEquals("spec.timeout must be >= 0", messageFor(request));
     }

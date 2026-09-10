@@ -6,6 +6,7 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.notification.NotificationService;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.storage.ArtifactService;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -38,6 +39,8 @@ public class JobService {
     WorkerService workerService;
     @Inject
     ArtifactService artifactService;
+    @Inject
+    NotificationService notificationService;
 
     public Job require(UUID id) {
         return Job.<Job>findByIdOptional(id)
@@ -144,7 +147,30 @@ public class JobService {
             JobLock.releaseBy(jobId);
         }
         persistLog(job, "state", previous + " -> " + state, state == JobState.FAILED);
+        if (state == JobState.FAILED) {
+            reportFailure(job);
+        }
         return found;
+    }
+
+    /**
+     * Tells whoever asked for the job that it failed, however it got there — a worker's own report, the
+     * disconnect that orphaned it, or a scheduler that threw.
+     *
+     * <p>Uses {@link NotificationService#notifyIfPresent} rather than {@code notify}: the requester may
+     * have been deleted since, and a miss thrown from this transaction would roll back the very
+     * transition being reported.
+     */
+    private void reportFailure(Job job) {
+        var spec = job.getSpec();
+        var description = spec == null ? "" : spec.description();
+        notificationService.notifyIfPresent(
+                job.getRequestedBy(),
+                "prts",
+                "Job failed in " + job.getProject().getName(),
+                description.isEmpty()
+                        ? "Job " + job.getId() + " failed."
+                        : "Job " + job.getId() + " (" + description + ") failed.");
     }
 
     /**
