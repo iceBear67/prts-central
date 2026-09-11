@@ -23,8 +23,9 @@ import org.jboss.logging.Logger;
 public class DevAdminSeeder {
     private static final Logger LOG = Logger.getLogger(DevAdminSeeder.class);
 
-    static final String EMAIL = "dev@localhost";
-    static final String NAME = "dev";
+    /** Identity of the auto-login account, also what {@code ExampleDataSeeder} hands its projects to. */
+    public static final String EMAIL = "dev@localhost";
+    public static final String NAME = "dev";
 
     @Inject
     UserService userService;

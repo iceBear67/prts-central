@@ -119,7 +119,9 @@ class JobResourceE2ETest {
                 .statusCode(200)
                 .body("$", hasSize(1))
                 .body("type", contains("pending"))
-                .body("state", contains("QUEUED"));
+                .body("state", contains("QUEUED"))
+                // A viewer sees what the entry will run on without seeing the request itself.
+                .body("resourceClass", contains("small"));
     }
 
     @Test
@@ -270,6 +272,7 @@ class JobResourceE2ETest {
                 .body("state", equalTo("QUEUED"))
                 .body("requestedBy", equalTo(alice.id().toString()))
                 // Queue entry records the resolved resource class.
+                .body("resourceClass", equalTo("small"))
                 .body("request.resourceClass", equalTo("small"))
                 .body("jobId", nullValue());
     }

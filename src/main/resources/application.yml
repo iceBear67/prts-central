@@ -63,6 +63,9 @@ quarkus:
     hibernate-orm:
       schema-management:
         strategy: update
+  # Fills an empty database with example projects, workers and job history at startup.
+  dev:
+    seed-examples: true
   # Secret for worker authentication in dev/test. Must be configured explicitly in production.
   worker:
     secret: "allo"

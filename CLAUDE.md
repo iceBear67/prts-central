@@ -52,6 +52,7 @@ holds the services and value objects.
 | `auth` | OIDC identity augmentation, worker token mechanism, `@RequirePermission` interceptor |
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
+| `dev` | `ExampleDataSeeder`, the `%dev`-only startup seeding — no production code may depend on it |
 | `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |
