@@ -18,6 +18,7 @@ import java.util.UUID;
 
 import static io.ib67.prts.testing.Fixtures.as;
 import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.anEmptyMap;
 import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
@@ -192,6 +193,23 @@ class AdminResourceE2ETest {
                 .put("/api/admin/user/{u}/permission/global", alice.id()).then()
                 .statusCode(400)
                 .body("message", equalTo("unknown permission: job:teleport"));
+    }
+
+    /**
+     * permission.project_id is a bare UUID with no foreign key, so an unchecked scope would write an
+     * orphan grant — and the all-zero UUID would come back as a global one.
+     */
+    @Test
+    void aGrantCannotNameAProjectThatDoesNotExist() {
+        as(admin).contentType(ContentType.JSON)
+                .body(Map.of("permissions", List.of(Perm.PROJECT_READ.permission())))
+                .put("/api/admin/user/{u}/permission/project/{p}", alice.id(), UUID.randomUUID()).then()
+                .statusCode(404);
+
+        as(admin).get("/api/admin/user/{u}", alice.id()).then()
+                .statusCode(200)
+                .body("globalPermissions", hasSize(0))
+                .body("projectPermissions", anEmptyMap());
     }
 
     @Test

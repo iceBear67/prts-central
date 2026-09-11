@@ -10,6 +10,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+
+import java.util.List;
 import lombok.ToString;
 
 import java.util.UUID;
@@ -37,6 +39,13 @@ public class Worker extends PanacheEntityBase {
     /** Whether this worker is paused from receiving new jobs. */
     @Column(name = "disabled", nullable = false)
     private boolean disabled;
+
+    /** Lists one page of the registrations, by name. */
+    public static List<Worker> listPage(int offset, int length) {
+        return Worker.<Worker>find("order by name, id")
+                .range(offset, offset + length - 1)
+                .list();
+    }
 
     public static Worker upsert(UUID id, String name) {
         Worker existing = findById(id);

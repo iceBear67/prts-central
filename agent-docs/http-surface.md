@@ -17,6 +17,7 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 - **Self-Removal / Leaving**: `DELETE .../member/{userId}` allows users to remove themselves without `project:member:manage`. The last remaining `OWNER` cannot leave or be demoted.
 - **Project Enumeration Prevention**: Non-members querying nonexistent projects receive 403 Forbidden from the interceptor, not 404. Only `admin:all` callers reach the resource to receive 404.
 - **Global Templates Are Read-Only Here**: `DELETE .../job/template/{id}` returns 409 Conflict for global templates (where `projectId` is null). Global templates must be managed via `/api/admin/template`.
+- **Task Scope Gating**: `POST|PATCH .../task[/{taskId}]` cost `task:manage` (`MEMBER`) on their own, but a `scope` carrying `environment`, `labels` or a `resourceClass` is charged `job:spec:environment`, `job:spec:labels` and `job:resource-class` on top (`TaskScope.authorize`). Those values reach every job under the task without passing the override gate, so `task:manage` would otherwise be a way around all three. See [task-scope.md](task-scope.md).
 
 ## Archived Projects
 
@@ -88,6 +89,19 @@ within the same transaction would return pre-commit data.
 
 Listing page sizes are capped by `admin.list.max-page-size` (`AdminConfig`), matching `job.list`.
 
+## Pagination
+
+Every listing that grows without a natural ceiling takes `?offset=&length=` through
+`Pages.clampLength(length, max)` / `Pages.clampOffset(offset, window)`; an omitted `length` means the
+cap, never "everything". Caps live in `job.list`, `job.log`, `job.task`, `admin.list` and
+`project.list`.
+
+A listing bounded by something other than data volume is left unpaged on purpose — `/admin/permission`
+(the `Perm` enum), `/worker/{id}/job` (one worker's concurrency), `.../task/{id}/volume` (one task's
+mounts), and `GET /project` (the caller's memberships, which clients build navigation from). Where an
+entity keeps both a paged and an unpaged finder, the unpaged one belongs to a caller that must see
+everything — secret resolution at dispatch, project teardown — and no endpoint may use it.
+
 ## Current User
 
 `GET /api/user` returns the account the request authenticated as — identity, `subAccountOf` (the owning project, or null for a person), the permission identifiers granted globally (`admin:all` among them), and `projects`, the caller's standing in each project they reach, keyed by project ID.
@@ -114,7 +128,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
   - **Deserialization Failures**: `ServerJacksonMessageBodyReader` wraps Jackson's `DatabindException` into a generic `WebApplicationException` with status 400. `ClientErrorMapper` unwraps the cause chain to preserve the original exception message and status thrown from constructors. Malformed JSON without an underlying application exception retains the default 400 response.
 - **OpenAPI**: `EndpointOASFilter` runs at build time to augment the OpenAPI document with inferred metadata:
   - A **`default` response** with `ErrorView` is added to every operation to document the standard error format without enumerating all possible codes.
-  - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`, except archive/unarchive).
+  - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`). The exclusion list (`BYPASSES_WRITABLE`) has to match the endpoints that skip that guard by design — archive, unarchive and `DELETE /project/{projectId}` — or the document promises a status they never return.
   - The **success status** is inferred from `@ResponseStatus`, defaulting to 204 for `void` methods (correcting SmallRye's default assumption of 200/201).
   - Error responses include the `ErrorView` schema, except 401 which has an empty body.
   - Custom `@APIResponse` annotations are reserved for special responses (such as `JobResource.createJob`'s `JobStatusView` schema), as SmallRye replaces generated success responses when manual annotations are present.

@@ -46,12 +46,11 @@ class JobSpecTemplateFinderE2ETest {
         fixtures.createTemplate("shared", null, small);
         fixtures.createTemplate("theirs", theirs, small);
 
-        var names = inTx(() -> JobSpecTemplate.listVisibleFetched(mine).stream()
+        var names = inTx(() -> JobSpecTemplate.listVisibleFetched(mine, 0, 50).stream()
                 .map(JobSpecTemplate::getName)
                 .sorted()
                 .toList());
 
-        // Sort results since listVisibleFetched does not guarantee ordering.
         assertEquals(List.of("ours", "shared"), names);
     }
 
@@ -60,7 +59,7 @@ class JobSpecTemplateFinderE2ETest {
         var small = fixtures.createResourceClass("small");
         fixtures.createTemplate("shared", null, small);
 
-        var names = inTx(() -> JobSpecTemplate.listVisibleFetched(theirs).stream()
+        var names = inTx(() -> JobSpecTemplate.listVisibleFetched(theirs, 0, 50).stream()
                 .map(JobSpecTemplate::getName)
                 .toList());
 

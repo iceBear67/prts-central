@@ -13,6 +13,7 @@ import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobService;
+import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
@@ -65,17 +66,24 @@ public class JobResource {
     JobAccess jobAccess;
     @Inject
     ProjectService projectService;
+    @Inject
+    ProjectConfig projectConfig;
 
     /** Lists visible templates (project-specific and global) for a project. */
     @GET
     @Path("/template")
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
-    public List<JobSpecTemplateView> listTemplates(@ProjectId @PathParam("projectId") UUID projectId) {
+    public List<JobSpecTemplateView> listTemplates(
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         // Ensure the project exists before listing templates.
         projectService.require(projectId);
         var withSpec = jobAccess.mayReadTemplate(projectId);
-        return JobSpecTemplate.listVisibleFetched(projectId).stream()
+        var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
+        return JobSpecTemplate.listVisibleFetched(projectId, Pages.clampOffset(offset, window), window)
+                .stream()
                 .map(template -> JobSpecTemplateView.of(template, withSpec))
                 .toList();
     }

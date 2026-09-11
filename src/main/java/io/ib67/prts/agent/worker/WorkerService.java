@@ -47,10 +47,23 @@ public class WorkerService {
         return Optional.ofNullable(activeWorkers.get(id));
     }
 
-    /** Registers an active worker session, replacing any previous session with the same ID. */
+    /**
+     * Registers an active worker session.
+     *
+     * <p>A worker id is whatever the registration claims it is, so taking over a live one would hand the
+     * claimant every job — and every project secret — routed to it. A session already closed but not yet
+     * unregistered is replaced, so a reconnect after a drop still lands.
+     *
+     * @throws IllegalStateException if the worker already holds a live session
+     */
     void registerWorker(UUID id, RegisteredWorker registeredWorker) {
         RegisteredWorker displaced;
         synchronized (roster) {
+            var current = activeWorkers.get(id);
+            if (current != null && current.getRpc().isOpen()) {
+                LOG.warnf("refused a registration for worker %s: its session is still live", id);
+                throw new IllegalStateException("worker " + id + " already has a live session");
+            }
             registeredWorker.setDisabled(QuarkusTransaction.requiringNew()
                     .call(() -> Worker.upsert(id, registeredWorker.getName()).isDisabled()));
             displaced = activeWorkers.put(id, registeredWorker);

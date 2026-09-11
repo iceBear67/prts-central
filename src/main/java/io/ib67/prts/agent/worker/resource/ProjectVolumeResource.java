@@ -1,5 +1,6 @@
 package io.ib67.prts.agent.worker.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.VolumeService;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
@@ -8,6 +9,7 @@ import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.WorkerVolumeView;
 import io.ib67.prts.dto.request.CreateVolumeRequest;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -15,11 +17,13 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
@@ -40,13 +44,21 @@ public class ProjectVolumeResource {
     VolumeService volumeService;
     @Inject
     ProjectService projectService;
+    @Inject
+    ProjectConfig projectConfig;
 
     @GET
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
-    public List<WorkerVolumeView> listVolumes(@ProjectId @PathParam("projectId") UUID projectId) {
+    public List<WorkerVolumeView> listVolumes(
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         projectService.require(projectId);
-        return WorkerVolume.listByProject(projectId).stream().map(WorkerVolumeView::of).toList();
+        var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
+        return WorkerVolume.listByProject(projectId, Pages.clampOffset(offset, window), window).stream()
+                .map(WorkerVolumeView::of)
+                .toList();
     }
 
     /**

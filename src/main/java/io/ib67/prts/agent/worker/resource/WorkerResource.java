@@ -1,6 +1,8 @@
 package io.ib67.prts.agent.worker.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
+import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
@@ -17,6 +19,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PATCH;
@@ -24,6 +27,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
 import java.util.List;
@@ -38,11 +42,18 @@ import java.util.UUID;
 public class WorkerResource {
     @Inject
     WorkerService workerService;
+    @Inject
+    AdminConfig adminConfig;
 
     @GET
     @Transactional
-    public List<WorkerView> listWorkers() {
-        return Worker.<Worker>listAll().stream().map(this::view).toList();
+    public List<WorkerView> listWorkers(
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        return Worker.listPage(Pages.clampOffset(offset, window), window).stream()
+                .map(this::view)
+                .toList();
     }
 
     @GET
@@ -104,13 +115,19 @@ public class WorkerResource {
                 .toList();
     }
 
-    /** Lists all volumes hosted on this worker across all projects. */
+    /** Lists the volumes hosted on this worker across all projects. */
     @GET
     @Path("/{id}/volume")
     @Transactional
-    public List<WorkerVolumeView> listWorkerVolumes(@PathParam("id") UUID id) {
+    public List<WorkerVolumeView> listWorkerVolumes(
+            @PathParam("id") UUID id,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
-        return WorkerVolume.listByWorker(id).stream().map(WorkerVolumeView::of).toList();
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        return WorkerVolume.listByWorker(id, Pages.clampOffset(offset, window), window).stream()
+                .map(WorkerVolumeView::of)
+                .toList();
     }
 
     private WorkerView view(Worker row) {

@@ -73,8 +73,16 @@ public class ProjectSecret extends PanacheEntityBase {
         return secret;
     }
 
+    /** Unpaged on purpose: {@code SecretService.resolve} attaches all of them to a job. */
     public static List<ProjectSecret> listByProject(UUID projectId) {
         return list("id.projectId", Sort.by("id.name"), projectId);
+    }
+
+    /** One page of the same, for the endpoint that lists their names. */
+    public static List<ProjectSecret> listByProject(UUID projectId, int offset, int length) {
+        return find("id.projectId", Sort.by("id.name"), projectId)
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     public static Optional<ProjectSecret> findIn(UUID projectId, String name) {

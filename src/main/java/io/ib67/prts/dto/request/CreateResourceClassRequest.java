@@ -19,7 +19,7 @@ public record CreateResourceClassRequest(
         @PositiveOrZero(message = "memCount must not be negative") int memCount,
         @PositiveOrZero(message = "diskSize must not be negative") int diskSize
 ) {
-    /** Pattern for valid resource class names. */
+    /** Pattern for valid resource class names. Its length is {@code ResourceClass.MAX_NAME_LENGTH}. */
     public static final String NAME = "[A-Za-z0-9][A-Za-z0-9._-]{0,63}";
 
 }

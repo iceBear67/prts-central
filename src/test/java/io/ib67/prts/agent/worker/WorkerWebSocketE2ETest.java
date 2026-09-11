@@ -176,6 +176,50 @@ class WorkerWebSocketE2ETest {
         assertEquals("already registered on this connection", response.message());
     }
 
+    /**
+     * A worker id is self-asserted, so taking one over would hand the claimant every job — and every
+     * project secret — routed to it. The live session keeps the id.
+     */
+    @Test
+    void aSecondRegistrationUnderALiveIdIsRefused() {
+        var workerId = UUID.randomUUID();
+        var incumbent = connect();
+        assertTrue(incumbent.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+
+        var response = connect().send(new ServerboundMessage.Register(workerId, "impostor", null));
+
+        assertFalse(response.ok());
+        assertTrue(response.message().contains("already has a live session"), response.message());
+        assertTrue(incumbent.isOpen());
+        assertEquals("w1", workerService.getWorker(workerId).orElseThrow().getName());
+    }
+
+    /** The refused connection never registered, so it cannot reach anything else either. */
+    @Test
+    void aRefusedClaimantStaysUnregistered() {
+        var workerId = UUID.randomUUID();
+        assertTrue(connect().send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+        var claimant = connect();
+        claimant.send(new ServerboundMessage.Register(workerId, "impostor", null));
+
+        var response = claimant.send(new ServerboundMessage.UpdateResourceInfo(info(0)));
+
+        assertFalse(response.ok());
+        assertEquals("not registered", response.message());
+    }
+
+    /** Refusing a takeover must not strand a worker whose previous session went away. */
+    @Test
+    void reconnectingAfterADisconnectStillRegisters() {
+        var workerId = UUID.randomUUID();
+        var first = connect();
+        assertTrue(first.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+        first.close();
+        await(() -> workerService.getActiveWorkers().isEmpty(), "the closed session was never dropped");
+
+        assertTrue(connect().send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+    }
+
     @Test
     void aRegisteredWorkerReportsItsResources() {
         var admin = fixtures.createActor("root");

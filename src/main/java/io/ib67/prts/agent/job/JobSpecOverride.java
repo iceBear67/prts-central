@@ -1,6 +1,11 @@
 package io.ib67.prts.agent.job;
 
+import io.ib67.prts.agent.job.JobSpec.VolumeSpec;
 import jakarta.annotation.Nullable;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -17,14 +22,29 @@ import java.util.function.Function;
  * maps merge by key, and lists append to base values. Null fields leave the template value unchanged.
  */
 public record JobSpecOverride(
-        @Nullable String image,
-        @Nullable String description,
-        @Nullable Map<String, String> environment,
-        @Nullable Map<String, String> labels,
-        @Nullable List<String> command,
-        @Nullable Map<UUID, JobSpec.VolumeSpec> volumes,
-        @Nullable Long timeout,
-        @Nullable String lock
+        @Nullable @Size(max = JobSpec.MAX_IMAGE_LENGTH,
+                message = "override.image must be at most {max} characters") String image,
+        @Nullable @Size(max = 256, message = "override.description must be at most {max} characters")
+        String description,
+        @Nullable @Size(max = JobSpec.MAX_ENTRIES,
+                message = "override.environment must have at most {max} entries")
+        Map<@Size(max = JobSpec.MAX_ENTRY_KEY_LENGTH, message = "a name must be at most {max} characters") String,
+                @Size(max = JobSpec.MAX_ENTRY_VALUE_LENGTH, message = "a value must be at most {max} characters") String>
+                environment,
+        @Nullable @Size(max = JobSpec.MAX_ENTRIES, message = "override.labels must have at most {max} entries")
+        Map<@Size(max = JobSpec.MAX_ENTRY_KEY_LENGTH, message = "a name must be at most {max} characters") String,
+                @Size(max = JobSpec.MAX_ENTRY_VALUE_LENGTH, message = "a value must be at most {max} characters") String>
+                labels,
+        @Nullable @Size(max = JobSpec.MAX_COMMAND_ARGUMENTS,
+                message = "override.command must have at most {max} arguments")
+        List<@Size(max = JobSpec.MAX_ARGUMENT_LENGTH, message = "an argument must be at most {max} characters") String> command,
+        @Nullable @Size(max = JobSpec.MAX_VOLUMES, message = "override.volumes must have at most {max} entries")
+        Map<UUID, @Valid VolumeSpec> volumes,
+        @Nullable @PositiveOrZero(message = "override.timeout must be >= 0")
+        @Max(value = JobSpec.MAX_TIMEOUT_SECONDS,
+                message = "override.timeout must be at most {value} seconds") Long timeout,
+        @Nullable @Size(max = JobSpec.MAX_LOCK_LENGTH,
+                message = "override.lock must be at most {max} characters") String lock
 ) {
     public JobSpec applyTo(JobSpec base, JobSpecOverrideAuthorizer authorizer) {
         Objects.requireNonNull(base, "spec");

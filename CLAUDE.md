@@ -25,7 +25,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/job-lifecycle.md](agent-docs/job-lifecycle.md) | anything about creating, scheduling, cancelling or ending a job, or the pending queue |
 | [agent-docs/job-spec.md](agent-docs/job-spec.md) | changing `JobSpec`, secrets, templates, resource classes, or the override gating |
 | [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, worker volumes, or task teardown |
-| [agent-docs/worker-protocol.md](agent-docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
+| [agent-docs/worker-protocol.md](docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
 | [agent-docs/authorization.md](agent-docs/authorization.md) | auth mechanisms, `Perm`, `@RequirePermission`, roles, sub-accounts |
 | [agent-docs/http-surface.md](agent-docs/http-surface.md) | adding or changing an endpoint, a DTO, a mapper, or the OpenAPI filter |
 | [agent-docs/artifacts.md](agent-docs/artifacts.md) | the upload / quota / S3 path |

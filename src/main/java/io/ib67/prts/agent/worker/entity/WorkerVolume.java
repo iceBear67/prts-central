@@ -99,9 +99,12 @@ public class WorkerVolume extends PanacheEntityBase {
         return length - used;
     }
 
-    /** Lists volumes hosted on the given worker, fetching owning projects. */
-    public static List<WorkerVolume> listByWorker(UUID workerId) {
-        return find("from WorkerVolume v join fetch v.project where v.worker.id = ?1", workerId).list();
+    /** Lists one page of the volumes hosted on the given worker, fetching owning projects. */
+    public static List<WorkerVolume> listByWorker(UUID workerId, int offset, int length) {
+        return find("from WorkerVolume v join fetch v.project where v.worker.id = ?1 "
+                + "order by v.name, v.id", workerId)
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     public static long countByWorker(UUID workerId) {
@@ -128,10 +131,22 @@ public class WorkerVolume extends PanacheEntityBase {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project where v.id in ?1", ids).list();
     }
 
-    /** Lists a project's volumes, fetching their host workers and owning project. */
+    /**
+     * Lists every one of a project's volumes, fetching their host workers and owning project.
+     *
+     * <p>Unpaged on purpose: {@code ProjectService.delete} has to reach all of them.
+     */
     public static List<WorkerVolume> listByProject(UUID projectId) {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project "
                 + "where v.project.id = ?1 order by v.name", projectId).list();
+    }
+
+    /** One page of the same, for the endpoint that shows them. */
+    public static List<WorkerVolume> listByProject(UUID projectId, int offset, int length) {
+        return find("from WorkerVolume v join fetch v.worker join fetch v.project "
+                + "where v.project.id = ?1 order by v.name, v.id", projectId)
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     /** Loads a volume with its project and host worker fetched, for reading outside a transaction. */

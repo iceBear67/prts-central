@@ -1,6 +1,8 @@
 package io.ib67.prts.admin.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
+import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.auth.RequirePermission;
@@ -8,13 +10,14 @@ import io.ib67.prts.dto.ResourceClassView;
 import io.ib67.prts.dto.request.CreateResourceClassRequest;
 import io.ib67.prts.dto.request.UpdateResourceClassRequest;
 import io.ib67.prts.job.entity.Job;
-import io.quarkus.panache.common.Sort;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.PATCH;
@@ -22,6 +25,7 @@ import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.resteasy.reactive.ResponseStatus;
@@ -40,10 +44,16 @@ import java.util.List;
 @RequirePermission(Perm.ADMIN_OF_ALL)
 public class AdminResourceClassResource {
 
+    @Inject
+    AdminConfig adminConfig;
+
     @GET
     @Transactional
-    public List<ResourceClassView> listResourceClasses() {
-        return ResourceClass.<ResourceClass>listAll(Sort.by("name")).stream()
+    public List<ResourceClassView> listResourceClasses(
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        return ResourceClass.listPage(Pages.clampOffset(offset, window), window).stream()
                 .map(ResourceClassView::of)
                 .toList();
     }

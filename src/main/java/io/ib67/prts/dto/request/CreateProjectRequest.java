@@ -10,7 +10,9 @@ import jakarta.validation.constraints.Size;
  * @param description What the project is for. Null or blank leaves it empty.
  */
 public record CreateProjectRequest(
-        @NotBlank(message = "name is required") String name,
+        @NotBlank(message = "name is required")
+        @Size(max = 200, message = "name must be at most 200 characters")
+        String name,
         @Nullable @Size(max = 256, message = "description must be at most 256 characters")
         String description
 ) {

@@ -34,7 +34,9 @@ Run via `./gradlew quarkusDev`. Dev UI available at `http://localhost:8080/q/dev
   - Dev-only beans are `@IfBuildProfile("dev")` and never run in test suites; verify manually.
 - **Database Schema**:
   - `%dev` uses `schema-management.strategy: update`.
-  - Explicit `columnDefinition = "varchar"` is maintained across entity string fields.
+  - Explicit `columnDefinition = "varchar"` is maintained across entity string fields: Hibernate would
+    otherwise generate `varchar(255)`. Length is bounded at the request DTO (`@Size`), not by the column,
+    so a cap belongs there — see [http-surface.md](http-surface.md).
   - `update` only adds tables/columns; schema drops or migrations require manual DDL via `psql`: `PGPASSWORD=prts psql -h localhost -U prts -d prts`.
 - **Default Secrets**: `secret.keys`, `secret.active-key`, and `worker.secret` have defaults only under `%dev` and `%test` profiles. Production requires explicit environment variables.
 

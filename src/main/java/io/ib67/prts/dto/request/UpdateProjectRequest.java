@@ -11,7 +11,8 @@ import jakarta.ws.rs.BadRequestException;
  * @param description New description, or blank to clear. Null keeps the existing description.
  */
 public record UpdateProjectRequest(
-        @Nullable @Size(min = 1, message = "name must not be blank") String name,
+        @Nullable @Size(min = 1, max = 200,
+                message = "name must not be blank and at most 200 characters") String name,
         @Nullable @Size(max = 256, message = "description must be at most 256 characters")
         String description
 ) {

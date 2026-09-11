@@ -32,6 +32,11 @@ quarkus:
       buckets:
         - prts-artifacts
   http:
+    # Every API body is JSON describing one object; artifacts go straight to S3 on a presigned URL and
+    # never pass through here. A megabyte is well past the largest job spec and well short of a
+    # storage amplifier.
+    limits:
+      max-body-size: 1M
     auth:
       permission:
         oauth2_auth:
@@ -113,6 +118,11 @@ storage:
 
 admin:
   list:
+    max-page-size: 50
+
+project:
+  list:
+    # Caps a project's own catalogues: templates, secrets, sub-accounts, volumes.
     max-page-size: 50
 
 permission:

@@ -58,6 +58,15 @@ public class UserIdentityAugmenter implements SecurityIdentityAugmentor {
             LOG.warnf("not registering %s from %s: the token carries no email claim", subject, issuer);
             return Optional.empty();
         }
+        // The email is only ever a display identity — authentication binds on (issuer, subject), and
+        // findByEmail reaches no authentication path — but an admin searching for a colleague's address
+        // should not find someone who merely typed it at the provider. A provider that omits the claim
+        // is taken at its word; one that says "not verified" is not.
+        if ("false".equalsIgnoreCase(claim(identity, "email_verified"))) {
+            LOG.warnf("not registering %s from %s: the provider reports its email as unverified",
+                    subject, issuer);
+            return Optional.empty();
+        }
         var name = Objects.requireNonNullElse(claim(identity, "name", "preferred_username"), subject);
         try {
             return Optional.of(userService.provision(issuer, subject, name, email));
@@ -71,12 +80,10 @@ public class UserIdentityAugmenter implements SecurityIdentityAugmentor {
         }
     }
 
+    /** Only the token: {@code (issuer, subject)} is the binding key, so an attribute must not steer it. */
     @Nullable
     private static String issuer(SecurityIdentity identity) {
-        if (identity.getPrincipal() instanceof JsonWebToken token && token.getIssuer() != null) {
-            return token.getIssuer();
-        }
-        return identity.getAttribute("issuer");
+        return identity.getPrincipal() instanceof JsonWebToken token ? token.getIssuer() : null;
     }
 
     @Nullable

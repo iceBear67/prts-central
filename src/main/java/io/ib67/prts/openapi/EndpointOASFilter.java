@@ -61,9 +61,14 @@ public class EndpointOASFilter implements OASFilter {
 
     /** Base path prefix for project operations subject to {@code ProjectService.requireWritable}. */
     private static final String PROJECT_SCOPE = "/project/{projectId}";
-    /** Mutating project endpoints that bypass {@code requireWritable} to allow unarchiving. */
-    private static final Set<String> ALWAYS_WRITABLE = Set.of(
-            "POST " + PROJECT_SCOPE + "/archive", "POST " + PROJECT_SCOPE + "/unarchive");
+    /**
+     * Mutating project endpoints that do not call {@code requireWritable}, and so never answer 409 for
+     * it: an archived project must still be unarchivable, and must still be deletable.
+     */
+    private static final Set<String> BYPASSES_WRITABLE = Set.of(
+            "POST " + PROJECT_SCOPE + "/archive",
+            "POST " + PROJECT_SCOPE + "/unarchive",
+            "DELETE " + PROJECT_SCOPE);
 
     private final IndexView index;
     private final Map<String, MethodInfo> endpoints = new HashMap<>();
@@ -263,7 +268,7 @@ public class EndpointOASFilter implements OASFilter {
             return false;
         }
         var path = pathOf(method);
-        return path.startsWith(PROJECT_SCOPE) && !ALWAYS_WRITABLE.contains(key(verb, path));
+        return path.startsWith(PROJECT_SCOPE) && !BYPASSES_WRITABLE.contains(key(verb, path));
     }
 
     private static void addResponse(APIResponses responses, String code, String description) {

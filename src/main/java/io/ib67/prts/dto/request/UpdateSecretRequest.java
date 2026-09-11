@@ -11,7 +11,8 @@ import jakarta.ws.rs.BadRequestException;
  * @param value       New plaintext secret value. Null keeps the existing secret value.
  */
 public record UpdateSecretRequest(
-        @Nullable String description,
+        @Nullable @Size(max = 256, message = "description must be at most 256 characters")
+        String description,
         @Nullable @Size(min = 1, message = "value is required") String value
 ) {
     public UpdateSecretRequest {

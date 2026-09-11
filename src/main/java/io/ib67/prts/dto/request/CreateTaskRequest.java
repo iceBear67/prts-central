@@ -2,6 +2,7 @@ package io.ib67.prts.dto.request;
 
 import io.ib67.prts.job.task.TaskScope;
 import jakarta.annotation.Nullable;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
@@ -23,7 +24,7 @@ public record CreateTaskRequest(
         @Nullable @Size(max = 512, message = "trackedAt must be at most 512 characters")
         @Pattern(regexp = CreateTaskRequest.TRACKED_AT, message = CreateTaskRequest.TRACKED_AT_REJECTED)
         String trackedAt,
-        @Nullable TaskScope scope
+        @Nullable @Valid TaskScope scope
 ) {
     /** An absolute http(s) link, or nothing at all. */
     public static final String TRACKED_AT = "(https?://\\S+)?";

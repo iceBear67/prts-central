@@ -87,8 +87,17 @@ public class SubAccount extends PanacheEntityBase {
                 userId, projectId).firstResultOptional();
     }
 
+    /** Unpaged on purpose: {@code ProjectService.delete} has to reach every sub-account it owns. */
     public static List<SubAccount> listByProjectFetched(UUID projectId) {
         return find("from SubAccount s join fetch s.user where s.project.id = ?1", projectId).list();
+    }
+
+    /** One page of the same, for the endpoint that shows them. */
+    public static List<SubAccount> listByProjectFetched(UUID projectId, int offset, int length) {
+        return find("from SubAccount s join fetch s.user where s.project.id = ?1 "
+                + "order by s.user.name, s.userId", projectId)
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     public static boolean isSubAccount(UUID userId) {

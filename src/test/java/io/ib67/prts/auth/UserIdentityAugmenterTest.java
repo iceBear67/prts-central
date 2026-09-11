@@ -212,15 +212,51 @@ class UserIdentityAugmenterTest {
         assertSame(identity, augment(identity));
     }
 
-    /** Supports resolving the issuer from attributes when the principal is not a JsonWebToken. */
+    /**
+     * (issuer, subject) is what a credential binds to a local user with, so the issuer comes from the
+     * token or from nowhere — never from an attribute something else could set.
+     */
     @Test
-    void theIssuerMayComeFromAnAttribute() {
-        when(userService.findByIssuerAndSubject(ISSUER, SUBJECT)).thenReturn(Optional.of(user));
+    void anIssuerAttributeDoesNotStandInForTheToken() {
         var identity = QuarkusSecurityIdentity.builder()
                 .setPrincipal(new QuarkusPrincipal(SUBJECT))
                 .addAttribute("issuer", ISSUER)
                 .build();
 
-        assertSame(user, augment(identity).getAttribute(User.class.getName()));
+        assertSame(identity, augment(identity));
+        verify(userService, never()).findByIssuerAndSubject(any(), any());
+    }
+
+    /** The email is a display identity, so a provider that calls it unverified is not taken at its word. */
+    @Test
+    void anExplicitlyUnverifiedEmailIsNotRegistered() {
+        var token = firstLoginToken();
+        when(token.<Object>getClaim("email_verified")).thenReturn(false);
+        var identity = identityOf(token);
+
+        assertSame(identity, augment(identity));
+        verify(userService, never()).provision(any(), any(), any(), any());
+    }
+
+    /** A provider that omits the claim is taken at its word — the alternative locks those users out. */
+    @Test
+    void anAbsentVerificationClaimStillRegisters() {
+        var token = firstLoginToken();
+        when(userService.provision(any(), any(), any(), any())).thenReturn(user);
+
+        augment(identityOf(token));
+
+        verify(userService).provision(ISSUER, SUBJECT, SUBJECT, EMAIL);
+    }
+
+    @Test
+    void aVerifiedEmailRegisters() {
+        var token = firstLoginToken();
+        when(token.<Object>getClaim("email_verified")).thenReturn(true);
+        when(userService.provision(any(), any(), any(), any())).thenReturn(user);
+
+        augment(identityOf(token));
+
+        verify(userService).provision(ISSUER, SUBJECT, SUBJECT, EMAIL);
     }
 }

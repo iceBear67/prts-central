@@ -45,6 +45,14 @@ The same reasoning covers the resource class: `TaskScope.resourceClass` stands i
 default, and keeping it costs no `job:resource-class`. Naming a *third* class is still an override and
 is still gated.
 
+## Who pays for a scope
+
+"Values the task was already permitted to set" is a claim `TaskScope.authorize` has to make true: the
+task write endpoints run the scope past `JobSpecOverridePermissions`, so whoever writes it pays
+`job:spec:environment`, `job:spec:labels` and `job:resource-class` for the fields it carries. Like
+`JobResource.createJob`, that gating reads the literal `{projectId}` from the path, so `TaskResource`
+cannot move out from under `/project/{projectId}/...`.
+
 `resolve` runs **twice** — once at enqueue (its merged spec is discarded; only the pinned resource class
 survives, on `JobRequest`) and again on every dispatch attempt. The task is re-read each time, so an
 edit between the two takes effect, exactly as a template edit does.

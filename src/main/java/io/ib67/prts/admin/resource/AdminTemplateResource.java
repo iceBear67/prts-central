@@ -1,23 +1,28 @@
 package io.ib67.prts.admin.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
+import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.job.JobSpecTemplateView;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
+import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
@@ -35,10 +40,16 @@ import java.util.UUID;
 @RequirePermission(Perm.ADMIN_OF_ALL)
 public class AdminTemplateResource {
 
+    @Inject
+    AdminConfig adminConfig;
+
     @GET
     @Transactional
-    public List<JobSpecTemplateView> listGlobalTemplates() {
-        return JobSpecTemplate.listGlobalFetched().stream()
+    public List<JobSpecTemplateView> listGlobalTemplates(
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        return JobSpecTemplate.listGlobalFetched(Pages.clampOffset(offset, window), window).stream()
                 .map(template -> JobSpecTemplateView.of(template, true))
                 .toList();
     }

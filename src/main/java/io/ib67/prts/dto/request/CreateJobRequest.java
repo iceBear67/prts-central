@@ -3,7 +3,9 @@ package io.ib67.prts.dto.request;
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.job.entity.JobRequest;
 import jakarta.annotation.Nullable;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 
 import java.util.UUID;
 
@@ -16,8 +18,9 @@ import java.util.UUID;
  */
 public record CreateJobRequest(
         @NotNull(message = "templateId is required") UUID templateId,
-        @Nullable JobSpecOverride override,
-        @Nullable String resourceClass,
+        @Nullable @Valid JobSpecOverride override,
+        @Nullable @Pattern(regexp = CreateResourceClassRequest.NAME,
+                message = "resourceClass is not a valid resource class name") String resourceClass,
         @Nullable UUID taskId
 ) {
     public JobRequest toRequest() {

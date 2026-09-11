@@ -75,9 +75,11 @@ public class JobSpecTemplate extends PanacheEntityBase {
             "from JobSpecTemplate t left join fetch t.resourceClass "
                     + "where (t.project is null or t.project.id = ?1)";
 
-    /** Lists templates visible to the given project (including global templates). */
-    public static List<JobSpecTemplate> listVisibleFetched(UUID projectId) {
-        return find(VISIBLE_TO, projectId).list();
+    /** Lists one page of the templates visible to the given project (including global templates). */
+    public static List<JobSpecTemplate> listVisibleFetched(UUID projectId, int offset, int length) {
+        return find(VISIBLE_TO + " order by t.name, t.id", projectId)
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     public static Optional<JobSpecTemplate> findVisibleFetched(UUID projectId, UUID id) {
@@ -87,9 +89,11 @@ public class JobSpecTemplate extends PanacheEntityBase {
     private static final String GLOBAL =
             "from JobSpecTemplate t left join fetch t.resourceClass where t.project is null";
 
-    /** Lists all global templates. */
-    public static List<JobSpecTemplate> listGlobalFetched() {
-        return find(GLOBAL).list();
+    /** Lists one page of the global templates. */
+    public static List<JobSpecTemplate> listGlobalFetched(int offset, int length) {
+        return find(GLOBAL + " order by t.name, t.id")
+                .range(offset, offset + length - 1)
+                .list();
     }
 
     public static Optional<JobSpecTemplate> findGlobalFetched(UUID id) {

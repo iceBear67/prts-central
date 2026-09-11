@@ -31,8 +31,14 @@ public class SubAccountService {
         return account;
     }
 
+    /** Every sub-account of a project. {@code ProjectService.delete} has to reach all of them. */
     public List<SubAccount> list(UUID projectId) {
         return SubAccount.listByProjectFetched(projectId);
+    }
+
+    /** One page of the same, for the endpoint that shows them. */
+    public List<SubAccount> list(UUID projectId, int offset, int length) {
+        return SubAccount.listByProjectFetched(projectId, offset, length);
     }
 
     /** Finds a sub-account in a project or throws {@link NotFoundException}. */

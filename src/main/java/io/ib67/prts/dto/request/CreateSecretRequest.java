@@ -4,6 +4,7 @@ import jakarta.annotation.Nullable;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 /**
  * Request payload to create a new project secret.
@@ -19,7 +20,8 @@ public record CreateSecretRequest(
         @NotNull(message = CreateSecretRequest.NAME_REJECTED)
         @Pattern(regexp = CreateSecretRequest.NAME, message = CreateSecretRequest.NAME_REJECTED)
         String name,
-        @Nullable String description,
+        @Nullable @Size(max = 256, message = "description must be at most 256 characters")
+        String description,
         @NotEmpty(message = "value is required") String value
 ) {
     /** Pattern for valid secret names (environment variable style). */

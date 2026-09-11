@@ -2,6 +2,7 @@ package io.ib67.prts.job.task.resource;
 
 import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
+import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.request.AttachVolumeRequest;
@@ -40,6 +41,10 @@ import java.util.UUID;
 
 /**
  * REST endpoint managing task scopes and the volumes they mount.
+ *
+ * <p>The path has to keep its literal {@code {projectId}} segment: {@code JobSpecOverridePermissions}
+ * takes no {@code @ProjectId} argument and scopes its checks to that path parameter, so moving these
+ * endpoints would silently disable the scope gating below.
  */
 @Path("/project/{projectId}/task")
 @Produces(MediaType.APPLICATION_JSON)
@@ -52,6 +57,8 @@ public class TaskResource {
     UserContext userContext;
     @Inject
     JobConfig jobConfig;
+    @Inject
+    JobSpecOverridePermissions overridePermissions;
 
     @GET
     @Transactional
@@ -95,6 +102,7 @@ public class TaskResource {
             @ProjectId @PathParam("projectId") UUID projectId,
             @NotNull(message = "a request body is required") @Valid CreateTaskRequest request) {
         projectService.requireWritable(projectId);
+        request.scopeOrEmpty().authorize(overridePermissions);
         return TaskView.of(taskService.create(
                 projectId,
                 request.name(),
@@ -117,6 +125,9 @@ public class TaskResource {
             @PathParam("taskId") UUID taskId,
             @NotNull(message = "a request body is required") @Valid UpdateTaskRequest request) {
         projectService.requireWritable(projectId);
+        if (request.scope() != null) {
+            request.scope().authorize(overridePermissions);
+        }
         return TaskView.of(taskService.update(
                 projectId, taskId, request.name(), request.description(), request.trackedAt(), request.scope()));
     }

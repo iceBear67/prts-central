@@ -1,7 +1,11 @@
 package io.ib67.prts.job.task;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
+import io.ib67.prts.dto.request.CreateResourceClassRequest;
 import jakarta.annotation.Nullable;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -13,16 +17,25 @@ import java.util.UUID;
  *
  * <p>Stored as {@code jsonb} on the task row, so it must stay Jackson-round-trippable.
  *
- * <p>Task contributions are authorized once, when the task is written, and are therefore never routed
- * through {@link io.ib67.prts.agent.job.JobSpecOverride} — that path gates every supplied field against
- * the <em>caller's</em> {@code job:spec:*} permissions, including empty collections.
+ * <p>Task contributions are authorized once, when the task is written ({@link #authorize}), and are
+ * therefore never routed through {@link io.ib67.prts.agent.job.JobSpecOverride} — that path gates every
+ * supplied field against the <em>caller's</em> {@code job:spec:*} permissions, including empty
+ * collections.
  *
  * @param resourceClass Replaces the template's default class. Null means the template decides.
  */
 public record TaskScope(
-        Map<String, String> environment,
-        Map<String, String> labels,
-        @Nullable String resourceClass
+        @Size(max = JobSpec.MAX_ENTRIES, message = "scope.environment must have at most {max} entries")
+        Map<@Size(max = JobSpec.MAX_ENTRY_KEY_LENGTH, message = "a name must be at most {max} characters") String,
+                @Size(max = JobSpec.MAX_ENTRY_VALUE_LENGTH, message = "a value must be at most {max} characters") String>
+                environment,
+        @Size(max = JobSpec.MAX_ENTRIES, message = "scope.labels must have at most {max} entries")
+        Map<@Size(max = JobSpec.MAX_ENTRY_KEY_LENGTH, message = "a name must be at most {max} characters") String,
+                @Size(max = JobSpec.MAX_ENTRY_VALUE_LENGTH, message = "a value must be at most {max} characters") String>
+                labels,
+        @Nullable @Pattern(regexp = CreateResourceClassRequest.NAME,
+                message = "scope.resourceClass is not a valid resource class name")
+        String resourceClass
 ) {
     /** Environment variable naming the task a job belongs to. Callers cannot override it. */
     public static final String TASK_ID_ENV = "PRTS_TASK_ID";
@@ -35,6 +48,31 @@ public record TaskScope(
         environment = Objects.requireNonNullElse(environment, Map.of());
         labels = Objects.requireNonNullElse(labels, Map.of());
         resourceClass = resourceClass == null || resourceClass.isBlank() ? null : resourceClass;
+    }
+
+    /**
+     * Charges the writer for what this scope contributes, field by field.
+     *
+     * <p>Every job under the task adopts these values without passing them through
+     * {@link io.ib67.prts.agent.job.JobSpecOverride}, so this is the one place they are paid for. It has
+     * to run wherever a scope is written, or {@code task:manage} — a {@code MEMBER} by default — would
+     * be a way around {@code job:spec:environment}, {@code job:spec:labels} and {@code job:resource-class}.
+     *
+     * <p>Contributing nothing costs nothing: an absent field and an empty one are the same value here
+     * (unlike an override, where supplied-but-empty is still gated), so only what the scope carries is
+     * checked.
+     */
+    public void authorize(JobSpecOverrideAuthorizer authorizer) {
+        Objects.requireNonNull(authorizer, "authorizer");
+        if (!environment.isEmpty()) {
+            authorizer.environment(environment);
+        }
+        if (!labels.isEmpty()) {
+            authorizer.labels(labels);
+        }
+        if (resourceClass != null) {
+            authorizer.resourceClass(resourceClass);
+        }
     }
 
     /**

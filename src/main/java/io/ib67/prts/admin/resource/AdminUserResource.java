@@ -8,6 +8,7 @@ import io.ib67.prts.dto.ScopedGrants;
 import io.ib67.prts.dto.admin.UserDetailView;
 import io.ib67.prts.dto.admin.UserView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
+import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.User;
@@ -47,6 +48,8 @@ public class AdminUserResource {
     PermissionService permissionService;
     @Inject
     AdminConfig adminConfig;
+    @Inject
+    ProjectService projectService;
 
     @GET
     @Transactional
@@ -90,6 +93,9 @@ public class AdminUserResource {
             @NotNull(message = "a request body is required") @Valid SetPermissionsRequest request) {
         var perms = request.resolved();
         requireUser(userId);
+        // permission.project_id is a bare UUID with no foreign key, so nothing downstream would object
+        // to a scope that names no project — and the all-zero UUID is read back as the global scope.
+        projectService.require(projectId);
         userService.setPermissions(userId, projectId, perms);
         return detailOf(userId);
     }

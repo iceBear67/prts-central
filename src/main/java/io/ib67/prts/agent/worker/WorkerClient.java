@@ -37,6 +37,11 @@ public final class WorkerClient {
         return conn.id().equals(connection.id());
     }
 
+    /** Whether the session behind this client is still usable. */
+    boolean isOpen() {
+        return conn.isOpen();
+    }
+
     /**
      * Sends a create job request to the worker and blocks until acknowledged.
      */

@@ -113,14 +113,26 @@ public class PendingJobService {
         }
     }
 
+    /**
+     * Records the job a dispatch attempt produced.
+     *
+     * <p>The entry is claimed in one transaction and launched outside it, so a bulk cancellation
+     * ({@code PendingJob.cancelActive}, run by project archival, project deletion and task teardown) can
+     * land on the row while its job is being created. Reporting that lets the dispatcher stop the job it
+     * just started, rather than leaving the queue reading {@code CANCELLED} while a container runs.
+     *
+     * @return false if the entry stopped being {@code DISPATCHING} while the job was being launched
+     */
     @Transactional
-    public void markDispatched(UUID pendingId, UUID jobId) {
-        inFlight(pendingId).ifPresent(pending -> {
-            pending.setAttempts(pending.getAttempts() + 1);
-            pending.setState(PendingJobState.DISPATCHED);
-            pending.setJobId(jobId);
-            pending.setLastError(null);
+    public boolean markDispatched(UUID pendingId, UUID jobId) {
+        var pending = inFlight(pendingId);
+        pending.ifPresent(entry -> {
+            entry.setAttempts(entry.getAttempts() + 1);
+            entry.setState(PendingJobState.DISPATCHED);
+            entry.setJobId(jobId);
+            entry.setLastError(null);
         });
+        return pending.isPresent();
     }
 
     /** Requeues a pending job with backoff after an unplaced attempt. */

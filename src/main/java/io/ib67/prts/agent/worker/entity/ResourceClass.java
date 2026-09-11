@@ -12,6 +12,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -46,5 +47,12 @@ public class ResourceClass extends PanacheEntityBase {
     // Hand-written rather than a bare findByIdOptional so callers stay mockable with mockStatic.
     public static Optional<ResourceClass> findByName(String name) {
         return findByIdOptional(name);
+    }
+
+    /** Lists one page of the catalogue, by name. */
+    public static List<ResourceClass> listPage(int offset, int length) {
+        return ResourceClass.<ResourceClass>find("order by name")
+                .range(offset, offset + length - 1)
+                .list();
     }
 }

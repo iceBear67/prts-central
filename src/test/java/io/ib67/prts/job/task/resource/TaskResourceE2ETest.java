@@ -1,5 +1,7 @@
 package io.ib67.prts.job.task.resource;
 
+import io.ib67.prts.Perm;
+import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
@@ -9,9 +11,14 @@ import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static io.ib67.prts.testing.Fixtures.as;
 import static org.hamcrest.Matchers.empty;
@@ -102,6 +109,7 @@ class TaskResourceE2ETest {
 
     @Test
     void theScopeRoundTrips() {
+        allowScopeWrites(member);
         var id = UUID.fromString(as(member).contentType(ContentType.JSON)
                 .body(Map.of("name", "pr-42", "scope", Map.of(
                         "environment", Map.of("SHARED", "1"),
@@ -122,6 +130,7 @@ class TaskResourceE2ETest {
     /** A new scope replaces the old one outright rather than merging into it. */
     @Test
     void editingTheScopeReplacesIt() {
+        allowScopeWrites(member);
         var id = openTask("pr-42");
 
         as(member).contentType(ContentType.JSON)
@@ -352,16 +361,21 @@ class TaskResourceE2ETest {
                 .body("[0].mountPoint", equalTo("/moved"));
     }
 
-    @Test
-    void aRelativeMountPointIsRejected() {
+    /**
+     * The control plane forwards a mount point to a worker that binds it, so it refuses anything that
+     * is not a plain absolute path rather than leaving the traversal to be resolved there.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"data", "/../etc", "/data/../../etc", "/data/./x", "/data/", "/data//x", "/"})
+    void anUnusableMountPointIsRejected(String mountPoint) {
         var volume = fixtures.createVolume(project, fixtures.createWorker("w1"), "cache");
         var id = openTask("pr-42");
 
         as(member).contentType(ContentType.JSON)
-                .body(Map.of("mountPoint", "data"))
+                .body(Map.of("mountPoint", mountPoint))
                 .put(tasks() + "/" + id + "/volume/" + volume).then()
                 .statusCode(400)
-                .body("message", equalTo("mountPoint must be an absolute path"));
+                .body("message", equalTo(JobSpec.VolumeSpec.MOUNT_POINT_REJECTED));
     }
 
     @Test
@@ -374,6 +388,59 @@ class TaskResourceE2ETest {
                 .body(Map.of("mountPoint", "/data"))
                 .put(tasks() + "/" + id + "/volume/" + theirs).then()
                 .statusCode(404);
+    }
+
+    /**
+     * A task's scope reaches every job under it without passing the override gate, so writing one is
+     * charged what overriding the same field would cost. `task:manage` alone is not enough.
+     */
+    @ParameterizedTest
+    @MethodSource("gatedScopeFields")
+    void aMemberCannotWriteAScopeFieldTheyCouldNotOverride(Map<String, Object> scope, Perm needed) {
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("name", "pr-42", "scope", scope))
+                .post(tasks()).then()
+                .statusCode(403)
+                .body("message", equalTo("missing permission: " + needed.permission()));
+
+        fixtures.grant(member, needed, project);
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("name", "pr-42", "scope", scope))
+                .post(tasks()).then()
+                .statusCode(201);
+    }
+
+    private static Stream<Arguments> gatedScopeFields() {
+        return Stream.of(
+                Arguments.of(Map.of("environment", Map.of("SHARED", "1")), Perm.JOB_SPEC_ENVIRONMENT),
+                Arguments.of(Map.of("labels", Map.of("tier", "core")), Perm.JOB_SPEC_LABELS),
+                Arguments.of(Map.of("resourceClass", "small"), Perm.JOB_RESOURCE_CLASS));
+    }
+
+    @Test
+    void editingATaskToCarryAScopeIsGatedToo() {
+        var id = openTask("pr-42");
+
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("scope", Map.of("resourceClass", "large")))
+                .patch(tasks() + "/" + id).then()
+                .statusCode(403)
+                .body("message", equalTo("missing permission: " + Perm.JOB_RESOURCE_CLASS.permission()));
+    }
+
+    /** Absent and empty are the same value in a scope, so contributing nothing costs nothing. */
+    @Test
+    void aScopeThatContributesNothingCostsNothing() {
+        as(member).contentType(ContentType.JSON)
+                .body(Map.of("name", "pr-42", "scope", Map.of("environment", Map.of(), "labels", Map.of())))
+                .post(tasks()).then()
+                .statusCode(201);
+    }
+
+    private void allowScopeWrites(Fixtures.Actor actor) {
+        fixtures.grant(actor, Perm.JOB_SPEC_ENVIRONMENT, project);
+        fixtures.grant(actor, Perm.JOB_SPEC_LABELS, project);
+        fixtures.grant(actor, Perm.JOB_RESOURCE_CLASS, project);
     }
 
     private void mount(UUID taskId, UUID volumeId, String mountPoint) {

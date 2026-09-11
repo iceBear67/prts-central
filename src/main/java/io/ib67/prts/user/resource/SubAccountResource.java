@@ -1,5 +1,6 @@
 package io.ib67.prts.user.resource;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
@@ -9,6 +10,7 @@ import io.ib67.prts.dto.IssuedTokenView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
 import io.ib67.prts.dto.project.SubAccountView;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
 import io.ib67.prts.user.SubAccount;
@@ -21,10 +23,12 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -45,6 +49,8 @@ public class SubAccountResource {
 
     @Inject
     SubAccountService subAccountService;
+    @Inject
+    ProjectConfig projectConfig;
     @Inject
     UserService userService;
     @Inject
@@ -69,9 +75,13 @@ public class SubAccountResource {
 
     @GET
     @Transactional
-    public List<SubAccountView> listSubAccounts(@ProjectId @PathParam("projectId") UUID projectId) {
+    public List<SubAccountView> listSubAccounts(
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         projectService.require(projectId);
-        return subAccountService.list(projectId).stream()
+        var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
+        return subAccountService.list(projectId, Pages.clampOffset(offset, window), window).stream()
                 .map(account -> view(projectId, account))
                 .toList();
     }

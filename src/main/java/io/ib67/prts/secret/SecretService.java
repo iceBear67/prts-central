@@ -25,10 +25,10 @@ public class SecretService {
     @Inject
     SecretCipher cipher;
 
-    /** Lists metadata for all secrets in a project. */
-    public List<ProjectSecret> list(UUID projectId) {
+    /** Lists one page of a project's secret metadata. Values are never part of it. */
+    public List<ProjectSecret> list(UUID projectId, int offset, int length) {
         projectService.require(projectId);
-        return ProjectSecret.listByProject(projectId);
+        return ProjectSecret.listByProject(projectId, offset, length);
     }
 
     /**
