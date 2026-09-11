@@ -367,7 +367,7 @@ class ProjectResourceE2ETest {
         as(alice).contentType(ContentType.JSON).body(Map.of("name", "   "))
                 .patch("/api/project/{id}", project).then()
                 .statusCode(400)
-                .body("message", equalTo("name must not be blank"));
+                .body("message", equalTo("name must not be blank and at most 200 characters"));
     }
 
     /** The patch is partial: a description on its own leaves the name where it was. */

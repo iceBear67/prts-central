@@ -20,12 +20,14 @@ import io.ib67.prts.secret.ProjectSecret;
 import io.ib67.prts.secret.user.UserAccessToken;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
+import io.ib67.prts.testing.MutedLogs;
 import io.ib67.prts.user.Permission;
 import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserToProject;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -59,14 +61,23 @@ class ProjectDeletionE2ETest {
     private Fixtures.Actor neighbour;
     private UUID mine;
     private UUID theirs;
+    private MutedLogs muted;
 
     @BeforeEach
     void reset() {
+        // The fixture workers hold volumes but never connect, so every delete here logs the discard it
+        // could not hand over. That is what the fixture is for; the rows it leaves are what is asserted.
+        muted = new MutedLogs(ProjectService.class);
         databaseCleaner.clean();
         owner = fixtures.createActor("owner");
         neighbour = fixtures.createActor("neighbour");
         mine = fixtures.createProject("mine", owner);
         theirs = fixtures.createProject("theirs", neighbour);
+    }
+
+    @AfterEach
+    void unmute() {
+        muted.close();
     }
 
     @Test

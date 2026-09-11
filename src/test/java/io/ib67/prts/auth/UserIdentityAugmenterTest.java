@@ -1,5 +1,6 @@
 package io.ib67.prts.auth;
 
+import io.ib67.prts.testing.MutedLogs;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserService;
@@ -209,7 +210,9 @@ class UserIdentityAugmenterTest {
                 .thenThrow(new IllegalStateException("database is down"));
         var identity = identityOf(token);
 
-        assertSame(identity, augment(identity));
+        try (var ignoredLogs = new MutedLogs(UserIdentityAugmenter.class)) {
+            assertSame(identity, augment(identity));
+        }
     }
 
     /**

@@ -6,6 +6,7 @@ import io.ib67.prts.job.JobLauncher;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobRequest;
+import io.ib67.prts.testing.MutedLogs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -44,6 +45,9 @@ class PendingJobDispatcherTest {
         dispatcher.jobConfig = jobConfig;
         when(jobConfig.pending().batch()).thenReturn(BATCH);
         when(workerService.hasSchedulableWorker()).thenReturn(true);
+        // Default arrangement: the entry is still queued when the job comes back. Left unstubbed the
+        // mock says it was cancelled mid-dispatch, sending every test down the stopCancelled path.
+        when(pendingJobService.markDispatched(any(), any())).thenReturn(true);
     }
 
     private static PendingJobService.Attempt anAttempt() {
@@ -147,7 +151,9 @@ class PendingJobDispatcherTest {
     void aFailureInTheQueueItselfDoesNotKillTheTicker() {
         when(pendingJobService.expireOverdue()).thenThrow(new IllegalStateException("database is down"));
 
-        assertDoesNotThrow(dispatcher::tick);
+        try (var ignored = new MutedLogs(PendingJobDispatcher.class)) {
+            assertDoesNotThrow(dispatcher::tick);
+        }
 
         verify(pendingJobService, never()).claimDue(anyInt());
     }
@@ -156,7 +162,9 @@ class PendingJobDispatcherTest {
     void aFailingClaimDoesNotKillTheTickerEither() {
         when(pendingJobService.claimDue(BATCH)).thenThrow(new IllegalStateException("database is down"));
 
-        assertDoesNotThrow(dispatcher::tick);
+        try (var ignored = new MutedLogs(PendingJobDispatcher.class)) {
+            assertDoesNotThrow(dispatcher::tick);
+        }
 
         verifyNoInteractions(jobLauncher);
     }

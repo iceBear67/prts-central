@@ -19,6 +19,7 @@ Tests are divided into three distinct execution tiers:
   - Inherited Panache static methods (`findById`, `persist`, `listAll`) fail outside Quarkus augmentation; beans relying on them must be tested in Tier C.
   - *Caution*: `mockStatic(Entity.class)` stubs **every** static the class has, including ones Lombok generates. That is `builder()`, and — for any entity with a `@Builder.Default` field, such as `Job.state` and `WorkerVolume.state` — the `$default$<field>()` the no-arg constructor calls, so even `new Entity()` interacts with the mock. Always construct entity test fixtures *before* opening a `mockStatic` block, including inside `thenReturn(...)` arguments: an exception thrown while evaluating one leaves the stubbing unfinished, and the `UnfinishedStubbingException` raised at close hides the real cause.
 - **Transaction Stubbing**: Use `io.ib67.prts.testing.InlineTransactions` in a try-with-resources block to execute `QuarkusTransaction.requiringNew()` synchronously on the test thread.
+- **Expected-Failure Noise**: A test that drives a failure path on purpose wraps the acting call in `io.ib67.prts.testing.MutedLogs` — best-effort handlers log the whole stack trace, which otherwise buries the CI report. Applies to Tier C as well.
 
 ## Tier C Constraints & Fixtures
 

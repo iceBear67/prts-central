@@ -3,6 +3,7 @@ package io.ib67.prts.job.task;
 import io.ib67.prts.job.JobConfig;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.testing.InlineTransactions;
+import io.ib67.prts.testing.MutedLogs;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -71,7 +72,8 @@ class TaskTeardownDispatcherTest {
         var closing = tasks(FIRST, SECOND);
         when(taskService.teardown(FIRST)).thenThrow(new IllegalStateException("worker is gone"));
 
-        try (var ignored = new InlineTransactions(); var entities = mockStatic(Task.class)) {
+        try (var ignored = new InlineTransactions(); var entities = mockStatic(Task.class);
+             var ignoredLogs = new MutedLogs(TaskTeardownDispatcher.class)) {
             entities.when(() -> Task.listClosing(BATCH)).thenReturn(closing);
 
             assertDoesNotThrow(dispatcher::tick);
