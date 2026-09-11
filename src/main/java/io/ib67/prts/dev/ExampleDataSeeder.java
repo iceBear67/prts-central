@@ -91,7 +91,9 @@ public class ExampleDataSeeder {
 
     void seed(@Observes StartupEvent event) {
         try {
-            if (QuarkusTransaction.requiringNew().call(Project::count) > 0) {
+            // A lambda, not `Project::count`: Panache rewrites the static call site, and a method
+            // reference resolves straight to the unimplemented PanacheEntityBase method instead.
+            if (QuarkusTransaction.requiringNew().call(() -> Project.count()) > 0) {
                 return;
             }
             QuarkusTransaction.requiringNew().run(this::populate);

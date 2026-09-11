@@ -59,6 +59,9 @@ public class EndpointOASFilter implements OASFilter {
     /** HTTP 401 status code, which returns an empty body for authentication challenges. */
     private static final String CHALLENGE = "401";
 
+    /** Endpoints exempt from the {@code /api/*} authenticated policy, and so never answer 401. */
+    private static final Set<String> PUBLIC_PATHS = Set.of("/api/health");
+
     /** Base path prefix for project operations subject to {@code ProjectService.requireWritable}. */
     private static final String PROJECT_SCOPE = "/project/{projectId}";
     /**
@@ -225,8 +228,10 @@ public class EndpointOASFilter implements OASFilter {
                 addResponse(responses, "409", "The project is archived or cannot accept modifications in its current state.");
             }
         }
-        // Operations under the /api tree require authentication.
-        addResponse(responses, "401", "Authentication required or user identity not recognized. The response body is empty.");
+        // Operations under the /api tree require authentication, unless the public path list exempts them.
+        if (!PUBLIC_PATHS.contains(path)) {
+            addResponse(responses, "401", "Authentication required or user identity not recognized. The response body is empty.");
+        }
         if (operation.getRequestBody() != null) {
             addResponse(responses, "400", "The request body is missing, malformed, or violates schema constraints.");
         }

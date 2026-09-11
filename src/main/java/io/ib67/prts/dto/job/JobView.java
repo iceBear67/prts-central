@@ -1,10 +1,12 @@
 package io.ib67.prts.dto.job;
 
 import io.ib67.prts.agent.job.JobSpec;
+import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
@@ -18,7 +20,7 @@ import java.util.UUID;
  *
  * @param resourceClass The resolved resource class name used for execution.
  * @param createRequest Request payload needed to re-run this job, or null if omitted or forbidden.
- * @param requestedBy   User ID who requested the job.
+ * @param requestedBy   Who requested the job.
  */
 public record JobView(
         UUID id,
@@ -27,7 +29,7 @@ public record JobView(
         @Nullable Instant completedAt,
         JobState state,
         @Nullable UUID worker,
-        UUID requestedBy,
+        UserInfo requestedBy,
         String resourceClass,
         @Nullable SpecView spec,
         List<ArtifactView> artifacts,
@@ -99,6 +101,17 @@ public record JobView(
     }
 
     public static JobView of(Job job, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
+        return of(job, Map.of(), artifacts, createRequest);
+    }
+
+    /**
+     * Builds the view with the requester resolved against a page of users.
+     *
+     * @param users the users a listing resolved, keyed by ID; a requester missing from it is
+     *              rendered with a null name
+     */
+    public static JobView of(
+            Job job, Map<UUID, User> users, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
         return new JobView(
                 job.getId(),
                 job.getProject().getId(),
@@ -106,7 +119,7 @@ public record JobView(
                 job.getCompletedAt(),
                 job.getState(),
                 job.getWorker(),
-                job.getRequestedBy(),
+                UserInfo.of(job.getRequestedBy(), users),
                 job.getResourceClass().getName(),
                 SpecView.of(job.getSpec()),
                 artifacts.stream().map(ArtifactView::of).toList(),

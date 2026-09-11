@@ -17,9 +17,12 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Represents a local user account in the system.
@@ -67,5 +70,14 @@ public class User extends PanacheEntityBase {
         return find("lower(name) like ?1 or lower(email) like ?1 order by id desc", filter)
                 .range(offset, offset + limit - 1)
                 .list();
+    }
+
+    /** Users for a collection of IDs, keyed by ID. Referenced IDs may no longer exist; misses are simply absent. */
+    public static Map<UUID, User> mapByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return User.<User>find("id in ?1", ids).stream()
+                .collect(Collectors.toMap(User::getId, user -> user));
     }
 }

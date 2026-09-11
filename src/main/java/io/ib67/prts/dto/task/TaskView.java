@@ -1,11 +1,14 @@
 package io.ib67.prts.dto.task;
 
+import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.job.task.TaskScope;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.job.task.entity.TaskState;
+import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -23,7 +26,7 @@ public record TaskView(
         String trackedAt,
         TaskState state,
         TaskScope scope,
-        UUID createdBy,
+        UserInfo createdBy,
         Instant createdAt,
         @Nullable Instant closedAt
 ) {
@@ -40,6 +43,16 @@ public record TaskView(
     }
 
     public static TaskView of(Task task) {
+        return of(task, Map.of());
+    }
+
+    /**
+     * Builds the view with the opener resolved against a page of users.
+     *
+     * @param users the users a listing resolved, keyed by ID; an opener missing from it is
+     *              rendered with a null name
+     */
+    public static TaskView of(Task task, Map<UUID, User> users) {
         return new TaskView(
                 task.getId(),
                 task.getProject().getId(),
@@ -48,7 +61,7 @@ public record TaskView(
                 task.getTrackedAt(),
                 task.getState(),
                 task.getScope(),
-                task.getCreatedBy(),
+                UserInfo.of(task.getCreatedBy(), users),
                 task.getCreatedAt(),
                 task.getClosedAt());
     }

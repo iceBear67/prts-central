@@ -1,6 +1,6 @@
 # HTTP Surface Reference
 
-Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require authentication unless explicitly unsecured.
+Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require authentication unless explicitly unsecured — the only exception is the liveness probe below.
 
 ## Role & Permission Mapping
 
@@ -18,6 +18,10 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 - **Project Enumeration Prevention**: Non-members querying nonexistent projects receive 403 Forbidden from the interceptor, not 404. Only `admin:all` callers reach the resource to receive 404.
 - **Global Templates Are Read-Only Here**: `DELETE .../job/template/{id}` returns 409 Conflict for global templates (where `projectId` is null). Global templates must be managed via `/api/admin/template`.
 - **Task Scope Gating**: `POST|PATCH .../task[/{taskId}]` cost `task:manage` (`MEMBER`) on their own, but a `scope` carrying `environment`, `labels` or a `resourceClass` is charged `job:spec:environment`, `job:spec:labels` and `job:resource-class` on top (`TaskScope.authorize`). Those values reach every job under the task without passing the override gate, so `task:manage` would otherwise be a way around all three. See [task-scope.md](task-scope.md).
+
+## Health Check
+
+`GET /api/health` returns **204 No Content** with no checks performed — it proves the HTTP layer answers, which is what a load balancer or orchestrator needs without holding a token. It is unsecured by a `permit` rule on its own exact path in `quarkus.http.auth.permission`; Quarkus matches the longest prefix, so that rule outranks the `/api/*` authenticated policy. The path is listed in `EndpointOASFilter.PUBLIC_PATHS` so the OpenAPI document does not promise a 401 it never answers.
 
 ## Archived Projects
 
@@ -118,6 +122,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
 ## DTO & Exception Architecture
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). Resources map entities to DTOs; service methods return entities.
+- **User references**: Where a view names a user it does not describe (`JobView.requestedBy`, `TaskView.createdBy`, `SubAccountView.createdBy`), it carries a `UserInfo` `{id, name}` rather than a bare UUID. The referenced rows hold no foreign key and outlive the user, so `name` is `null` when the account has since been deleted — a gap, not an error. Views that are themselves *about* the user (`CurrentUserView`, `UserView`, `ProjectMemberView`) keep their own flat fields. Listings resolve one page of users (`User.mapByIds`) and share the map across the views they build.
 - **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest` and `UpdateProjectRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
 - **Exception Mapping**: All 4xx and 5xx responses return `{ "message": ... }`, with the exception of 401.
   - `NoSuchElementException`: Mapped to 404 by `NotFoundMapper` with the exception message.

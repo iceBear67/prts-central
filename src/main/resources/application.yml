@@ -39,6 +39,12 @@ quarkus:
       max-body-size: 1M
     auth:
       permission:
+        # Public liveness probe. Matched by longest prefix, so it beats the cookie-authenticated
+        # /api/* rule below even though it sits under the same /api tree.
+        health:
+          paths:
+            - "/api/health"
+          policy: "permit"
         oauth2_auth:
           paths:
             - "/api/*"

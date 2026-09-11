@@ -15,10 +15,10 @@ import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
 import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.SubAccountService;
+import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
-import jakarta.inject.Inject;
-import jakarta.transaction.Transactional;
+import jakarta.inject.Inject;import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
@@ -36,7 +36,9 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -70,7 +72,7 @@ public class SubAccountResource {
         projectService.requireWritable(projectId);
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
-        return SubAccountView.of(account, List.of());
+        return view(projectId, account);
     }
 
     @GET
@@ -81,8 +83,10 @@ public class SubAccountResource {
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        return subAccountService.list(projectId, Pages.clampOffset(offset, window), window).stream()
-                .map(account -> view(projectId, account))
+        var accounts = subAccountService.list(projectId, Pages.clampOffset(offset, window), window);
+        var users = User.mapByIds(accounts.stream().map(SubAccount::getCreatedBy).distinct().toList());
+        return accounts.stream()
+                .map(account -> view(projectId, account, users))
                 .toList();
     }
 
@@ -114,7 +118,7 @@ public class SubAccountResource {
         var perms = request.resolved();
         projectService.requireWritable(projectId);
         subAccountService.setPermissions(projectId, userId, perms);
-        return SubAccountView.of(subAccountService.require(projectId, userId), perms);
+        return view(projectId, subAccountService.require(projectId, userId), perms);
     }
 
     @GET
@@ -140,6 +144,14 @@ public class SubAccountResource {
     }
 
     private SubAccountView view(UUID projectId, SubAccount account) {
-        return SubAccountView.of(account, userService.permissionsOf(account.getUserId(), projectId));
+        return view(projectId, account, User.mapByIds(List.of(account.getCreatedBy())));
+    }
+
+    private SubAccountView view(UUID projectId, SubAccount account, Collection<Perm> permissions) {
+        return SubAccountView.of(account, permissions, User.mapByIds(List.of(account.getCreatedBy())));
+    }
+
+    private SubAccountView view(UUID projectId, SubAccount account, Map<UUID, User> users) {
+        return SubAccountView.of(account, userService.permissionsOf(account.getUserId(), projectId), users);
     }
 }

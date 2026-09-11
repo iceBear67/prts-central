@@ -78,6 +78,8 @@ class TaskResourceE2ETest {
                 .body("name", equalTo("pr-42"))
                 .body("state", equalTo("OPEN"))
                 .body("projectId", equalTo(project.toString()))
+                .body("createdBy.id", equalTo(member.id().toString()))
+                .body("createdBy.name", equalTo("member"))
                 .body("closedAt", nullValue())
                 .body("id", notNullValue())
                 .body("createdAt", notNullValue());

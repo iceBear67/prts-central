@@ -106,7 +106,8 @@ class SubAccountResourceE2ETest {
                 .body("name", equalTo("ci"))
                 // Newly created sub-accounts have no permissions granted by default.
                 .body("permissions", empty())
-                .body("createdBy", equalTo(alice.id().toString()));
+                .body("createdBy.id", equalTo(alice.id().toString()))
+                .body("createdBy.name", equalTo("alice"));
     }
 
     @Test
@@ -130,7 +131,8 @@ class SubAccountResourceE2ETest {
                 .body("name", equalTo("ci"))
                 .body("userId", notNullValue())
                 .body("permissions", empty())
-                .body("createdBy", equalTo(alice.id().toString()));
+                .body("createdBy.id", equalTo(alice.id().toString()))
+                .body("createdBy.name", equalTo("alice"));
     }
 
     @Test
@@ -397,7 +399,8 @@ class SubAccountResourceE2ETest {
         as(admin).contentType(ContentType.JSON).body(Map.of("name", "ci"))
                 .post("/api/project/{p}/subaccount", project).then()
                 .statusCode(201)
-                .body("createdBy", equalTo(admin.id().toString()));
+                .body("createdBy.id", equalTo(admin.id().toString()))
+                .body("createdBy.name", equalTo("root"));
     }
 
     private void setPermissions(Fixtures.Actor owner, Fixtures.Actor subAccount, String... permissions) {

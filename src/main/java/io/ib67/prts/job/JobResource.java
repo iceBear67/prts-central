@@ -21,6 +21,7 @@ import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
+import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -170,11 +171,15 @@ public class JobResource {
                 : PendingJob.listUnplacedByTask(taskId, depth);
         var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
                 .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
+        var users = User.mapByIds(Stream.concat(
+                        jobs.stream().map(Job::getRequestedBy),
+                        queued.stream().map(PendingJob::getRequestedBy))
+                .distinct().toList());
         return Stream.<JobStatusView>concat(
-                        jobs.stream().map(job -> JobView.of(job,
+                        jobs.stream().map(job -> JobView.of(job, users,
                                 artifacts.getOrDefault(job.getId(), List.of()), requestFor(mayCreate, job.toRequest()))),
                         queued.stream()
-                                .map(pending -> PendingJobView.of(pending, requestFor(mayCreate, pending.getRequest()))))
+                                .map(pending -> PendingJobView.of(pending, users, requestFor(mayCreate, pending.getRequest()))))
                 .sorted(Comparator.comparing(JobStatusView::createdAt).reversed())
                 .skip(start)
                 .limit(window)
@@ -203,11 +208,12 @@ public class JobResource {
         return dispatched
                 .map(it -> (JobStatusView) viewOf(projectId, it))
                 .orElseGet(() -> PendingJobView.of(pending,
+                        User.mapByIds(List.of(pending.getRequestedBy())),
                         requestFor(jobAccess.mayCreate(projectId), pending.getRequest())));
     }
 
     private JobView viewOf(UUID projectId, Job job) {
-        return JobView.of(job, Artifact.listByJob(job.getId()),
+        return JobView.of(job, User.mapByIds(List.of(job.getRequestedBy())), Artifact.listByJob(job.getId()),
                 requestFor(jobAccess.mayCreate(projectId), job.toRequest()));
     }
 
@@ -237,7 +243,8 @@ public class JobResource {
         projectService.requireWritable(projectId);
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
-        return PendingJobView.of(pending, CreateJobRequest.of(pending.getRequest()));
+        return PendingJobView.of(pending,
+                User.mapByIds(List.of(pending.getRequestedBy())), CreateJobRequest.of(pending.getRequest()));
     }
 
     /** Cancels an active job or queued pending job. */
@@ -252,11 +259,14 @@ public class JobResource {
                     .orElseThrow(NotFoundException::new);
             if (pending.getJobId() == null) {
                 var entry = pendingJobService.cancel(projectId, jobId);
-                return PendingJobView.of(entry, requestFor(jobAccess.mayCreate(projectId), entry.getRequest()));
+                return PendingJobView.of(entry, User.mapByIds(List.of(entry.getRequestedBy())),
+                        requestFor(jobAccess.mayCreate(projectId), entry.getRequest()));
             }
             jobId = pending.getJobId();
         }
-        return JobView.of(jobService.cancel(projectId, jobId), Artifact.listByJob(jobId));
+        var cancelled = jobService.cancel(projectId, jobId);
+        return JobView.of(cancelled, User.mapByIds(List.of(cancelled.getRequestedBy())),
+                Artifact.listByJob(jobId), null);
     }
 
     @GET

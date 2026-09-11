@@ -8,6 +8,8 @@ import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
+import io.ib67.prts.user.UserService;
+import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.test.junit.QuarkusTest;
 import io.restassured.http.ContentType;
 import jakarta.inject.Inject;
@@ -42,6 +44,8 @@ class JobResourceE2ETest {
     DatabaseCleaner databaseCleaner;
     @Inject
     JobConfig jobConfig;
+    @Inject
+    UserService userService;
 
     private UUID project;
     private ResourceClass small;
@@ -135,6 +139,24 @@ class JobResourceE2ETest {
         as(alice).get("/api/project/{p}/job", other).then()
                 .statusCode(200)
                 .body("$", empty());
+    }
+
+    /** Jobs and queue entries outlive their requester, so a deleted one is listed nameless. */
+    @Test
+    void aDeletedRequesterIsListedNameless() {
+        var gone = fixtures.createActor("gone");
+        fixtures.join(gone, project, ProjectRole.VIEWER);
+        fixtures.createJob(project, gone, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createQueuedJob(project, gone, template, "small");
+        QuarkusTransaction.requiringNew().run(() -> userService.delete(gone.id()));
+
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        as(alice).get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("$", hasSize(2))
+                .body("requestedBy.id", containsInAnyOrder(gone.id().toString(), gone.id().toString()))
+                .body("requestedBy.name", containsInAnyOrder(nullValue(), nullValue()));
     }
 
     /** Jobs belonging to other projects return 404. */
@@ -270,7 +292,8 @@ class JobResourceE2ETest {
                 .statusCode(201)
                 .body("type", equalTo("pending"))
                 .body("state", equalTo("QUEUED"))
-                .body("requestedBy", equalTo(alice.id().toString()))
+                .body("requestedBy.id", equalTo(alice.id().toString()))
+                .body("requestedBy.name", equalTo("alice"))
                 // Queue entry records the resolved resource class.
                 .body("resourceClass", equalTo("small"))
                 .body("request.resourceClass", equalTo("small"))

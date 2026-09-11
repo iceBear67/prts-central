@@ -16,6 +16,7 @@ import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.job.task.TaskService;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.project.ProjectService;
+import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -69,8 +70,10 @@ public class TaskResource {
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, jobConfig.task().maxPageSize());
-        return Task.listByProject(projectId, Pages.clampOffset(offset, window), window).stream()
-                .map(TaskView::of)
+        var tasks = Task.listByProject(projectId, Pages.clampOffset(offset, window), window);
+        var users = User.mapByIds(tasks.stream().map(Task::getCreatedBy).distinct().toList());
+        return tasks.stream()
+                .map(task -> TaskView.of(task, users))
                 .toList();
     }
 
@@ -80,7 +83,10 @@ public class TaskResource {
     @RequirePermission(value = Perm.TASK_READ, defaultRole = ProjectRole.VIEWER)
     public TaskDetailView getTask(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("taskId") UUID taskId) {
-        return TaskDetailView.of(taskService.require(projectId, taskId), taskService.mounts(projectId, taskId));
+        var task = taskService.require(projectId, taskId);
+        return TaskDetailView.of(task,
+                User.mapByIds(List.of(task.getCreatedBy())),
+                taskService.mounts(projectId, taskId));
     }
 
     /** Lists the volumes this task mounts, and where. */
@@ -103,7 +109,7 @@ public class TaskResource {
             @NotNull(message = "a request body is required") @Valid CreateTaskRequest request) {
         projectService.requireWritable(projectId);
         request.scopeOrEmpty().authorize(overridePermissions);
-        return TaskView.of(taskService.create(
+        return viewOf(taskService.create(
                 projectId,
                 request.name(),
                 request.description(),
@@ -128,7 +134,7 @@ public class TaskResource {
         if (request.scope() != null) {
             request.scope().authorize(overridePermissions);
         }
-        return TaskView.of(taskService.update(
+        return viewOf(taskService.update(
                 projectId, taskId, request.name(), request.description(), request.trackedAt(), request.scope()));
     }
 
@@ -145,7 +151,11 @@ public class TaskResource {
     public TaskView closeTask(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("taskId") UUID taskId) {
         projectService.requireWritable(projectId);
-        return TaskView.of(taskService.close(projectId, taskId));
+        return viewOf(taskService.close(projectId, taskId));
+    }
+
+    private static TaskView viewOf(Task task) {
+        return TaskView.of(task, User.mapByIds(List.of(task.getCreatedBy())));
     }
 
     /** Mounts a project volume into the task, or moves an existing mount to a new path. */

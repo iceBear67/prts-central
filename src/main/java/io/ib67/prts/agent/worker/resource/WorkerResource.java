@@ -13,6 +13,7 @@ import io.ib67.prts.dto.job.JobView;
 import io.ib67.prts.dto.request.RenameWorkerRequest;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.user.User;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -110,8 +111,10 @@ public class WorkerResource {
     @Transactional
     public List<JobView> listWorkerJobs(@PathParam("id") UUID id) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
-        return Job.listOpenByWorker(id).stream()
-                .map(job -> JobView.of(job, Artifact.listByJob(job.getId())))
+        var jobs = Job.listOpenByWorker(id);
+        var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
+        return jobs.stream()
+                .map(job -> JobView.of(job, users, Artifact.listByJob(job.getId()), null))
                 .toList();
     }
 

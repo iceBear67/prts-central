@@ -1,11 +1,14 @@
 package io.ib67.prts.dto.job;
 
+import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.pending.PendingJobState;
+import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -21,7 +24,7 @@ public record PendingJobView(
         UUID id,
         UUID projectId,
         PendingJobState state,
-        UUID requestedBy,
+        UserInfo requestedBy,
         String resourceClass,
         Instant createdAt,
         Instant expiresAt,
@@ -43,12 +46,18 @@ public record PendingJobView(
         Objects.requireNonNull(expiresAt, "expiresAt");
     }
 
-    public static PendingJobView of(PendingJob pending, @Nullable CreateJobRequest request) {
+    /**
+     * Builds the view with the requester resolved against a page of users.
+     *
+     * @param users the users a listing resolved, keyed by ID; a requester missing from it is
+     *              rendered with a null name
+     */
+    public static PendingJobView of(PendingJob pending, Map<UUID, User> users, @Nullable CreateJobRequest request) {
         return new PendingJobView(
                 pending.getId(),
                 pending.getProject().getId(),
                 pending.getState(),
-                pending.getRequestedBy(),
+                UserInfo.of(pending.getRequestedBy(), users),
                 pending.getRequest().resourceClass(),
                 pending.getCreatedAt(),
                 pending.getExpiresAt(),

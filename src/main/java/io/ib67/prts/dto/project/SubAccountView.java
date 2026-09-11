@@ -1,11 +1,14 @@
 package io.ib67.prts.dto.project;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.user.SubAccount;
+import io.ib67.prts.user.User;
 
 import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -16,7 +19,7 @@ public record SubAccountView(
         UUID userId,
         String name,
         List<String> permissions,
-        UUID createdBy,
+        UserInfo createdBy,
         Instant createdAt
 ) {
     public SubAccountView {
@@ -27,12 +30,12 @@ public record SubAccountView(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
-    public static SubAccountView of(SubAccount account, Collection<Perm> permissions) {
+    public static SubAccountView of(SubAccount account, Collection<Perm> permissions, Map<UUID, User> users) {
         return new SubAccountView(
                 account.getUserId(),
                 account.getUser().getName(),
                 permissions.stream().map(Perm::permission).sorted().toList(),
-                account.getCreatedBy(),
+                UserInfo.of(account.getCreatedBy(), users),
                 account.getCreatedAt());
     }
 }
