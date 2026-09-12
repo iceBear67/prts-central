@@ -22,13 +22,9 @@ public record UserInfo(
         Objects.requireNonNull(id, "id");
     }
 
-    public static UserInfo of(User user) {
-        return new UserInfo(user.getId(), user.getName());
-    }
-
     /** Builds the view for an ID against the users a listing resolved, leaving a gap nameless. */
     public static UserInfo of(UUID id, Map<UUID, User> users) {
         var user = users.get(id);
-        return user == null ? new UserInfo(id, null) : of(user);
+        return new UserInfo(id, user == null ? null : user.getName());
     }
 }

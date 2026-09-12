@@ -96,14 +96,6 @@ public record JobView(
         }
     }
 
-    public static JobView of(Job job, List<Artifact> artifacts) {
-        return of(job, artifacts, null);
-    }
-
-    public static JobView of(Job job, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
-        return of(job, Map.of(), artifacts, createRequest);
-    }
-
     /**
      * Builds the view with the requester resolved against a page of users.
      *

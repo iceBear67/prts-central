@@ -33,6 +33,7 @@ import jakarta.ws.rs.core.MediaType;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Administrative endpoints for managing registered workers.
@@ -113,8 +114,10 @@ public class WorkerResource {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
         var jobs = Job.listOpenByWorker(id);
         var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
+        var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
+                .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
         return jobs.stream()
-                .map(job -> JobView.of(job, users, Artifact.listByJob(job.getId()), null))
+                .map(job -> JobView.of(job, users, artifacts.getOrDefault(job.getId(), List.of()), null))
                 .toList();
     }
 

@@ -207,14 +207,17 @@ public class JobResource {
                 : jobService.findInProject(projectId, pending.getJobId());
         return dispatched
                 .map(it -> (JobStatusView) viewOf(projectId, it))
-                .orElseGet(() -> PendingJobView.of(pending,
-                        User.mapByIds(List.of(pending.getRequestedBy())),
-                        requestFor(jobAccess.mayCreate(projectId), pending.getRequest())));
+                .orElseGet(() -> viewOf(projectId, pending));
     }
 
     private JobView viewOf(UUID projectId, Job job) {
-        return JobView.of(job, User.mapByIds(List.of(job.getRequestedBy())), Artifact.listByJob(job.getId()),
+        return JobView.of(job, User.mapById(job.getRequestedBy()), Artifact.listByJob(job.getId()),
                 requestFor(jobAccess.mayCreate(projectId), job.toRequest()));
+    }
+
+    private PendingJobView viewOf(UUID projectId, PendingJob pending) {
+        return PendingJobView.of(pending, User.mapById(pending.getRequestedBy()),
+                requestFor(jobAccess.mayCreate(projectId), pending.getRequest()));
     }
 
     /** Returns the creation request details if the caller has permission to create jobs. */
@@ -243,8 +246,9 @@ public class JobResource {
         projectService.requireWritable(projectId);
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
         var pending = pendingJobService.enqueue(projectId, authorized);
+        // Not viewOf: the caller holds job:create by definition here, so the request always comes back.
         return PendingJobView.of(pending,
-                User.mapByIds(List.of(pending.getRequestedBy())), CreateJobRequest.of(pending.getRequest()));
+                User.mapById(pending.getRequestedBy()), CreateJobRequest.of(pending.getRequest()));
     }
 
     /** Cancels an active job or queued pending job. */
@@ -258,14 +262,12 @@ public class JobResource {
             var pending = pendingJobService.findInProject(projectId, jobId)
                     .orElseThrow(NotFoundException::new);
             if (pending.getJobId() == null) {
-                var entry = pendingJobService.cancel(projectId, jobId);
-                return PendingJobView.of(entry, User.mapByIds(List.of(entry.getRequestedBy())),
-                        requestFor(jobAccess.mayCreate(projectId), entry.getRequest()));
+                return viewOf(projectId, pendingJobService.cancel(projectId, jobId));
             }
             jobId = pending.getJobId();
         }
         var cancelled = jobService.cancel(projectId, jobId);
-        return JobView.of(cancelled, User.mapByIds(List.of(cancelled.getRequestedBy())),
+        return JobView.of(cancelled, User.mapById(cancelled.getRequestedBy()),
                 Artifact.listByJob(jobId), null);
     }
 

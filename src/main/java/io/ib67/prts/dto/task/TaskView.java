@@ -42,10 +42,6 @@ public record TaskView(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
-    public static TaskView of(Task task) {
-        return of(task, Map.of());
-    }
-
     /**
      * Builds the view with the opener resolved against a page of users.
      *

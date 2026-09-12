@@ -26,6 +26,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -155,8 +156,8 @@ class JobResourceE2ETest {
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
                 .body("$", hasSize(2))
-                .body("requestedBy.id", containsInAnyOrder(gone.id().toString(), gone.id().toString()))
-                .body("requestedBy.name", containsInAnyOrder(nullValue(), nullValue()));
+                .body("requestedBy.id", everyItem(equalTo(gone.id().toString())))
+                .body("requestedBy.name", everyItem(nullValue()));
     }
 
     /** Jobs belonging to other projects return 404. */

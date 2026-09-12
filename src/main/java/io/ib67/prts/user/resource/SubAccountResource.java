@@ -18,7 +18,8 @@ import io.ib67.prts.user.SubAccountService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
-import jakarta.inject.Inject;import jakarta.transaction.Transactional;
+import jakarta.inject.Inject;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
@@ -36,7 +37,6 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -72,7 +72,8 @@ public class SubAccountResource {
         projectService.requireWritable(projectId);
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
-        return view(projectId, account);
+        // A sub-account is created with no grants, so there is nothing to look up.
+        return SubAccountView.of(account, List.of(), User.mapById(account.getCreatedBy()));
     }
 
     @GET
@@ -118,7 +119,10 @@ public class SubAccountResource {
         var perms = request.resolved();
         projectService.requireWritable(projectId);
         subAccountService.setPermissions(projectId, userId, perms);
-        return view(projectId, subAccountService.require(projectId, userId), perms);
+        var account = subAccountService.require(projectId, userId);
+        // The grants just written, not a fresh read: the permission cache is only invalidated once
+        // this transaction commits, so permissionsOf would still answer with the old set here.
+        return SubAccountView.of(account, perms, User.mapById(account.getCreatedBy()));
     }
 
     @GET
@@ -144,11 +148,7 @@ public class SubAccountResource {
     }
 
     private SubAccountView view(UUID projectId, SubAccount account) {
-        return view(projectId, account, User.mapByIds(List.of(account.getCreatedBy())));
-    }
-
-    private SubAccountView view(UUID projectId, SubAccount account, Collection<Perm> permissions) {
-        return SubAccountView.of(account, permissions, User.mapByIds(List.of(account.getCreatedBy())));
+        return view(projectId, account, User.mapById(account.getCreatedBy()));
     }
 
     private SubAccountView view(UUID projectId, SubAccount account, Map<UUID, User> users) {

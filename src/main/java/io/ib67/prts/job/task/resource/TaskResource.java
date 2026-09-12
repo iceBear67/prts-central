@@ -85,7 +85,7 @@ public class TaskResource {
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("taskId") UUID taskId) {
         var task = taskService.require(projectId, taskId);
         return TaskDetailView.of(task,
-                User.mapByIds(List.of(task.getCreatedBy())),
+                User.mapById(task.getCreatedBy()),
                 taskService.mounts(projectId, taskId));
     }
 
@@ -155,7 +155,7 @@ public class TaskResource {
     }
 
     private static TaskView viewOf(Task task) {
-        return TaskView.of(task, User.mapByIds(List.of(task.getCreatedBy())));
+        return TaskView.of(task, User.mapById(task.getCreatedBy()));
     }
 
     /** Mounts a project volume into the task, or moves an existing mount to a new path. */
