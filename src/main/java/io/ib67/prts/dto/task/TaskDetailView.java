@@ -2,12 +2,9 @@ package io.ib67.prts.dto.task;
 
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.job.task.entity.TaskVolume;
-import io.ib67.prts.user.User;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
-import java.util.UUID;
 
 /**
  * A task together with what it currently mounts.
@@ -23,9 +20,9 @@ public record TaskDetailView(
         volumes = Objects.requireNonNullElse(volumes, List.of());
     }
 
-    public static TaskDetailView of(Task task, Map<UUID, User> users, List<TaskVolume> mounts) {
+    public static TaskDetailView of(Task task, List<TaskVolume> mounts) {
         return new TaskDetailView(
-                TaskView.of(task, users),
+                TaskView.of(task),
                 mounts.stream().map(TaskVolumeView::of).toList());
     }
 }

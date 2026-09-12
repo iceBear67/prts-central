@@ -3,7 +3,6 @@ package io.ib67.prts.dto;
 import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
-import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -22,9 +21,13 @@ public record UserInfo(
         Objects.requireNonNull(id, "id");
     }
 
-    /** Builds the view for an ID against the users a listing resolved, leaving a gap nameless. */
-    public static UserInfo of(UUID id, Map<UUID, User> users) {
-        var user = users.get(id);
+    /** Resolves a lone reference; a listing resolves its whole page and uses {@link #of(UUID, User)}. */
+    public static UserInfo of(UUID id) {
+        return of(id, User.findById(id));
+    }
+
+    /** Builds the view for an ID against the account it resolved to, leaving a gap nameless. */
+    public static UserInfo of(UUID id, @Nullable User user) {
         return new UserInfo(id, user == null ? null : user.getName());
     }
 }

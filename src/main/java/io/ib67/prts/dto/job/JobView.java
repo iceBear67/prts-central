@@ -14,6 +14,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * View representing a job's execution state, metadata, and artifacts.
@@ -96,14 +98,32 @@ public record JobView(
         }
     }
 
+    /** Builds the view for a lone job, resolving its requester and artifacts. */
+    public static JobView of(Job job, @Nullable CreateJobRequest createRequest) {
+        return of(job, UserInfo.of(job.getRequestedBy()), Artifact.listByJob(job.getId()), createRequest);
+    }
+
     /**
-     * Builds the view with the requester resolved against a page of users.
+     * Builds the views for a listing, resolving the whole page's requesters and artifacts in one
+     * query each.
      *
-     * @param users the users a listing resolved, keyed by ID; a requester missing from it is
-     *              rendered with a null name
+     * @param createRequest each job's re-run payload, or null where it is omitted or forbidden
      */
-    public static JobView of(
-            Job job, Map<UUID, User> users, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
+    public static List<JobView> of(List<Job> jobs, Function<Job, CreateJobRequest> createRequest) {
+        var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
+        var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
+                .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
+        return jobs.stream()
+                .map(job -> of(
+                        job,
+                        UserInfo.of(job.getRequestedBy(), users.get(job.getRequestedBy())),
+                        artifacts.getOrDefault(job.getId(), List.of()),
+                        createRequest.apply(job)))
+                .toList();
+    }
+
+    private static JobView of(
+            Job job, UserInfo requestedBy, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
         return new JobView(
                 job.getId(),
                 job.getProject().getId(),
@@ -111,7 +131,7 @@ public record JobView(
                 job.getCompletedAt(),
                 job.getState(),
                 job.getWorker(),
-                UserInfo.of(job.getRequestedBy(), users),
+                requestedBy,
                 job.getResourceClass().getName(),
                 SpecView.of(job.getSpec()),
                 artifacts.stream().map(ArtifactView::of).toList(),

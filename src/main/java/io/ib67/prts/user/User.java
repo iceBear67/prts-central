@@ -72,11 +72,6 @@ public class User extends PanacheEntityBase {
                 .list();
     }
 
-    /** The lone-reference case of {@link #mapByIds}; a listing must resolve its whole page at once. */
-    public static Map<UUID, User> mapById(UUID id) {
-        return mapByIds(List.of(id));
-    }
-
     /** Users for a collection of IDs, keyed by ID. Referenced IDs may no longer exist; misses are simply absent. */
     public static Map<UUID, User> mapByIds(Collection<UUID> ids) {
         if (ids.isEmpty()) {

@@ -8,9 +8,10 @@ import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
-import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Function;
 
 /**
  * View representing a queued job pending dispatch.
@@ -46,18 +47,34 @@ public record PendingJobView(
         Objects.requireNonNull(expiresAt, "expiresAt");
     }
 
+    /** Builds the view for a lone queued job, resolving its requester. */
+    public static PendingJobView of(PendingJob pending, @Nullable CreateJobRequest request) {
+        return of(pending, UserInfo.of(pending.getRequestedBy()), request);
+    }
+
     /**
-     * Builds the view with the requester resolved against a page of users.
+     * Builds the views for a listing, resolving the whole page's requesters in one query.
      *
-     * @param users the users a listing resolved, keyed by ID; a requester missing from it is
-     *              rendered with a null name
+     * @param request each entry's create payload, or null where it is hidden by caller permissions
      */
-    public static PendingJobView of(PendingJob pending, Map<UUID, User> users, @Nullable CreateJobRequest request) {
+    public static List<PendingJobView> of(
+            List<PendingJob> queued, Function<PendingJob, CreateJobRequest> request) {
+        var users = User.mapByIds(queued.stream().map(PendingJob::getRequestedBy).distinct().toList());
+        return queued.stream()
+                .map(pending -> of(
+                        pending,
+                        UserInfo.of(pending.getRequestedBy(), users.get(pending.getRequestedBy())),
+                        request.apply(pending)))
+                .toList();
+    }
+
+    private static PendingJobView of(
+            PendingJob pending, UserInfo requestedBy, @Nullable CreateJobRequest request) {
         return new PendingJobView(
                 pending.getId(),
                 pending.getProject().getId(),
                 pending.getState(),
-                UserInfo.of(pending.getRequestedBy(), users),
+                requestedBy,
                 pending.getRequest().resourceClass(),
                 pending.getCreatedAt(),
                 pending.getExpiresAt(),

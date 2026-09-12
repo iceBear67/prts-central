@@ -13,9 +13,7 @@ import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
-import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.SubAccountService;
-import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
 import jakarta.inject.Inject;
@@ -38,7 +36,6 @@ import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -73,7 +70,7 @@ public class SubAccountResource {
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
         // A sub-account is created with no grants, so there is nothing to look up.
-        return SubAccountView.of(account, List.of(), User.mapById(account.getCreatedBy()));
+        return SubAccountView.of(account, List.of());
     }
 
     @GET
@@ -85,10 +82,7 @@ public class SubAccountResource {
         projectService.require(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
         var accounts = subAccountService.list(projectId, Pages.clampOffset(offset, window), window);
-        var users = User.mapByIds(accounts.stream().map(SubAccount::getCreatedBy).distinct().toList());
-        return accounts.stream()
-                .map(account -> view(projectId, account, users))
-                .toList();
+        return SubAccountView.of(accounts, account -> userService.permissionsOf(account.getUserId(), projectId));
     }
 
     @GET
@@ -96,7 +90,8 @@ public class SubAccountResource {
     @Transactional
     public SubAccountView getSubAccount(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("userId") UUID userId) {
-        return view(projectId, subAccountService.require(projectId, userId));
+        var account = subAccountService.require(projectId, userId);
+        return SubAccountView.of(account, userService.permissionsOf(userId, projectId));
     }
 
     @DELETE
@@ -122,7 +117,7 @@ public class SubAccountResource {
         var account = subAccountService.require(projectId, userId);
         // The grants just written, not a fresh read: the permission cache is only invalidated once
         // this transaction commits, so permissionsOf would still answer with the old set here.
-        return SubAccountView.of(account, perms, User.mapById(account.getCreatedBy()));
+        return SubAccountView.of(account, perms);
     }
 
     @GET
@@ -145,13 +140,5 @@ public class SubAccountResource {
         subAccountService.require(projectId, userId);
         var issued = accessTokenService.issue(userId);
         return new IssuedTokenView(issued.token(), issued.issuedAt());
-    }
-
-    private SubAccountView view(UUID projectId, SubAccount account) {
-        return view(projectId, account, User.mapById(account.getCreatedBy()));
-    }
-
-    private SubAccountView view(UUID projectId, SubAccount account, Map<UUID, User> users) {
-        return SubAccountView.of(account, userService.permissionsOf(account.getUserId(), projectId), users);
     }
 }

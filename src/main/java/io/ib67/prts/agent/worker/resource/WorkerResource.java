@@ -11,9 +11,7 @@ import io.ib67.prts.dto.WorkerView;
 import io.ib67.prts.dto.WorkerVolumeView;
 import io.ib67.prts.dto.job.JobView;
 import io.ib67.prts.dto.request.RenameWorkerRequest;
-import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
-import io.ib67.prts.user.User;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -33,7 +31,6 @@ import jakarta.ws.rs.core.MediaType;
 
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * Administrative endpoints for managing registered workers.
@@ -112,13 +109,8 @@ public class WorkerResource {
     @Transactional
     public List<JobView> listWorkerJobs(@PathParam("id") UUID id) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
-        var jobs = Job.listOpenByWorker(id);
-        var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
-        var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
-                .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
-        return jobs.stream()
-                .map(job -> JobView.of(job, users, artifacts.getOrDefault(job.getId(), List.of()), null))
-                .toList();
+        // An admin listing across projects: no re-run payload is offered here.
+        return JobView.of(Job.listOpenByWorker(id), job -> null);
     }
 
     /** Lists the volumes hosted on this worker across all projects. */

@@ -8,7 +8,7 @@ import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
-import java.util.Map;
+import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -42,13 +42,20 @@ public record TaskView(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
-    /**
-     * Builds the view with the opener resolved against a page of users.
-     *
-     * @param users the users a listing resolved, keyed by ID; an opener missing from it is
-     *              rendered with a null name
-     */
-    public static TaskView of(Task task, Map<UUID, User> users) {
+    /** Builds the view for a lone task, resolving its opener. */
+    public static TaskView of(Task task) {
+        return of(task, UserInfo.of(task.getCreatedBy()));
+    }
+
+    /** Builds the views for a listing, resolving the whole page's openers in one query. */
+    public static List<TaskView> of(List<Task> tasks) {
+        var users = User.mapByIds(tasks.stream().map(Task::getCreatedBy).distinct().toList());
+        return tasks.stream()
+                .map(task -> of(task, UserInfo.of(task.getCreatedBy(), users.get(task.getCreatedBy()))))
+                .toList();
+    }
+
+    private static TaskView of(Task task, UserInfo createdBy) {
         return new TaskView(
                 task.getId(),
                 task.getProject().getId(),
@@ -57,7 +64,7 @@ public record TaskView(
                 task.getTrackedAt(),
                 task.getState(),
                 task.getScope(),
-                UserInfo.of(task.getCreatedBy(), users),
+                createdBy,
                 task.getCreatedAt(),
                 task.getClosedAt());
     }
