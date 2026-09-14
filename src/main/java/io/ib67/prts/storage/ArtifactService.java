@@ -5,7 +5,7 @@ import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.RemovalCause;
 import com.github.benmanes.caffeine.cache.Scheduler;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
-import io.ib67.prts.dto.ArtifactUsage;
+import io.ib67.prts.dto.StorageUsage;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -136,13 +136,13 @@ public class ArtifactService {
     }
 
     /** Aggregates total count and byte size of stored artifacts across all projects. */
-    public ArtifactUsage stored() {
+    public StorageUsage stored() {
         // sum() returns null when no rows exist, whereas count() returns 0.
         var row = (Object[]) entityManager
                 .createQuery("select count(a), sum(a.sizeBytes) from Artifact a")
                 .getSingleResult();
         var bytes = (Long) row[1];
-        return new ArtifactUsage((long) row[0], bytes == null ? 0 : bytes);
+        return new StorageUsage((long) row[0], bytes == null ? 0 : bytes);
     }
 
     /** Cancels in-flight uploads and deletes partial objects for a job. */
@@ -190,7 +190,7 @@ public class ArtifactService {
     }
 
     /** Active quota reservations for in-flight uploads. */
-    private ArtifactUsage reservedFor(UUID jobId) {
+    private StorageUsage reservedFor(UUID jobId) {
         var count = 0L;
         long bytes = 0;
         for (var session : pending.asMap().values()) {
@@ -199,7 +199,7 @@ public class ArtifactService {
                 bytes += session.sizeBytes();
             }
         }
-        return new ArtifactUsage(count, bytes);
+        return new StorageUsage(count, bytes);
     }
 
     /** Records an uploaded artifact in the database. */

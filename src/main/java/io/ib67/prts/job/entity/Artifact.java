@@ -15,11 +15,16 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.ToString;
+import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.OnDelete;
 import org.hibernate.annotations.OnDeleteAction;
 import org.hibernate.annotations.UuidGenerator;
 
+import jakarta.annotation.Nullable;
+
+import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -51,6 +56,11 @@ public class Artifact extends PanacheEntityBase {
     @Column(name = "size_bytes", nullable = false)
     private long sizeBytes;
 
+    /** When the upload was promoted to a row, which is the only upload time the control plane observes. */
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "job_id", nullable = false, updatable = false)
     @OnDelete(action = OnDeleteAction.CASCADE)
@@ -77,5 +87,27 @@ public class Artifact extends PanacheEntityBase {
     /** Finds an artifact by ID within a specific project. */
     public static Optional<Artifact> findInProject(UUID projectId, UUID artifactId) {
         return find("id = ?1 and job.project.id = ?2", artifactId, projectId).firstResultOptional();
+    }
+
+    /**
+     * Lists one page of artifacts across every project, newest first, optionally narrowed to a project
+     * or a single job. Fetches the producing job and its project, which a cross-project view has to name.
+     */
+    public static List<Artifact> search(
+            @Nullable UUID projectId, @Nullable UUID jobId, int offset, int length) {
+        var query = new StringBuilder(
+                "from Artifact a join fetch a.job j join fetch j.project where 1 = 1");
+        var parameters = new HashMap<String, Object>();
+        if (projectId != null) {
+            query.append(" and j.project.id = :project");
+            parameters.put("project", projectId);
+        }
+        if (jobId != null) {
+            query.append(" and j.id = :job");
+            parameters.put("job", jobId);
+        }
+        return find(query.append(" order by a.createdAt desc, a.id desc").toString(), parameters)
+                .range(offset, offset + length - 1)
+                .list();
     }
 }

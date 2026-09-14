@@ -3,6 +3,7 @@ package io.ib67.prts.project;
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.PermissionView;
 import io.ib67.prts.dto.project.ProjectDetailView;
 import io.ib67.prts.dto.project.ProjectMemberView;
 import io.ib67.prts.dto.project.ProjectView;
@@ -36,6 +37,7 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -92,6 +94,29 @@ public class ProjectResource {
         var jobs = new ProjectDetailView.Jobs(
                 counts.visible(), counts.running(), PendingJob.countActive(projectId));
         return ProjectDetailView.of(project, role, access, members, jobs);
+    }
+
+    /**
+     * The permissions this project's owner may hand out to a sub-account, and which of them are banned.
+     *
+     * <p>Gated on the permission that governs the write it feeds
+     * ({@code PUT .../subaccount/{userId}/permission}) rather than on {@code admin:all}: an owner
+     * allowed to set the grants has to be able to read the list to choose them from. A ban overrides
+     * grants, roles and {@code admin:all} alike, so {@code banned} travels with the entry — without it
+     * an owner would record a grant that silently has no effect.
+     *
+     * <p>The answer does not vary by project; the path states which project the caller is authorized in.
+     */
+    @GET
+    @Path("/{projectId}/permission")
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_SUBACCOUNT_MANAGE, defaultRole = ProjectRole.OWNER)
+    public List<PermissionView> listProjectPermissions(@ProjectId @PathParam("projectId") UUID projectId) {
+        projectService.require(projectId);
+        return Arrays.stream(Perm.values())
+                .filter(perm -> !perm.global())
+                .map(perm -> PermissionView.of(perm, permissionService.isBanned(perm)))
+                .toList();
     }
 
     @PATCH

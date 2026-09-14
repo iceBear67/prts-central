@@ -2,7 +2,7 @@ package io.ib67.prts.admin.resource;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.RequirePermission;
-import io.ib67.prts.dto.admin.PermissionView;
+import io.ib67.prts.dto.PermissionView;
 import io.ib67.prts.user.PermissionService;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.GET;

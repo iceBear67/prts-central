@@ -29,6 +29,7 @@ import org.hibernate.annotations.UuidGenerator;
 import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -123,14 +124,34 @@ public class Task extends PanacheEntityBase {
 
     /** Lists a project's tasks, most recent first. */
     public static List<Task> listByProject(UUID projectId, int offset, int limit) {
-        return Task.<Task>find("project.id = ?1 order by createdAt desc, id desc", projectId)
+        return Task.<Task>find("from Task t join fetch t.project" + " where t.project.id = ?1 order by t.createdAt desc, t.id desc",
+                        projectId)
                 .range(offset, offset + limit - 1)
                 .list();
     }
 
     public static Optional<Task> findInProject(UUID projectId, UUID taskId) {
-        return Task.<Task>findByIdOptional(taskId)
-                .filter(task -> task.getProject().getId().equals(projectId));
+        return Task.<Task>find("from Task t join fetch t.project" + " where t.id = ?1 and t.project.id = ?2", taskId, projectId)
+                .firstResultOptional();
+    }
+
+    /**
+     * Lists one page of tasks across every project, most recent first, matching {@code query} against
+     * the task name and narrowing to {@code state} when either is given.
+     */
+    public static List<Task> search(
+            @Nullable String query, @Nullable TaskState state, int offset, int limit) {
+        var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
+        var narrowed = state == null ? "" : " and t.state = :state";
+        var parameters = new HashMap<String, Object>();
+        parameters.put("name", filter);
+        if (state != null) {
+            parameters.put("state", state);
+        }
+        return Task.<Task>find("from Task t join fetch t.project" + " where lower(t.name) like :name" + narrowed
+                        + " order by t.createdAt desc, t.id desc", parameters)
+                .range(offset, offset + limit - 1)
+                .list();
     }
 
     /** Returns closing tasks awaiting teardown, ordered by creation time. */

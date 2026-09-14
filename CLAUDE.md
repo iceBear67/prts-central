@@ -151,7 +151,7 @@ and the entities both have been), so a path is the part that goes stale while th
   its caller can already reach is the resource's work —
   `ScopedGrants.of(permissionService.grantsOf(id))`, not `PermissionService.grantsByScope`. Two callers
   wanting the same shape is no reason to push it down; share it on the view record, and reuse one that
-  already fits before writing a new one (`ArtifactUsage` was `ArtifactService.Reservations`, one rename
+  already fits before writing a new one (`StorageUsage` was `ArtifactService.Reservations`, one rename
   away).
 - **Every mutating project endpoint must call `ProjectService.requireWritable(projectId)` first.**
   Archived projects return 409 Conflict for all modifications other than unarchive and delete. This check

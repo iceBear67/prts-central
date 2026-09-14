@@ -21,6 +21,7 @@ import java.util.UUID;
 public record TaskView(
         UUID id,
         UUID projectId,
+        String projectName,
         String name,
         String description,
         String trackedAt,
@@ -33,6 +34,7 @@ public record TaskView(
     public TaskView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(projectId, "projectId");
+        Objects.requireNonNull(projectName, "projectName");
         Objects.requireNonNull(name, "name");
         Objects.requireNonNull(description, "description");
         Objects.requireNonNull(trackedAt, "trackedAt");
@@ -56,9 +58,11 @@ public record TaskView(
     }
 
     private static TaskView of(Task task, UserInfo createdBy) {
+        var project = task.getProject();
         return new TaskView(
                 task.getId(),
-                task.getProject().getId(),
+                project.getId(),
+                project.getName(),
                 task.getName(),
                 task.getDescription(),
                 task.getTrackedAt(),

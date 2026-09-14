@@ -188,10 +188,6 @@ public class Job extends PanacheEntityBase {
                 .collect(Collectors.toMap(row -> (JobState) row[0], row -> (Long) row[1]));
     }
 
-    public static long countCompletedSince(Instant since) {
-        return count("completedAt >= ?1", since);
-    }
-
     /** Counts visible jobs grouped by project ID for a collection of projects. */
     public static Map<UUID, Long> countVisibleByProjects(Collection<UUID> projectIds) {
         if (projectIds.isEmpty()) {

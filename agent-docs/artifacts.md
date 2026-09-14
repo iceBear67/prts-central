@@ -36,6 +36,10 @@ sequenceDiagram
     Note over A: Cache expiry listener promotes or deletes to prevent orphaned S3 objects
 ```
 
+`artifact.created_at` is stamped by `@CreationTimestamp` when the sweeper promotes the upload to a row. That
+is the only upload time the control plane observes — the worker's PUT to S3 happens out of band — and it is
+what `GET /admin/artifact` orders and reports.
+
 ## Deletion
 
 `ArtifactService.delete(projectId, artifactId)` (invoked via `DELETE /project/{projectId}/job/artifact/{id}`, requiring `job:artifact:delete`) deletes the database row in a new transaction (`requiringNew()`) and then deletes the S3 object outside the transaction.

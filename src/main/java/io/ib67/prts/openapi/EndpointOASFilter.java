@@ -10,23 +10,31 @@ import org.eclipse.microprofile.openapi.models.OpenAPI;
 import org.eclipse.microprofile.openapi.models.Operation;
 import org.eclipse.microprofile.openapi.models.PathItem;
 import org.eclipse.microprofile.openapi.models.media.Content;
+import org.eclipse.microprofile.openapi.models.media.MediaType;
 import org.eclipse.microprofile.openapi.models.media.Schema;
+import org.eclipse.microprofile.openapi.models.parameters.RequestBody;
 import org.eclipse.microprofile.openapi.models.responses.APIResponse;
 import org.eclipse.microprofile.openapi.models.responses.APIResponses;
 import org.jboss.jandex.AnnotationInstance;
 import org.jboss.jandex.AnnotationTarget;
 import org.jboss.jandex.ClassInfo;
 import org.jboss.jandex.DotName;
+import org.jboss.jandex.FieldInfo;
 import org.jboss.jandex.IndexView;
 import org.jboss.jandex.MethodInfo;
 import org.jboss.jandex.Type;
 
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 
 /**
  * Enriches the OpenAPI specification at build time with metadata not automatically extracted by SmallRye:
@@ -54,8 +62,13 @@ public class EndpointOASFilter implements OASFilter {
     private static final String EXTENSION = "x-required-permission";
 
     private static final String ERROR_SCHEMA = "ErrorView";
-    private static final String ERROR_REF = "#/components/schemas/" + ERROR_SCHEMA;
+    private static final String SCHEMA_REF = "#/components/schemas/";
+    private static final String ERROR_REF = SCHEMA_REF + ERROR_SCHEMA;
     private static final String JSON = "application/json";
+
+    private static final String PACKAGE = "io.ib67.prts.";
+    private static final DotName NULLABLE = DotName.createSimple("jakarta.annotation.Nullable");
+    private static final DotName MAP = DotName.createSimple("java.util.Map");
     /** HTTP 401 status code, which returns an empty body for authentication challenges. */
     private static final String CHALLENGE = "401";
 
@@ -104,6 +117,7 @@ public class EndpointOASFilter implements OASFilter {
         }
         if (components.getSchemas() != null) {
             components.getSchemas().forEach(this::describeProperties);
+            describeShapes(openAPI, components.getSchemas());
         }
         components.addSchema(ERROR_SCHEMA, errorSchema());
     }
@@ -329,6 +343,229 @@ public class EndpointOASFilter implements OASFilter {
                         "Overriding the template value requires `" + rule.perm().permission() + "` in this project."));
             }
         });
+    }
+
+    /**
+     * States what a response body guarantees, read off the Java type behind each schema.
+     *
+     * <p>SmallRye derives {@code required} from Bean Validation, which only inbound DTOs carry — so a
+     * response schema publishes none, and a client cannot tell a field that may be absent from one the
+     * compact constructor {@code requireNonNull}s. The declaration answers it: no {@code @Nullable}
+     * means required, {@code @Nullable} means the value may be null.
+     *
+     * <p>Schemas a request body reaches are left alone. Several are shared between a request and a
+     * response ({@code TaskScope}, {@code VolumeSpec}, {@code CreateJobRequest}), and there the
+     * constraints already say what a caller must send.
+     */
+    private void describeShapes(OpenAPI openAPI, Map<String, Schema> declared) {
+        var shapes = new ResponseShapes(declared);
+        var paths = openAPI.getPaths();
+        if (paths != null && paths.getPathItems() != null) {
+            paths.getPathItems().forEach((path, item) -> {
+                if (item.getOperations() != null) {
+                    item.getOperations().forEach((verb, operation) -> shapes.collect(
+                            lookup(verb, path), operation));
+                }
+            });
+        }
+        var inbound = requestSchemas(openAPI);
+        shapes.resolved().forEach((name, type) -> {
+            if (!inbound.contains(name)) {
+                describeShape(declared.get(name), type);
+            }
+        });
+    }
+
+    private void describeShape(Schema schema, ClassInfo type) {
+        if (schema == null || schema.getProperties() == null) {
+            return;
+        }
+        var required = new ArrayList<String>();
+        schema.getProperties().forEach((property, propertySchema) -> {
+            var field = type.field(property);
+            if (field == null) {
+                return;
+            }
+            if (isNullable(type, field)) {
+                allowNull(propertySchema);
+            } else {
+                required.add(property);
+            }
+            // A grouping keyed by an enum is published with its keys constrained, so a client mapping
+            // the breakdown fails loudly on a key it does not know rather than dropping the count.
+            keysOf(field).ifPresent(constants -> propertySchema.setPropertyNames(
+                    OASFactory.createSchema().addType(Schema.SchemaType.STRING).enumeration(constants)));
+        });
+        if (!required.isEmpty() && schema.getRequired() == null) {
+            schema.setRequired(required);
+        }
+    }
+
+    /**
+     * Resolves each response schema to the class it was generated from by walking the document and the
+     * endpoint's return type together.
+     *
+     * <p>Matching on the schema name would not do: SmallRye derives one from the simple class name and
+     * disambiguates collisions with a counter, so {@code AdminStatsView.Jobs} and
+     * {@code ProjectDetailView.Jobs} become {@code Jobs} and {@code Jobs1} with nothing saying which is
+     * which. A union ({@code allOf} / {@code oneOf}) is not descended into — its branches are other
+     * types, and pairing them with the declared one would resolve the wrong class.
+     */
+    private final class ResponseShapes {
+        private final Map<String, Schema> declared;
+        private final Map<String, ClassInfo> resolved = new HashMap<>();
+        private final Set<String> visited = new HashSet<>();
+
+        private ResponseShapes(Map<String, Schema> declared) {
+            this.declared = declared;
+        }
+
+        private void collect(MethodInfo endpoint, Operation operation) {
+            if (endpoint == null || operation.getResponses() == null) {
+                return;
+            }
+            operation.getResponses().getAPIResponses().forEach((code, response) -> {
+                if (isSuccess(code) && response.getContent() != null
+                        && response.getContent().getMediaTypes() != null) {
+                    response.getContent().getMediaTypes().values().stream()
+                            .map(MediaType::getSchema)
+                            .forEach(schema -> pair(schema, endpoint.returnType()));
+                }
+            });
+        }
+
+        private void pair(Schema schema, Type type) {
+            if (schema == null || type == null) {
+                return;
+            }
+            var reference = refName(schema);
+            if (reference != null) {
+                var owner = classOf(type);
+                if (owner != null && owner.name().toString().startsWith(PACKAGE)) {
+                    resolved.putIfAbsent(reference, owner);
+                }
+                if (visited.add(reference + " " + type.name())) {
+                    pair(declared.get(reference), type);
+                }
+                return;
+            }
+            pair(schema.getItems(), argument(type, 0));
+            pair(schema.getAdditionalPropertiesSchema(), argument(type, 1));
+            var owner = classOf(type);
+            if (schema.getProperties() == null || owner == null) {
+                return;
+            }
+            schema.getProperties().forEach((property, propertySchema) -> {
+                var field = owner.field(property);
+                if (field != null) {
+                    pair(propertySchema, field.type());
+                }
+            });
+        }
+
+        private Map<String, ClassInfo> resolved() {
+            return resolved;
+        }
+    }
+
+    private ClassInfo classOf(Type type) {
+        return type.kind() == Type.Kind.CLASS || type.kind() == Type.Kind.PARAMETERIZED_TYPE
+                ? index.getClassByName(type.name())
+                : null;
+    }
+
+    private static Type argument(Type type, int position) {
+        if (type == null || type.kind() != Type.Kind.PARAMETERIZED_TYPE) {
+            return null;
+        }
+        var arguments = type.asParameterizedType().arguments();
+        return position < arguments.size() ? arguments.get(position) : null;
+    }
+
+    // Without @Target, jakarta.annotation.Nullable lands on a record's field and accessor alike; a
+    // Lombok POJO only ever carries it on the field.
+    private static boolean isNullable(ClassInfo type, FieldInfo field) {
+        if (field.hasAnnotation(NULLABLE)) {
+            return true;
+        }
+        var accessor = type.method(field.name());
+        return accessor != null && accessor.hasAnnotation(NULLABLE);
+    }
+
+    /** The constants of {@code E} when the field is a {@code Map<E, ?>}, otherwise empty. */
+    private Optional<List<Object>> keysOf(FieldInfo field) {
+        if (field.type().kind() != Type.Kind.PARAMETERIZED_TYPE
+                || !MAP.equals(field.type().name())) {
+            return Optional.empty();
+        }
+        var arguments = field.type().asParameterizedType().arguments();
+        if (arguments.isEmpty()) {
+            return Optional.empty();
+        }
+        var key = index.getClassByName(arguments.getFirst().name());
+        if (key == null || !key.isEnum()) {
+            return Optional.empty();
+        }
+        return Optional.of(key.enumConstants().stream().map(constant -> (Object) constant.name()).toList());
+    }
+
+    // OpenAPI 3.1 states nullability in the type list. A bare $ref carries no type of its own, and
+    // there being absent from `required` is the whole statement.
+    private static void allowNull(Schema schema) {
+        var types = schema.getType();
+        if (types != null && !types.isEmpty() && !types.contains(Schema.SchemaType.NULL)) {
+            schema.addType(Schema.SchemaType.NULL);
+        }
+    }
+
+    /** Component schemas a request body reaches, at any depth. */
+    private static Set<String> requestSchemas(OpenAPI openAPI) {
+        var components = openAPI.getComponents();
+        var declared = components == null || components.getSchemas() == null
+                ? Map.<String, Schema>of()
+                : components.getSchemas();
+        var pending = new ArrayDeque<Schema>();
+        var paths = openAPI.getPaths();
+        if (paths != null && paths.getPathItems() != null) {
+            paths.getPathItems().values().stream()
+                    .filter(item -> item.getOperations() != null)
+                    .flatMap(item -> item.getOperations().values().stream())
+                    .map(Operation::getRequestBody)
+                    .filter(Objects::nonNull)
+                    .map(RequestBody::getContent)
+                    .filter(content -> content != null && content.getMediaTypes() != null)
+                    .flatMap(content -> content.getMediaTypes().values().stream())
+                    .map(MediaType::getSchema)
+                    .filter(Objects::nonNull)
+                    .forEach(pending::add);
+        }
+        var reached = new HashSet<String>();
+        while (!pending.isEmpty()) {
+            var schema = pending.poll();
+            var referenced = refName(schema);
+            if (referenced != null && reached.add(referenced) && declared.containsKey(referenced)) {
+                pending.add(declared.get(referenced));
+            }
+            children(schema).forEach(pending::add);
+        }
+        return reached;
+    }
+
+    private static Stream<Schema> children(Schema schema) {
+        return Stream.of(
+                        schema.getProperties() == null
+                                ? Stream.<Schema>empty() : schema.getProperties().values().stream(),
+                        Stream.ofNullable(schema.getItems()),
+                        Stream.ofNullable(schema.getAdditionalPropertiesSchema()),
+                        schema.getAllOf() == null ? Stream.<Schema>empty() : schema.getAllOf().stream(),
+                        schema.getAnyOf() == null ? Stream.<Schema>empty() : schema.getAnyOf().stream(),
+                        schema.getOneOf() == null ? Stream.<Schema>empty() : schema.getOneOf().stream())
+                .flatMap(stream -> stream);
+    }
+
+    private static String refName(Schema schema) {
+        var ref = schema.getRef();
+        return ref == null || !ref.startsWith(SCHEMA_REF) ? null : ref.substring(SCHEMA_REF.length());
     }
 
     private static String summary(Rule rule) {

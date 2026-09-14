@@ -3,11 +3,14 @@ package io.ib67.prts.admin.resource;
 import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.admin.AdminConfig;
+import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.job.JobSpecTemplateView;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
+import io.ib67.prts.dto.request.JobSpecRequest;
+import io.ib67.prts.dto.request.UpdateTemplateRequest;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -18,6 +21,7 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.PATCH;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -60,17 +64,39 @@ public class AdminTemplateResource {
     @Transactional
     public JobSpecTemplateView createGlobalTemplate(
             @NotNull(message = "a request body is required") @Valid CreateTemplateRequest request) {
-        var spec = request.spec().toSpec();
-        if (!spec.volumes().isEmpty()) {
-            // Volumes are project-scoped and cannot be referenced by global templates.
-            throw new BadRequestException("a global template cannot mount volumes");
-        }
         var template = JobSpecTemplate.builder()
                 .name(request.name())
-                .spec(spec)
+                .spec(globalSpec(request.spec()))
                 .resourceClass(requireClass(request.resourceClass()))
                 .build();
         template.persist();
+        return JobSpecTemplateView.of(template, true);
+    }
+
+    /**
+     * Applies the fields the caller supplied; a null field leaves that part of the template as it was.
+     *
+     * <p>Updating rather than replacing matters because the ID is what a queued job and a re-run payload
+     * hold: delete-and-recreate would leave both pointing at a template that no longer exists.
+     */
+    @PATCH
+    @Path("/{templateId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    public JobSpecTemplateView updateGlobalTemplate(
+            @PathParam("templateId") UUID templateId,
+            @NotNull(message = "a request body is required") @Valid UpdateTemplateRequest request) {
+        var template = JobSpecTemplate.findGlobalFetched(templateId)
+                .orElseThrow(NotFoundException::new);
+        if (request.name() != null) {
+            template.setName(request.name());
+        }
+        if (request.resourceClass() != null) {
+            template.setResourceClass(requireClass(request.resourceClass()));
+        }
+        if (request.spec() != null) {
+            template.setSpec(globalSpec(request.spec()));
+        }
         return JobSpecTemplateView.of(template, true);
     }
 
@@ -81,6 +107,15 @@ public class AdminTemplateResource {
         JobSpecTemplate.findGlobalFetched(templateId)
                 .orElseThrow(NotFoundException::new)
                 .delete();
+    }
+
+    private static JobSpec globalSpec(JobSpecRequest request) {
+        var spec = request.toSpec();
+        if (!spec.volumes().isEmpty()) {
+            // Volumes are project-scoped and cannot be referenced by global templates.
+            throw new BadRequestException("a global template cannot mount volumes");
+        }
+        return spec;
     }
 
     private static ResourceClass requireClass(String name) {

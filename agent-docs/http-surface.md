@@ -8,9 +8,9 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 | --- | --- | --- | --- |
 | **Project Read** | `VIEWER` | `project:read`, `job:read`, `job:log:read`, `job:artifact:read`, `job:agent:read`, `task:read` | `GET /project/{projectId}`<br/>`GET .../job`<br/>`GET .../job/{id}`<br/>`GET .../job/{id}/log`<br/>`GET .../job/{id}/agent/session[/{sessionId}/event]`<br/>`GET .../job/artifact/{id}`<br/>`GET .../volume`<br/>`GET .../task[/{id}]`<br/>`GET .../task/{id}/volume` |
 | **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `job:agent:interact`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
-| **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
+| **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`GET .../permission`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
 | **Project Creation** | None (global) | `project:create` | `POST /project` — the caller becomes its `OWNER`. Sub-accounts cannot (409): they hold no project role. |
-| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
+| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission\|task\|volume\|artifact`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
 
 ### Special Permission Rules
 - **Template Spec Hiding**: `GET .../job/template` requires `project:read`. However, reading template `spec` and `resourceClass` requires explicit `job:template:read` (`defaultRole = NONE`). Without it, those fields are returned as `null`. When creating a template, the response returns the full template definition directly.
@@ -79,7 +79,7 @@ cross-project view.
 
 | Endpoint | Notes |
 | --- | --- |
-| `GET /admin/stats` | Service-wide counters: users, projects, workers (registered/disabled/connected/schedulable), jobs by state + completed in the last 24h, queue by state, artifact count and bytes. |
+| `GET /admin/stats` | Service-wide counters: users, projects, workers (registered/disabled/connected/schedulable), jobs by state, tasks by state, queue by state, artifact count and bytes, volume count and allocated bytes, and `system` (`startedAt`, `version`, active profile). `jobs.hourlyLast24h` is 24 hour-aligned buckets of terminal-state completions, oldest first, zero-filled; `completedLast24h` is their sum, so the scalar and the series always agree. Every `byState` grouping publishes all of its enum's constants, zero-filled. `AdminStatsService` owns the two aggregates and the start time — they belong to no entity because only this endpoint wants them. |
 | `GET /admin/project?query=&offset=&length=` | Every project with member, visible-job and queued counts. A listing only — an admin already reaches each project's own endpoints. |
 | `GET /admin/user?query=&offset=&length=` | Search by name or email. `subAccountOf` is the owning project, or null for a person. |
 | `GET /admin/user/{userId}` | Memberships plus every grant, split into global and per-project. |
@@ -87,7 +87,17 @@ cross-project view.
 | `PUT /admin/user/{userId}/permission/project/{projectId}` | Replaces that project's grants (`UserService.setPermissions`). |
 | `DELETE /admin/user/{userId}/permission` | Revokes every grant, in any scope. |
 | `GET /admin/permission` | The whole `Perm` catalogue with each one's ban state. Read-only — bans come from `permission.banned`, see [authorization.md](authorization.md). |
-| `GET\|POST /admin/template`, `DELETE /admin/template/{id}` | The templates every project may use. Project templates are invisible here (404 on delete). |
+
+`GET /project/{projectId}/permission` publishes the `project` half of that same catalogue and is **not** an
+admin endpoint: it is gated on `project:subaccount:manage` (`defaultRole: OWNER`), the permission that
+governs `PUT .../subaccount/{userId}/permission`. An owner allowed to set a sub-account's grants has to be
+able to read the list to choose them from, and `banned` travels with each entry — a ban overrides grants,
+roles and `admin:all` alike, so without it an owner would record a grant that silently has no effect. The
+answer does not vary by project; `{projectId}` is what the endpoint authorizes against.
+| `GET /admin/task?query=&state=&offset=&length=` | Every project's tasks in one listing. `query` matches the task name; `TaskView` names the owning project. |
+| `GET /admin/volume?worker=&project=&state=&offset=&length=` | Every worker's volumes in one listing. `/worker/{id}/volume` answers the same question one host at a time. |
+| `GET /admin/artifact?project=&job=&offset=&length=` | Stored artifacts across projects, newest first, as `AdminArtifactView` (which names the job and project a bare `ArtifactView` does not). Downloads still go through `GET /project/{projectId}/job/artifact/{id}`, where the presigned URL and the project's own read permission live. |
+| `GET\|POST /admin/template`, `PATCH\|DELETE /admin/template/{id}` | The templates every project may use. Project templates are invisible here (404 on delete and on update). `PATCH` applies whichever of `name`, `resourceClass` and `spec` the body carries; a supplied `spec` **replaces** the stored one rather than merging, since merging cannot remove an environment entry. It updates in place because the ID is what a queued job and a re-run payload hold. |
 | `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | Manages the service-wide resource class catalogue (keyed by name). Workers report physical capacity but do not define classes. `DELETE` returns 409 Conflict if referenced by existing jobs or templates. |
 | `PATCH /worker/{id}` | Rename. Holds only until the worker registers again under a name of its own — `Worker.upsert` takes the name from the registration. |
 | `DELETE /worker/{id}` | Drops the registration. 409 while connected, holding unfinished jobs, or hosting volumes (`worker_volume` carries a plain foreign key). |
@@ -104,7 +114,7 @@ Listing page sizes are capped by `admin.list.max-page-size` (`AdminConfig`), mat
 
 Unbounded listings accept `?offset=&length=` with parameters bounded via `Pages.clampLength(length, max)` and `Pages.clampOffset(offset, window)`. An omitted `length` defaults to the configured maximum page size.
 
-Naturally bounded collections remain unpaged (e.g., `/admin/permission`, `/worker/{id}/job`, `.../task/{id}/volume`, and `GET /project`). Unpaged entity finders are reserved for internal routines that require complete result sets (such as secret resolution during dispatch or project teardown) and must not be exposed by unbounded endpoints.
+Naturally bounded collections remain unpaged (e.g., `/admin/permission`, `/project/{projectId}/permission`, `/worker/{id}/job`, `.../task/{id}/volume`, and `GET /project`). Unpaged entity finders are reserved for internal routines that require complete result sets (such as secret resolution during dispatch or project teardown) and must not be exposed by unbounded endpoints.
 
 ## Current User
 
@@ -136,5 +146,8 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
   - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`, excluding operations defined in `BYPASSES_WRITABLE` such as archive, unarchive, and project deletion).
   - The **success status** is inferred from `@ResponseStatus`, defaulting to 204 for `void` methods (correcting SmallRye's default assumption of 200/201).
   - Error responses include the `ErrorView` schema, except 401 which has an empty body.
+  - **Response shape** (`describeShapes`): SmallRye derives `required` from Bean Validation, which only inbound DTOs carry, so a response schema would publish none and a client could not tell an optional field from one the compact constructor `requireNonNull`s. The filter reads it off the declaration instead — no `@Nullable` means `required`, `@Nullable` means the type gains `"null"` (OpenAPI 3.1 states nullability in the type list; a bare `$ref` property is left alone, where being absent from `required` is the whole statement). A `Map<SomeEnum, ?>` property additionally gets `propertyNames: { enum: [...] }`, so a client mapping `jobs.byState` fails loudly on a key it does not know rather than dropping the count.
+  - Schemas a **request body** reaches at any depth are exempt from the above: `TaskScope`, `JobSpec.VolumeSpec` and `CreateJobRequest` are shared between a request and a response, and there the constraints already say what a caller must send.
+  - Schema names are **not** matched to classes by name — SmallRye derives one from the simple class name and disambiguates collisions with a counter (`AdminStatsView.Jobs` and `ProjectDetailView.Jobs` become `Jobs` and `Jobs1`). `ResponseShapes` walks the document and the endpoint's return type together instead. A union (`allOf`/`oneOf`) is not descended into, so a type reachable only through the `JobStatusView` discriminator gets no `required`.
   - Custom `@APIResponse` annotations are reserved for special responses (such as `JobResource.createJob`'s `JobStatusView` schema), as SmallRye replaces generated success responses when manual annotations are present.
 

@@ -1,7 +1,9 @@
 package io.ib67.prts.agent.worker.entity;
 
+import io.ib67.prts.dto.StorageUsage;
 import io.ib67.prts.job.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -26,6 +28,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -156,5 +159,45 @@ public class WorkerVolume extends PanacheEntityBase {
     public static Optional<WorkerVolume> findInProject(UUID projectId, UUID volumeId) {
         return WorkerVolume.<WorkerVolume>findByIdOptional(volumeId)
                 .filter(volume -> volume.getProject().getId().equals(projectId));
+    }
+
+    /**
+     * Lists one page of volumes across every worker and project, narrowed by whichever of the host,
+     * the owning project and the state is given.
+     */
+    public static List<WorkerVolume> search(
+            @Nullable UUID workerId, @Nullable UUID projectId, @Nullable VolumeState state,
+            int offset, int length) {
+        var query = new StringBuilder(
+                "from WorkerVolume v join fetch v.worker join fetch v.project where 1 = 1");
+        var parameters = new HashMap<String, Object>();
+        if (workerId != null) {
+            query.append(" and v.worker.id = :worker");
+            parameters.put("worker", workerId);
+        }
+        if (projectId != null) {
+            query.append(" and v.project.id = :project");
+            parameters.put("project", projectId);
+        }
+        if (state != null) {
+            query.append(" and v.state = :state");
+            parameters.put("state", state);
+        }
+        return find(query.append(" order by v.name, v.id").toString(), parameters)
+                .range(offset, offset + length - 1)
+                .list();
+    }
+
+    /**
+     * Volume count and allocated bytes across every worker. Allocated, not consumed: nothing writes
+     * {@link #used} yet (see TODO.md).
+     */
+    public static StorageUsage allocated() {
+        // sum() returns null when no rows exist, whereas count() returns 0.
+        var row = (Object[]) getEntityManager()
+                .createQuery("select count(v), sum(v.length) from WorkerVolume v")
+                .getSingleResult();
+        var bytes = (Long) row[1];
+        return new StorageUsage((long) row[0], bytes == null ? 0 : bytes);
     }
 }

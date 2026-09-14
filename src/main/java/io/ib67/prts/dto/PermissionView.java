@@ -1,4 +1,4 @@
-package io.ib67.prts.dto.admin;
+package io.ib67.prts.dto;
 
 import io.ib67.prts.Perm;
 

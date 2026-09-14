@@ -22,6 +22,9 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 
@@ -570,5 +573,41 @@ class ProjectResourceE2ETest {
                 .statusCode(409)
                 .body("message", equalTo("the last owner of project " + solo + " cannot step down"));
         as(alice).get("/api/project/{id}", solo).then().body("role", equalTo("OWNER"));
+    }
+
+    /**
+     * An owner setting a sub-account's grants has to be able to read the list to choose them from;
+     * {@code /admin/permission} is the only other place that publishes it and costs {@code admin:all}.
+     */
+    @Test
+    void anOwnerReadsThePermissionsTheyMayHandOut() {
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).get("/api/project/{p}/permission", project).then()
+                .statusCode(200)
+                .body("scope", everyItem(equalTo("project")))
+                .body("permission", hasItem(Perm.JOB_CREATE.permission()))
+                .body("permission", not(hasItem(Perm.ADMIN_OF_ALL.permission())))
+                .body("permission", not(hasItem(Perm.PROJECT_CREATE.permission())))
+                .body("findAll { it.banned == true }", empty());
+    }
+
+    /** The catalogue is what the sub-account write is gated on, not what a member may read. */
+    @Test
+    void aMemberIsRefusedThePermissionCatalogue() {
+        var bob = fixtures.createActor("bob");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+        fixtures.join(bob, project, ProjectRole.OWNER);
+
+        as(alice).get("/api/project/{p}/permission", project).then().statusCode(403);
+        as(bob).get("/api/project/{p}/permission", project).then().statusCode(200);
+    }
+
+    @Test
+    void thePermissionCatalogueOfAProjectThatDoesNotExistIsNotFound() {
+        var admin = fixtures.createActor("root");
+        fixtures.makeAdmin(admin);
+
+        as(admin).get("/api/project/{p}/permission", UUID.randomUUID()).then().statusCode(404);
     }
 }
