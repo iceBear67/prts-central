@@ -8,6 +8,7 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.job.JobService;
+import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
@@ -109,6 +110,14 @@ class AgentWebSocketE2ETest {
             }
         });
         await(() -> workerService.getActiveWorkers().isEmpty(), "a worker session outlived its test");
+        // WorkerService.unregisterWorker drops the worker from the roster *before* it closes the ACP
+        // channel and fails the worker's jobs, so an empty roster does not mean the writes are done.
+        // Waiting for the job to go terminal waits for the last of them, and keeps the next test's
+        // TRUNCATE from deadlocking against a transaction still in flight.
+        if (workerId != null) {
+            await(() -> inTx(() -> Job.listOpenByWorker(workerId).isEmpty()),
+                    "the disconnect was still failing jobs");
+        }
     }
 
     // ---- attaching ----
@@ -159,7 +168,7 @@ class AgentWebSocketE2ETest {
     @Test
     void aPromptCrossesToTheWorkerAndItsAnswerFindsItsWayBack() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         viewer.send("""
                 {"jsonrpc":"2.0","id":7,"method":"session/prompt",
@@ -180,7 +189,7 @@ class AgentWebSocketE2ETest {
     @Test
     void anUpdateFromTheAgentReachesTheViewer() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         worker.push(new ServerboundMessage.AgentFrame(jobId, read("""
                 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"%s",
@@ -196,7 +205,7 @@ class AgentWebSocketE2ETest {
     @Test
     void aMethodTheProxyDoesNotCarryIsRefused() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         viewer.send("""
                 {"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/tmp"}}""");
@@ -210,7 +219,7 @@ class AgentWebSocketE2ETest {
         attachAgent();
         var watcher = fixtures.createActor("watcher");
         fixtures.join(watcher, projectId, ProjectRole.VIEWER);
-        var viewer = new Viewer(watcher);
+        var viewer = new Viewer(watcher).attached();
 
         viewer.send("""
                 {"jsonrpc":"2.0","id":3,"method":"session/prompt","params":{"sessionId":"%s"}}"""
@@ -226,7 +235,7 @@ class AgentWebSocketE2ETest {
     @Test
     void aSessionTheAgentOpensLaterIsRecordedUnderTheRoot() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         worker.push(new ServerboundMessage.AgentFrame(jobId, read("""
                 {"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"sub-1","update":{}}}""")));
@@ -247,7 +256,7 @@ class AgentWebSocketE2ETest {
     @Test
     void theTranscriptKeepsBothDirectionsInTheOrderTheyCrossed() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         viewer.send("""
                 {"jsonrpc":"2.0","id":7,"method":"session/prompt","params":{"sessionId":"%s"}}"""
@@ -275,7 +284,7 @@ class AgentWebSocketE2ETest {
     @Test
     void aFinishedJobClosesItsViewersAndItsSessions() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         jobService.applyState(jobId, JobState.SUCCESS);
 
@@ -287,7 +296,7 @@ class AgentWebSocketE2ETest {
     @Test
     void aDisconnectedWorkerTakesItsViewersWithIt() {
         attachAgent();
-        var viewer = new Viewer(owner);
+        var viewer = new Viewer(owner).attached();
 
         worker.close();
 
@@ -326,6 +335,21 @@ class AgentWebSocketE2ETest {
                     .buildAsync(agentUri(), inbox)
                     .join();
             sockets.add(socket);
+        }
+
+        /**
+         * Blocks until this viewer is really attached.
+         *
+         * <p>{@code @OnOpen} is {@code @Blocking}, so it runs after the handshake the constructor
+         * waited on — a test that next touches anything other than this connection would otherwise
+         * race it. A round-trip through {@code initialize} is the barrier, since it is answered from
+         * the channel the viewer had to join.
+         */
+        private Viewer attached() {
+            send("""
+                    {"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":1}}""");
+            assertNotNull(take().get("result"), "the viewer never attached");
+            return this;
         }
 
         private void send(String frame) {

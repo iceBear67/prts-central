@@ -29,6 +29,8 @@ Tests are divided into three distinct execution tiers:
   - Standard tests authenticate using real Personal Access Tokens generated via `Fixtures#actor` and `Fixtures.as(actor)`.
 - **Project Ownership (`Fixtures#createProject`)**: `ProjectService.create` requires an owner. Tests should pass an explicit `Actor`; `createProject(name)` defaults to creating a throwaway user.
 - **Worker Cleanup**: Active worker registrations in `WorkerService.activeWorkers` reside in-memory; tests interacting with WebSockets must disconnect workers and clear sessions in `@AfterEach`.
+  - **An empty roster does not mean the disconnect is finished.** `WorkerService.unregisterWorker` removes the worker from `activeWorkers` *before* closing its ACP channel and calling `failJobsOf`, so waiting on `getActiveWorkers().isEmpty()` returns while those transactions are still committing — and the next test's `DatabaseCleaner.clean()` then deadlocks against them (`TRUNCATE` wants `AccessExclusiveLock`, the in-flight write holds `RowExclusiveLock`). Wait for the tail of the work as well, e.g. `Job.listOpenByWorker(workerId).isEmpty()`.
+- **`@OnOpen` runs after the handshake returns.** A `@Blocking` `@OnOpen` has not necessarily executed when the client's `buildAsync(...).join()` completes, so a test that next touches a *different* connection races it. Prove the connection is live with a round-trip on it first (`AgentWebSocketE2ETest.Viewer.attached()`).
 - **E2E Filtering**: Tier C test classes must follow the naming pattern `*E2ETest.java` to be excluded from standard `./gradlew test` runs.
 
 ## `%test` Profile Configuration
