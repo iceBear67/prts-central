@@ -59,14 +59,14 @@ public class EndpointOASFilter implements OASFilter {
     /** HTTP 401 status code, which returns an empty body for authentication challenges. */
     private static final String CHALLENGE = "401";
 
-    /** Endpoints exempt from the {@code /api/*} authenticated policy, and so never answer 401. */
+    /** Public endpoints exempt from the authenticated policy that do not return 401. */
     private static final Set<String> PUBLIC_PATHS = Set.of("/api/health");
 
     /** Base path prefix for project operations subject to {@code ProjectService.requireWritable}. */
     private static final String PROJECT_SCOPE = "/project/{projectId}";
     /**
-     * Mutating project endpoints that do not call {@code requireWritable}, and so never answer 409 for
-     * it: an archived project must still be unarchivable, and must still be deletable.
+     * Mutating project endpoints that do not invoke {@code requireWritable} and therefore do not return 409
+     * (e.g. unarchive and delete actions on archived projects).
      */
     private static final Set<String> BYPASSES_WRITABLE = Set.of(
             "POST " + PROJECT_SCOPE + "/archive",
@@ -228,7 +228,7 @@ public class EndpointOASFilter implements OASFilter {
                 addResponse(responses, "409", "The project is archived or cannot accept modifications in its current state.");
             }
         }
-        // Operations under the /api tree require authentication, unless the public path list exempts them.
+        // Non-public endpoints require authentication.
         if (!PUBLIC_PATHS.contains(path)) {
             addResponse(responses, "401", "Authentication required or user identity not recognized. The response body is empty.");
         }

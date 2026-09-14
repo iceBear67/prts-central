@@ -66,7 +66,7 @@ public class SubAccountResource {
         projectService.requireWritable(projectId);
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
-        // A sub-account is created with no grants, so there is nothing to look up.
+        // New sub-accounts have no initial grants.
         return subAccountService.viewOf(account, List.of());
     }
 
@@ -110,7 +110,7 @@ public class SubAccountResource {
         var perms = request.resolved();
         projectService.requireWritable(projectId);
         subAccountService.setPermissions(projectId, userId, perms);
-        // The grants just written, not a fresh read — see the overload's contract.
+        // Pass updated permissions directly to bypass uncommitted permission cache.
         return subAccountService.viewOf(subAccountService.require(projectId, userId), perms);
     }
 

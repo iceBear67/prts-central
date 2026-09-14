@@ -40,10 +40,7 @@ public class Project extends PanacheEntityBase {
     private String name;
 
     /**
-     * What the project is for; empty string if nobody said.
-     *
-     * <p>Carries a DDL default so {@code schema-management.strategy: update} can add the column to a
-     * database that already holds project rows.
+     * Project description; defaults to empty string.
      */
     @Builder.Default
     @Column(name = "description", nullable = false, columnDefinition = "varchar default ''")

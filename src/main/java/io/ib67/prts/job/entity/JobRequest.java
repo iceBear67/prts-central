@@ -30,8 +30,7 @@ public record JobRequest(
         @Column(name = "resource_class", updatable = false, columnDefinition = "varchar")
         @Nullable String resourceClass,
 
-        // No foreign key, like template_id: a queue row holds a snapshot of the request, and the
-        // dispatcher fails the entry if what it names is gone by the time it runs.
+        // Stored without a foreign key constraint; missing references are handled at dispatch.
         @Column(name = "task_id", updatable = false)
         @Nullable UUID taskId
 ) {

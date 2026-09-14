@@ -103,12 +103,8 @@ public class PendingJobDispatcher {
     }
 
     /**
-     * Stops a job whose queue entry was cancelled while it was being launched.
-     *
-     * <p>The entry is claimed in one transaction and the job created in another, so a bulk cancellation
-     * — project archival, project deletion, task teardown — can pass between the two. Their own sweeps
-     * would eventually catch the job, but only on a later pass, with the queue meanwhile reading
-     * {@code CANCELLED} while a container runs.
+     * Cancels a job whose pending entry was cancelled concurrently during dispatch
+     * (e.g. via project archival, project deletion, or task teardown).
      */
     private void stopCancelled(UUID pendingId, UUID jobId) {
         LOG.infof("pending job %s was cancelled mid-dispatch; stopping the job %s it started",
@@ -120,8 +116,7 @@ public class PendingJobDispatcher {
         }
     }
 
-    // Re-read: the worker is assigned by the scheduler in its own transaction, so the entity the
-    // launcher handed back may not carry it yet.
+    // Re-fetch the job to observe worker assignment committed by the scheduler transaction.
     private static List<Job.Open> openJob(UUID jobId) {
         return QuarkusTransaction.requiringNew().call(() -> Job.<Job>findByIdOptional(jobId)
                 .filter(job -> !job.isCompleted())

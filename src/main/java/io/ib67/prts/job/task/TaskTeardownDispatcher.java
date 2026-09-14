@@ -17,12 +17,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Background sweep finishing the teardown of tasks left closing.
- *
- * <p>{@link TaskService#close} tears a task down on the spot, so this catches the two cases where that
- * pass could not finish: the process died partway through, and a job was dispatched while work was
- * being stopped. Unlike project deletion there is no caller waiting on an HTTP response, so a task
- * simply stays {@code CLOSING} until a sweep gets it clean.
+ * Background dispatcher that periodically processes closing tasks until teardown is complete.
  */
 @ApplicationScoped
 public class TaskTeardownDispatcher {

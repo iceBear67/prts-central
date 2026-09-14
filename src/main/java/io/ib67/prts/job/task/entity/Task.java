@@ -35,11 +35,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A shared scope for a group of jobs within a project.
- *
- * <p>A task groups jobs that belong to one topic and gives them a common substrate — mounted volumes,
- * environment, labels, a default resource class. It does not orchestrate them: it declares no steps,
- * resolves no dependencies, and never creates a job on its own.
+ * Context grouping a set of jobs under a common project, with shared environment, labels, and volumes.
  */
 @Entity
 @Table(
@@ -80,20 +76,14 @@ public class Task extends PanacheEntityBase {
     private String name;
 
     /**
-     * What the task is about; empty string if nobody said.
-     *
-     * <p>Carries a DDL default so {@code schema-management.strategy: update} can add the column to a
-     * database that already holds task rows.
+     * Task description; defaults to empty string.
      */
     @Builder.Default
     @Column(name = "description", nullable = false, columnDefinition = "varchar default ''")
     private String description = "";
 
     /**
-     * Where this task came from — an issue, a pull request, a ticket. Empty string if it tracks nothing.
-     *
-     * <p>A link for people to follow, nothing more: the control plane never fetches it, and it reaches
-     * neither the job spec nor the worker.
+     * Issue or pull request link associated with this task; empty string if omitted.
      */
     @Builder.Default
     @Column(name = "tracked_at", nullable = false, columnDefinition = "varchar default ''")
@@ -124,8 +114,7 @@ public class Task extends PanacheEntityBase {
     private Instant closedAt;
 
     /**
-     * Transitions the task and keeps {@link #closedAt} in step with the DB check constraint
-     * {@code task_closure_consistency}.
+     * Transitions the task to the given state and updates {@link #closedAt}.
      */
     public void transitionTo(TaskState next) {
         this.state = Objects.requireNonNull(next, "state");
@@ -144,7 +133,7 @@ public class Task extends PanacheEntityBase {
                 .filter(task -> task.getProject().getId().equals(projectId));
     }
 
-    /** Tasks whose teardown has not finished, oldest first. */
+    /** Returns closing tasks awaiting teardown, ordered by creation time. */
     public static List<Task> listClosing(int limit) {
         return Task.<Task>find("state = ?1 order by createdAt, id", TaskState.CLOSING)
                 .page(0, limit)

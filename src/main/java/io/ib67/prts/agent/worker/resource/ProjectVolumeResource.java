@@ -32,10 +32,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * REST endpoint allocating and releasing a project's worker volumes.
- *
- * <p>Volumes belong to the project. Tasks mount them, and closing a task only unmounts — a volume
- * leaves its worker exactly when it is deleted here.
+ * REST endpoint for allocating and releasing project worker volumes.
  */
 @Path("/project/{projectId}/volume")
 @Produces(MediaType.APPLICATION_JSON)
@@ -64,8 +61,7 @@ public class ProjectVolumeResource {
     /**
      * Allocates a volume on a worker chosen by the scheduler.
      *
-     * <p>Blocks until the worker acknowledges. A worker without room to spare refuses, and its reason is
-     * returned rather than a row nobody can use.
+     * <p>Blocks until the worker acknowledges the allocation.
      */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
@@ -78,7 +74,7 @@ public class ProjectVolumeResource {
         return WorkerVolumeView.of(volumeService.create(projectId, request.name(), request.sizeBytes()));
     }
 
-    /** Discards a volume and everything stored in it. Conflicts while any task still mounts it. */
+    /** Deletes a volume and its stored data. Returns 409 Conflict if mounted by any task. */
     @DELETE
     @Path("/{volumeId}")
     @RequirePermission(value = Perm.PROJECT_VOLUME_MANAGE, defaultRole = ProjectRole.OWNER)

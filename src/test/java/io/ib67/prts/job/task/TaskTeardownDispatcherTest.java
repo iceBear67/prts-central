@@ -36,7 +36,7 @@ class TaskTeardownDispatcherTest {
         when(jobConfig.task().teardownBatch()).thenReturn(BATCH);
     }
 
-    /** Entities must be built before the static mock, which also stubs Lombok's builder(). */
+    // Build entities before mocking static Task methods.
     private static List<Task> tasks(UUID... ids) {
         return List.of(ids).stream().map(id -> Task.builder().id(id).name("t").build()).toList();
     }
@@ -66,7 +66,7 @@ class TaskTeardownDispatcherTest {
         verifyNoInteractions(taskService);
     }
 
-    /** One stuck task must not strand the others until the next sweep. */
+    /** Verifies that a failure tearing down one task does not abort teardown of remaining tasks in the batch. */
     @Test
     void oneFailureDoesNotAbandonTheRest() {
         var closing = tasks(FIRST, SECOND);

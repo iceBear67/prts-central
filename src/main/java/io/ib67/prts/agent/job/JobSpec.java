@@ -31,9 +31,7 @@ public record JobSpec(
         String lock,
         @JsonIgnore Map<String, String> secret
 ) {
-    // Shared by every inbound shape that builds a spec (JobSpecRequest, JobSpecOverride, TaskScope):
-    // each value is stored as jsonb and resent on every dispatch, so an unbounded one is storage
-    // amplification bought with a single job:create.
+    // Shared size limits across JobSpecRequest, JobSpecOverride, and TaskScope.
     public static final int MAX_ENTRIES = 64;
     public static final int MAX_ENTRY_KEY_LENGTH = 128;
     public static final int MAX_ENTRY_VALUE_LENGTH = 4096;
@@ -42,7 +40,7 @@ public record JobSpec(
     public static final int MAX_VOLUMES = 16;
     public static final int MAX_IMAGE_LENGTH = 512;
     public static final int MAX_LOCK_LENGTH = 200;
-    /** Seven days. A job outliving that is a stuck job, not a long one. */
+    /** Maximum execution timeout allowed for a job (7 days). */
     public static final long MAX_TIMEOUT_SECONDS = 604800;
 
     public JobSpec {
@@ -67,17 +65,12 @@ public record JobSpec(
             @PositiveOrZero(message = "volume sizeLimit must be >= 0") long sizeLimit
     ) {
         /**
-         * An absolute path of clean segments: no {@code .}, no {@code ..}, no empty segment, no
-         * trailing slash, and no whitespace or control character anywhere.
-         *
-         * <p>The control plane never resolves this path — it hands it to a worker, which turns it into
-         * a bind mount. So a traversing or ambiguous path has to be refused here, before it is stored
-         * and replayed on every dispatch. Not being the component that dereferences it is exactly why
-         * the control plane cannot be the one that lets it through.
+         * Absolute path pattern rejecting {@code .}, {@code ..}, empty segments, trailing slashes,
+         * whitespace, and control characters to ensure safe container bind mounts.
          */
         public static final String MOUNT_POINT = "(/(?!\\.\\.?(?=/|$))[^/\\x00-\\x20\\x7f]+)+";
 
-        /** Longest mount point accepted. Well past any real path, short of a storage amplifier. */
+        /** Maximum allowed length for a mount point path. */
         public static final int MAX_MOUNT_POINT_LENGTH = 512;
 
         /** Shared with {@code AttachVolumeRequest}: one rule, so one way to say it was broken. */
@@ -110,15 +103,6 @@ public record JobSpec(
     /**
      * Validates that every requested volume exists, belongs to the specified project, is ready, and is
      * hosted on a single worker.
-     *
-     * <p>The affinity check is here rather than left to placement because {@code WorkerScheduler} has no
-     * way to report it: every reason it cannot place a job collapses into one message, so a spec naming
-     * volumes on two workers would be requeued with backoff until it expired, saying only that no worker
-     * could take it.
-     *
-     * <p>Everything here is state that can change between enqueue and dispatch, which is why it is
-     * rechecked rather than trusted from the request. The mount point cannot, and is enforced once by
-     * {@link VolumeSpec#MOUNT_POINT} where the value enters.
      */
     public void requireVolumesIn(UUID projectId) {
         if (volumes.isEmpty()) {

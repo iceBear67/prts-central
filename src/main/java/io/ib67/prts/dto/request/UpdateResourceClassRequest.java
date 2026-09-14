@@ -5,7 +5,7 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.ws.rs.BadRequestException;
 
 /**
- * Request payload to change what a resource class demands. Null fields keep their current value.
+ * Request payload to update resource class capacities. Null fields remain unchanged.
  */
 public record UpdateResourceClassRequest(
         @Nullable @PositiveOrZero(message = "numCpus must not be negative") Integer numCpus,

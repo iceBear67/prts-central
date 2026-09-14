@@ -21,11 +21,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Pins the declared caps on the three shapes that build a {@link JobSpec}.
- *
- * <p>These rules are otherwise only exercised through HTTP, which is tier C. Running a real
- * {@link Validator} here keeps them verifiable locally — in particular that {@code @Valid} cascades
- * into map values, which is the only thing enforcing a mount point once a spec reaches a worker.
+ * Unit tests for Bean Validation constraints on {@link JobSpecRequest}, {@link JobSpecOverride},
+ * and {@link TaskScope}.
  */
 class SpecConstraintsTest {
 
@@ -48,7 +45,7 @@ class SpecConstraintsTest {
                 .collect(Collectors.toMap(i -> "K" + i, i -> "v"));
     }
 
-    /** A mount point only reaches a worker through one of these maps, so the cascade is the whole rule. */
+    /** Verifies that @Valid cascades into volume map values to validate volume specs. */
     @Test
     void validCascadesIntoAVolumeMapValue() {
         var messages = messagesOf(specWith(Map.of(VOLUME, new JobSpec.VolumeSpec("/../etc", 1L))));
@@ -75,7 +72,7 @@ class SpecConstraintsTest {
                 messagesOf(specWith(Map.of(VOLUME, new JobSpec.VolumeSpec(mountPoint, 1L)))));
     }
 
-    /** The attach payload strips first, so surrounding space is a typo rather than a refusal. */
+    /** Verifies that mount points in AttachVolumeRequest are trimmed prior to validation. */
     @Test
     void anAttachedMountPointIsStrippedBeforeItIsChecked() {
         assertTrue(messagesOf(new AttachVolumeRequest("  /data  ")).isEmpty());
@@ -100,7 +97,7 @@ class SpecConstraintsTest {
                 messagesOf(new AttachVolumeRequest(tooLong)));
     }
 
-    /** {@code {max}} has to render the constant, or the message and the cap can drift apart. */
+    /** Verifies that validation error messages interpolate constraint limit parameters correctly. */
     @Test
     void theMessageQuotesTheCapItEnforces() {
         var request = new JobSpecRequest(
@@ -151,7 +148,7 @@ class SpecConstraintsTest {
                 messagesOf(scope));
     }
 
-    /** A name the catalogue could never hold is a bad request, not a lookup that will miss. */
+    /** Verifies that invalid resource class names fail pattern validation. */
     @Test
     void aResourceClassNameIsCheckedAgainstTheCatalogueRule() {
         assertEquals(

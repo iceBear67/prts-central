@@ -9,7 +9,7 @@ import java.util.Objects;
 /**
  * A task together with what it currently mounts.
  *
- * @param volumes the task's mounts; the volumes themselves belong to the project and outlive the task
+ * @param volumes Volume mounts attached to the task.
  */
 public record TaskDetailView(
         TaskView task,

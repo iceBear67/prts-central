@@ -56,11 +56,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Fills an empty dev database with example projects, workers and job history, so the API has
- * something to serve before anything real has run.
- *
- * <p>Only ever writes into a database holding no project, which is what keeps a live reload — and a
- * reused Dev Services container — from stacking a second copy on top of the developer's own data.
+ * Seeds sample projects, workers, tasks, volumes, and job history into an empty dev database.
  */
 @ApplicationScoped
 @IfBuildProfile("dev")
@@ -141,7 +137,7 @@ public class ExampleDataSeeder {
                 true, now.minus(Duration.ofDays(3)));
     }
 
-    /** The project with everything in it: members, secrets, volumes, tasks and a job history. */
+    /** Seeds sample project with members, secrets, volumes, tasks, and job executions. */
     private void aurora(Cast cast) {
         var project = projectService.create("Aurora Pipeline",
                 "Nightly builds, integration runs and release candidates for the Aurora service.",
@@ -312,7 +308,7 @@ public class ExampleDataSeeder {
                 .persist();
     }
 
-    /** A second project the dev user only takes part in, to tell roles apart in the UI. */
+    /** Seeds a secondary project where the dev user has MEMBER role. */
     private void sandbox(Cast cast) {
         var project = projectService.create("Sandbox",
                 "Scratch space for trying a spec out before it goes into a pipeline.",
@@ -339,7 +335,7 @@ public class ExampleDataSeeder {
         logs(job, at, "run", "hello from prts");
     }
 
-    /** An archived project: readable, and refusing every write with 409. */
+    /** Seeds an archived project to test read-only constraints. */
     private void retired(Cast cast) {
         var project = projectService.create("Legacy Migration",
                 "Moved the last batch off the old runner. Kept for its logs.",
@@ -496,10 +492,7 @@ public class ExampleDataSeeder {
     }
 
     /**
-     * Rewrites a row's {@code created_at}.
-     *
-     * <p>The column is {@code @CreationTimestamp} and {@code updatable = false}, so a history stretching
-     * back further than this startup can only be written straight to it.
+     * Updates a row's {@code created_at} timestamp via native SQL to simulate execution history.
      */
     private void backdate(String table, Object id, Instant at) {
         entityManager.createNativeQuery("update " + table + " set created_at = :at where id = :id")
@@ -508,7 +501,7 @@ public class ExampleDataSeeder {
                 .executeUpdate();
     }
 
-    /** Puts an object behind every example artifact, so its download link resolves to something. */
+    /** Uploads placeholder S3 objects for seeded artifacts. */
     private void uploadArtifacts() {
         var objects = QuarkusTransaction.requiringNew().call(() -> Artifact.<Artifact>listAll().stream()
                 .collect(Collectors.toMap(Artifact::getObjectKey, Artifact::getName)));
@@ -531,7 +524,7 @@ public class ExampleDataSeeder {
                 .collect(Collectors.joining(", ")));
     }
 
-    /** What the example projects are built out of: the people, the classes and the workers. */
+    /** Common fixtures used across example project seeding. */
     private record Cast(
             User dev,
             User alice,

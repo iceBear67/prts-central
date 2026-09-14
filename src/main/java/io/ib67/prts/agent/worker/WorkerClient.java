@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit;
 public final class WorkerClient {
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(5);
     private static final long CREATE_TIMEOUT_SECONDS = 30;
-    // Allocating a disk can take longer than starting a container.
+    // Volume operations may take longer than container startup.
     private static final long VOLUME_TIMEOUT_SECONDS = 60;
 
     private final WebSocketConnection conn;
@@ -37,7 +37,7 @@ public final class WorkerClient {
         return conn.id().equals(connection.id());
     }
 
-    /** Whether the session behind this client is still usable. */
+    /** Returns true if the underlying WebSocket connection is open. */
     boolean isOpen() {
         return conn.isOpen();
     }
@@ -107,7 +107,7 @@ public final class WorkerClient {
         }
     }
 
-    /** Settles a volume request, carrying the worker's refusal reason back to the caller. */
+    /** Completes a pending volume request future. */
     void completeVolume(UUID requestId, boolean ok, @Nullable String message) {
         var future = outstanding.get(requestId);
         if (future == null) {
@@ -136,7 +136,7 @@ public final class WorkerClient {
             conn.sendText(message).await().atMost(SEND_TIMEOUT);
             future.get(timeoutSeconds, TimeUnit.SECONDS);
         } catch (ExecutionException e) {
-            // The worker answered with a refusal; its reason is the useful part.
+            // Unpack worker rejection reason.
             var cause = e.getCause() == null ? e : e.getCause();
             throw new IllegalStateException("failed to " + what + ": " + cause.getMessage(), cause);
         } catch (Exception e) {

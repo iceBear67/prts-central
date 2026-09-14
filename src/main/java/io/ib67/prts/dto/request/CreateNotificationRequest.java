@@ -4,9 +4,9 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
 /**
- * Request payload to leave a message.
+ * Request payload for broadcasting a system notification.
  *
- * @param from who the message is attributed to
+ * @param from notification sender identifier
  */
 public record CreateNotificationRequest(
         @NotBlank(message = "from is required")

@@ -8,16 +8,14 @@ import jakarta.validation.constraints.Size;
 import jakarta.ws.rs.BadRequestException;
 
 /**
- * Request payload to edit a task.
+ * Request payload to update a task.
  *
- * <p>A new scope replaces the previous one outright rather than merging into it, so a caller clears a
- * contribution by leaving it out of the scope it sends. Only jobs created afterwards see the change —
- * a job's spec is merged when it is enqueued and again when it is dispatched.
+ * <p>Providing a new {@code scope} replaces the existing task scope.
  *
- * @param name        New name. Null keeps the existing one.
- * @param description New description, or blank to clear. Null keeps the existing one.
- * @param trackedAt   New source link, or blank to clear. Null keeps the existing one.
- * @param scope       New scope. Null keeps the existing one.
+ * @param name        New name, or null to retain current value.
+ * @param description New description, or null to retain current value (blank clears).
+ * @param trackedAt   New source tracking URL, or null to retain current value (blank clears).
+ * @param scope       New execution scope, or null to retain current value.
  */
 public record UpdateTaskRequest(
         @Nullable @Size(min = 1, message = "name is required") String name,

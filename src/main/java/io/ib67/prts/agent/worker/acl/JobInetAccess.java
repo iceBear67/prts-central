@@ -3,22 +3,24 @@ package io.ib67.prts.agent.worker.acl;
 import java.util.regex.Pattern;
 
 /**
- * This type of data constraints internet access for job workers.
+ * Internet access rules for job execution containers.
  */
 public sealed interface JobInetAccess {
     /**
-     * When any of FullAccess is present in a list, the job has access to open internet.
+     * Grants unrestricted internet access.
      */
     record FullAccess() implements JobInetAccess {
     }
 
     /**
-     * Only traffics sniffed with this destined domain are allowed.
-     * @param pattern regex
+     * Restricts traffic to domains matching the specified pattern.
      */
     record DomainAccess(Pattern pattern) implements JobInetAccess {
     }
 
+    /**
+     * Restricts traffic to IP addresses within the specified CIDR block.
+     */
     record IPAccess(String cidrNotation) implements JobInetAccess {
     }
 }

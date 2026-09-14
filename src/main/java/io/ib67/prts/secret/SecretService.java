@@ -25,7 +25,7 @@ public class SecretService {
     @Inject
     SecretCipher cipher;
 
-    /** Lists one page of a project's secret metadata. Values are never part of it. */
+    /** Lists paginated project secret metadata without secret values. */
     public List<ProjectSecret> list(UUID projectId, int offset, int length) {
         projectService.require(projectId);
         return ProjectSecret.listByProject(projectId, offset, length);

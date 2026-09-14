@@ -17,14 +17,12 @@ The protocol is defined by two sealed interfaces:
 - **`RegisteredWorker` (In-Memory)**: Active connection session, `WorkerClient` RPC handle, and live `Info` snapshot. Tracked in `WorkerService.activeWorkers`.
 - **`Worker` (Persistent Entity)**: Database record storing persistent identity, capacity configuration, and `disabled` status. Upserted on initial registration.
 
-### Registration Refuses a Live Id
+### Active Registration Protection
 
-`Register.workerId` is self-asserted, so `WorkerService.registerWorker` **refuses** a second
-registration while the id's current session is still open (`Response(false, ...)`, logged as a warning)
-instead of displacing it: the claimant would otherwise inherit every job — and every project secret —
-routed to that id. A session that is already closed but not yet unregistered is replaced, so a
-reconnect after a dropped connection still lands. A worker whose old session lingers must retry, or an
-admin has to close it with `POST /worker/{id}/disconnect`.
+`Register.workerId` is self-asserted. To prevent session hijacking, `WorkerService.registerWorker`
+rejects duplicate registrations if an existing session with the same ID is still open (`Response(false, ...)`).
+If the previous session is already closed, registration succeeds and replaces the existing record. If an old
+session lingers, the worker must retry or an administrator can terminate it via `POST /worker/{id}/disconnect`.
 
 ## Placement & Scheduling (`WorkerScheduler`)
 
@@ -45,13 +43,12 @@ admin has to close it with `POST /worker/{id}/disconnect`.
 
 ## Volumes
 
-`CreateVolume` and `DeleteVolume` are both answered by a single `VolumeAck(requestId, ok, message)`. A
-refusal (`ok = false`) completes the pending future exceptionally, so the worker's reason — "no space",
-say — reaches the HTTP caller instead of being flattened into a generic failure.
+`CreateVolume` and `DeleteVolume` are acknowledged via `VolumeAck(requestId, ok, message)`. A rejection
+(`ok = false`) completes the pending future exceptionally, propagating the worker's failure message to the caller.
 
-Volume rows are committed *before* the RPC (`VolumeState.PROVISIONING`), because a transaction may not
-span one. `VolumeService` promotes to `READY` on acknowledgment and drops the row if the worker refuses.
-`RELEASING` is deliberately sticky: a delete whose acknowledgment never arrived stays releasing rather
-than handing the volume back out while its data may already be gone. Only `READY` volumes are mountable
-(`VolumeState.isUsable`), enforced in both `JobSpec.requireVolumesIn` and `WorkerScheduler.workersForVolumes`.
+Volume rows are committed before the RPC with `VolumeState.PROVISIONING` because transactions cannot span RPCs.
+Upon successful acknowledgment, `VolumeService` transitions the state to `READY`; if refused, the row is deleted.
+Failed or unacknowledged deletions retain `RELEASING` state to prevent reuse of partially destroyed volumes.
+Only `READY` volumes are usable (`VolumeState.isUsable`), enforced in `JobSpec.requireVolumesIn` and
+`WorkerScheduler.workersForVolumes`.
 

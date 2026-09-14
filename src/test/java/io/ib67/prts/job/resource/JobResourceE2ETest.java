@@ -125,7 +125,7 @@ class JobResourceE2ETest {
                 .body("$", hasSize(1))
                 .body("type", contains("pending"))
                 .body("state", contains("QUEUED"))
-                // A viewer sees what the entry will run on without seeing the request itself.
+                // Viewers receive resource class metadata without the job request payload.
                 .body("resourceClass", contains("small"));
     }
 
@@ -142,7 +142,7 @@ class JobResourceE2ETest {
                 .body("$", empty());
     }
 
-    /** Jobs and queue entries outlive their requester, so a deleted one is listed nameless. */
+    /** Verifies that jobs and queue entries from deleted users remain listable without username. */
     @Test
     void aDeletedRequesterIsListedNameless() {
         var gone = fixtures.createActor("gone");
@@ -258,7 +258,7 @@ class JobResourceE2ETest {
                 .then().statusCode(403);
     }
 
-    /** Quarkus's ForbiddenException reaches ForbiddenMapper, not ClientErrorMapper. */
+    /** Verifies that 403 Forbidden responses include standard permission error payload. */
     @Test
     void aViewerCannotCreateAJob() {
         var alice = fixtures.createActor("alice");

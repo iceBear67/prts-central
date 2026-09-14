@@ -145,12 +145,7 @@ final class WorkerScheduler {
     }
 
     /**
-     * Picks a connected worker to host a new volume, spreading volumes across the roster.
-     *
-     * <p>Size does not participate: {@code WorkerVolume.used} is never written and
-     * {@link RegisteredWorker.Info.Resources#getNumDisks()} counts resource-class slots rather than
-     * bytes, so there is no free-space signal here to honour. A worker short on disk refuses the
-     * {@code CreateVolume} and the reason reaches the caller through the acknowledgment.
+     * Selects a connected, enabled worker to host a new volume, balancing volume counts across workers.
      */
     Optional<UUID> selectVolumeHost() {
         var candidates = workers.entrySet().stream()

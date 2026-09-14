@@ -132,16 +132,14 @@ public class WorkerVolume extends PanacheEntityBase {
     }
 
     /**
-     * Lists every one of a project's volumes, fetching their host workers and owning project.
-     *
-     * <p>Unpaged on purpose: {@code ProjectService.delete} has to reach all of them.
+     * Lists all volumes belonging to a project, eagerly fetching worker and project associations.
      */
     public static List<WorkerVolume> listByProject(UUID projectId) {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project "
                 + "where v.project.id = ?1 order by v.name", projectId).list();
     }
 
-    /** One page of the same, for the endpoint that shows them. */
+    /** Lists a page of volumes for a project, eagerly fetching worker and project associations. */
     public static List<WorkerVolume> listByProject(UUID projectId, int offset, int length) {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project "
                 + "where v.project.id = ?1 order by v.name, v.id", projectId)
@@ -149,7 +147,7 @@ public class WorkerVolume extends PanacheEntityBase {
                 .list();
     }
 
-    /** Loads a volume with its project and host worker fetched, for reading outside a transaction. */
+    /** Finds a volume by ID, eagerly fetching worker and project associations. */
     public static Optional<WorkerVolume> findByIdFetched(UUID volumeId) {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project where v.id = ?1", volumeId)
                 .firstResultOptional();

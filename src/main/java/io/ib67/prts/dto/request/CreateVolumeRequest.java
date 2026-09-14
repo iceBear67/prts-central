@@ -7,9 +7,7 @@ import jakarta.validation.constraints.Size;
 /**
  * Request payload to allocate a worker volume for a project.
  *
- * <p>The hosting worker is chosen by the scheduler; a caller does not name one.
- *
- * @param sizeBytes bytes to allocate. A worker without room refuses, and says so.
+ * @param sizeBytes Size in bytes to allocate on the selected worker.
  */
 public record CreateVolumeRequest(
         @NotBlank(message = "name is required")

@@ -33,12 +33,12 @@ public class SubAccountService {
         return account;
     }
 
-    /** Every sub-account of a project. {@code ProjectService.delete} has to reach all of them. */
+    /** Lists all sub-accounts of a project (used by {@code ProjectService.delete}). */
     public List<SubAccount> list(UUID projectId) {
         return SubAccount.listByProjectFetched(projectId);
     }
 
-    /** One page of the same, for the endpoint that shows them. */
+    /** Lists a paginated slice of sub-accounts of a project. */
     public List<SubAccount> list(UUID projectId, int offset, int length) {
         return SubAccount.listByProjectFetched(projectId, offset, length);
     }
@@ -50,20 +50,19 @@ public class SubAccountService {
                         "no such sub-account in project " + projectId + ": " + userId));
     }
 
-    /** The view for one sub-account, reading the grants it currently holds. */
+    /** Builds a view for a sub-account, resolving its current permissions. */
     public SubAccountView viewOf(UUID projectId, SubAccount account) {
         return viewOf(account, userService.permissionsOf(account.getUserId(), projectId));
     }
 
     /**
-     * The same, for a caller that already holds the grants: the permission cache is only invalidated
-     * on commit, so a writer reading them back would still see the old set.
+     * Builds a view for a sub-account with pre-supplied permissions to avoid stale cache reads before commit.
      */
     public SubAccountView viewOf(SubAccount account, Collection<Perm> permissions) {
         return view(account, permissions, UserInfo.of(account.getCreatedBy()));
     }
 
-    /** The views for a listing, resolving the whole page's creators in one query. */
+    /** Builds views for a list of sub-accounts, batch-resolving creator details. */
     public List<SubAccountView> viewOf(UUID projectId, List<SubAccount> accounts) {
         var users = User.mapByIds(accounts.stream().map(SubAccount::getCreatedBy).distinct().toList());
         return accounts.stream()

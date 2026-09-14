@@ -370,7 +370,7 @@ class ProjectResourceE2ETest {
                 .body("message", equalTo("name must not be blank and at most 200 characters"));
     }
 
-    /** The patch is partial: a description on its own leaves the name where it was. */
+    /** Verifies that updating project description leaves name unmodified. */
     @Test
     void anOwnerCanDescribeTheProjectWithoutRenamingIt() {
         fixtures.join(alice, project, ProjectRole.OWNER);

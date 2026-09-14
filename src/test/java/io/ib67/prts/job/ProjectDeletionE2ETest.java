@@ -65,8 +65,7 @@ class ProjectDeletionE2ETest {
 
     @BeforeEach
     void reset() {
-        // The fixture workers hold volumes but never connect, so every delete here logs the discard it
-        // could not hand over. That is what the fixture is for; the rows it leaves are what is asserted.
+        // Test fixture workers are disconnected, so volume discard requests log failure.
         muted = new MutedLogs(ProjectService.class);
         databaseCleaner.clean();
         owner = fixtures.createActor("owner");

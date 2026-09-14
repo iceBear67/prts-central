@@ -241,8 +241,7 @@ class JobLauncherTest {
     }
 
     /**
-     * A task's values were authorized when the task was written, so they must not be routed through the
-     * override path — that gates every supplied field against the caller's own {@code job:spec:*}.
+     * Verifies that pre-authorized task scope values bypass job override permission checks during dispatch.
      */
     @Test
     void aTasksContributionIsNotGatedAgainstTheCaller() {
@@ -255,7 +254,7 @@ class JobLauncherTest {
         verifyNoInteractions(authorizer);
     }
 
-    /** A task's class stands in for the template's, and costs no job:resource-class either. */
+    /** Verifies that a task's default resource class overrides template class without requiring override permissions. */
     @Test
     void aTasksResourceClassReplacesTheTemplates() {
         openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
@@ -268,7 +267,7 @@ class JobLauncherTest {
         }
     }
 
-    /** Asking for something other than the task's default is still an override. */
+    /** Verifies that overriding a task's default resource class triggers permission gating. */
     @Test
     void namingAnotherClassUnderATaskIsStillGated() {
         openTask(new TaskScope(Map.of(), Map.of(), "big"), Map.of());
@@ -281,12 +280,11 @@ class JobLauncherTest {
         }
     }
 
-    /** The task's mounts join the spec and are validated like any other volume. */
+    /** Verifies that task volume mounts are bound to job spec and validated. */
     @Test
     void aTasksVolumesAreBoundAndChecked() {
         openTask(TaskScope.EMPTY, Map.of(VOLUME, new JobSpec.VolumeSpec("/shared", 4096L)));
-        // Built before the static mock: @Builder.Default routes the state initializer through a static
-        // $default$state(), so even `new WorkerVolume()` would interact with it.
+        // Instantiate prior to mocking static methods on WorkerVolume.
         var mounted = new WorkerVolume();
         mounted.setId(VOLUME);
         mounted.setProject(project);

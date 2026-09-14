@@ -8,7 +8,7 @@ import jakarta.validation.constraints.Size;
 /**
  * Request payload to mount a project volume into a task.
  *
- * @param mountPoint absolute path the task's jobs mount the volume at
+ * @param mountPoint Absolute container path where the volume will be mounted.
  */
 public record AttachVolumeRequest(
         @NotBlank(message = "mountPoint is required")

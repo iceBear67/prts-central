@@ -1,98 +1,87 @@
 # Task Scope
 
-A `Task` groups a project's jobs under one topic and gives them a shared substrate. It **does not
-orchestrate**: it declares no steps, resolves no dependencies, and never creates a job itself.
+A `Task` groups a project's jobs under a common context and provides a shared execution configuration.
+It does not orchestrate workflow steps, resolve dependencies, or spawn jobs automatically.
 
-## What a task owns, and what it does not
+## Ownership and Lifecycles
 
-| | Owner | Lifetime |
+| Component | Owner | Lifecycle |
 | --- | --- | --- |
-| `TaskScope` (environment, labels, default resource class) | the task | dies with it |
-| Volume **mounts** (`task_volume`, carrying `mountPoint`) | the task | dropped on close |
-| The **volumes** themselves (`worker_volume`) | the **project** | outlive every task |
-| Jobs (`job.task_id`) | the project | outlive the task, as its record |
+| `TaskScope` (environment, labels, default resource class) | Task | Scoped to task; inactive once closed |
+| Volume mounts (`task_volume`, with `mountPoint`) | Task | Unmounted on task closure |
+| Worker volumes (`worker_volume`) | Project | Persistent; independent of individual tasks |
+| Jobs (`job.task_id`) | Project | Persistent; retained after task closure |
 
-`task_volume` is many-to-many: one volume may be mounted by several tasks, each at a path of its own —
-which is why `mountPoint` sits on the mount row rather than on the volume.
+`task_volume` is a many-to-many relationship: a single volume can be mounted by multiple tasks at
+independent mount paths. Therefore, `mountPoint` is stored on the mount mapping rather than on the volume.
 
-`name`, `description` and `trackedAt` — the issue or pull request the task follows — are for people to
-read. Only `TaskScope` reaches a job; nothing dereferences `trackedAt`.
+Metadata fields (`name`, `description`, and `trackedAt` representing an issue or PR link) are purely
+informational. Only `TaskScope` attributes are injected into executed jobs.
 
-`Task` deliberately owns nothing that needs its own resolution or its own permission scope. There are no
-task-scoped secrets, templates or resource classes, and no task-scoped grants: `Permission` is keyed
-`(userId, permission, projectId)` and `RequirePermissionInterceptor` resolves exactly one scope, a
-project. Keeping tasks out of that is what makes them cheap.
+Tasks do not declare separate authorization scopes, secrets, templates, or resource classes. All permissions
+remain bound to `(userId, permission, projectId)`.
 
-## Injection into a job's spec
+## Spec Merging Hierarchy
 
-`JobLauncher.resolve` merges four layers, in order:
+`JobLauncher.resolve` merges configurations across four layers in order of precedence:
 
-1. `template.getSpec()`
-2. `TaskScope.defaultsTo` — the task's `environment` and `labels`, which a job **may** specialize
-3. `JobSpecOverride.applyTo` — the caller's override, gated field by field as before
-4. `TaskScope.bindTo` — the task's volumes and its identity (`PRTS_TASK_ID`, the `prts.task` label),
-   which a job **may not** override
+1. `template.getSpec()`: Base template specification.
+2. `TaskScope.defaultsTo`: Task-level environment variables and labels (can be overridden by job).
+3. `JobSpecOverride.applyTo`: User-supplied overrides, gated by individual permission checks.
+4. `TaskScope.bindTo`: Enforced task volumes and system identity (`PRTS_TASK_ID`, `prts.task` label),
+   which cannot be overridden.
 
-Layer 4 has to win: a caller that could write `PRTS_TASK_ID` itself could claim membership in someone
-else's task.
+Layer 4 enforces task identity and volume mounts, preventing job overrides from spoofing task membership.
 
-**Task values never pass through `JobSpecOverride`.** That path calls the authorizer for every supplied
-field — including empty collections, which `JobSpecOverrideTest.anEmptyOverrideIsStillSuppliedAndStillGated`
-pins down — so routing them through it would charge the requester `job:spec:environment` and friends for
-values the task was already permitted to set. `defaultsTo` and `bindTo` take no authorizer.
+Task attributes are applied directly rather than routed through `JobSpecOverride`, avoiding redundant
+permission checks for values already validated at task definition time.
 
-The same reasoning covers the resource class: `TaskScope.resourceClass` stands in for the template's
-default, and keeping it costs no `job:resource-class`. Naming a *third* class is still an override and
-is still gated.
+Similarly, `TaskScope.resourceClass` supplies a task-level default replacing the template's default without
+requiring additional permissions. Specifying a different resource class in a job override remains subject
+to `job:resource-class` permission checks.
 
-## Who pays for a scope
+## Scope Permissions
 
-"Values the task was already permitted to set" is a claim `TaskScope.authorize` has to make true: the
-task write endpoints run the scope past `JobSpecOverridePermissions`, so whoever writes it pays
-`job:spec:environment`, `job:spec:labels` and `job:resource-class` for the fields it carries. Like
-`JobResource.createJob`, that gating reads the literal `{projectId}` from the path, so `TaskResource`
-cannot move out from under `/project/{projectId}/...`.
+Task mutation endpoints validate properties using `JobSpecOverridePermissions`. Mutating a task's
+environment, labels, or default resource class requires `job:spec:environment`, `job:spec:labels`, and
+`job:resource-class` respectively.
 
-`resolve` runs **twice** — once at enqueue (its merged spec is discarded; only the pinned resource class
-survives, on `JobRequest`) and again on every dispatch attempt. The task is re-read each time, so an
-edit between the two takes effect, exactly as a template edit does.
+Resolution occurs twice: initially at job enqueue (pinning the selected resource class onto `JobRequest`),
+and again upon each dispatch attempt. As with templates, runtime task modifications apply to subsequent dispatches.
 
-Task-injected values land in the persisted `job.spec` jsonb. They are not secrets, and `Job.toRequest()`
-replays only `createOverride`, so a re-run re-applies the task layer once rather than twice.
+Resolved task attributes are persisted in `job.spec`. Re-running a job (`Job.toRequest()`) replays only
+`createOverride`, reapplying current task settings cleanly.
 
-## Worker affinity
+## Worker Affinity
 
-`WorkerScheduler.workersForVolumes` places a job only on a worker holding **all** of its volumes, so a
-task that mounts anything is effectively pinned to one worker. `TaskService.attach` enforces this at
-mount time (409, naming the worker already in use) rather than storing a pin on the task.
+`WorkerScheduler.workersForVolumes` requires all volumes attached to a job to reside on the same worker.
+Consequently, mounting volumes pins a task to the worker hosting those volumes. `TaskService.attach`
+enforces this constraint at mount time (returning 409 Conflict if volumes reside on different workers).
 
-A job may still add its own volumes through an override. `JobSpec.requireVolumesIn` rejects a spec whose
-volumes span two workers, naming both — placement cannot report this itself, since every reason it fails
-collapses into `"no available worker can run this job"` and the entry would just back off until it
-expired.
+If an individual job override mounts additional volumes that conflict across workers, `JobSpec.requireVolumesIn`
+rejects the spec immediately to prevent unschedulable jobs from lingering in the queue.
 
 ## Lifecycle
 
-`OPEN` → `CLOSING` → `CLOSED`. `DELETE .../task/{taskId}` marks the task `CLOSING` and runs one teardown
-pass; `TaskTeardownDispatcher` finishes any that could not complete.
+State transitions follow `OPEN` → `CLOSING` → `CLOSED`.
 
-`TaskService.teardown` does three things and stops:
+Calling `DELETE /api/project/{projectId}/task/{taskId}` transitions the task to `CLOSING` and executes an initial
+teardown pass. `TaskTeardownDispatcher` processes any remaining teardown asynchronously.
 
-1. `PendingJob.cancelActiveInTask`
-2. `JobService.stopOpen(Job.listOpenByTask(...))` — cancel, interrupt on the worker, discard pending uploads
-3. `TaskVolume.deleteByTask` — **unmount only**
+`TaskService.teardown` performs the following steps:
 
-A job dispatched while work was being stopped leaves the task `CLOSING` for the next sweep. There is no
-retry ceiling: unlike `ProjectService.delete`, no HTTP response is waiting on it.
+1. `PendingJob.cancelActiveInTask`: Cancels unstarted pending jobs in the task.
+2. `JobService.stopOpen(Job.listOpenByTask(...))`: Cancels open jobs, sends worker interrupts, and cleans up pending uploads.
+3. `TaskVolume.deleteByTask`: Unmounts attached volumes.
 
-**Closing a task never sends `DeleteVolume`.** Volumes leave a worker only through
-`DELETE /project/{projectId}/volume/{volumeId}`, which conflicts while any task still mounts them.
+Closing a task does not delete physical volumes. Volumes are managed and deleted exclusively through
+`DELETE /api/project/{projectId}/volume/{volumeId}`, which fails if the volume is still mounted by any task.
 
-The row is kept after `CLOSED` — the jobs it scoped are still readable, and `job.task_id` carries no
-foreign key precisely so they outlive it.
+Task records remain after transitioning to `CLOSED`. The `job.task_id` column does not enforce a foreign
+key cascade, allowing job execution history to persist indefinitely.
 
 ## `JobService.stopOpen`
 
-The "quiesce" half of tearing down a scope, shared by project deletion, project archiving and task
-closure — each differs only in which rows it hands over (`Job.listOpenByProject` vs `listOpenByTask`).
-The other half, deleting rows, is **not** shared: a task is closed, not deleted.
+`JobService.stopOpen` handles stopping active executions across project deletion, project archiving,
+and task closure. While project deletion subsequently removes database rows, task closure preserves
+historical records.

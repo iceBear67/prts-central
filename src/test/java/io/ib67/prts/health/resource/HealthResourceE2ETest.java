@@ -8,13 +8,13 @@ import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.equalTo;
 
 /**
- * Tests for {@link HealthResource}, which exists to answer callers that hold no credentials.
+ * End-to-end tests for unauthenticated health check endpoint {@link HealthResource}.
  */
 @QuarkusTest
 @Tag("e2e")
 class HealthResourceE2ETest {
 
-    /** The point of the endpoint: no token, no session cookie, still a 204. */
+    /** Verifies that unauthenticated requests receive 204 No Content without credentials. */
     @Test
     void anUncredentialedRequestIsAnswered() {
         given().get("/api/health").then()

@@ -59,7 +59,7 @@ public class User extends PanacheEntityBase {
                 : find("email", email).firstResultOptional();
     }
 
-    /** Every account someone can log in as. Sub-accounts hold no login and are excluded. */
+    /** Lists all non-sub-account users. */
     public static List<User> listPeople() {
         return list("id not in (select s.userId from SubAccount s)");
     }
@@ -72,7 +72,7 @@ public class User extends PanacheEntityBase {
                 .list();
     }
 
-    /** Users for a collection of IDs, keyed by ID. Referenced IDs may no longer exist; misses are simply absent. */
+    /** Finds users by IDs, returning an ID-to-User map of existing records. */
     public static Map<UUID, User> mapByIds(Collection<UUID> ids) {
         if (ids.isEmpty()) {
             return Map.of();

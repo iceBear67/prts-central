@@ -86,19 +86,18 @@ public class JobService {
         return Job.listVisibleByTask(taskId, limit);
     }
 
-    /** The view for one job, showing its re-run payload only to a caller who may create jobs. */
+    /** Builds a JobView for a single job, including the creation payload if the caller has job creation permissions. */
     public JobView viewOf(UUID projectId, Job job) {
         return viewOf(List.of(job), jobAccess.mayCreate(projectId)).getFirst();
     }
 
-    /** The views for a project listing, resolving the whole page's requesters and artifacts. */
+    /** Builds JobViews for a list of project jobs, resolving requesters and artifacts in bulk. */
     public List<JobView> viewOf(UUID projectId, List<Job> jobs) {
         return viewOf(jobs, jobAccess.mayCreate(projectId));
     }
 
     /**
-     * The views for a listing that spans projects — one worker's jobs, an admin surface. There is no
-     * single project to gate on, so the re-run payload is left out.
+     * Builds cross-project JobViews without job creation payloads.
      */
     public List<JobView> viewOf(List<Job> jobs) {
         return viewOf(jobs, false);
@@ -228,13 +227,12 @@ public class JobService {
     }
 
     /**
-     * Cancels unfinished jobs and tells their workers to drop the containers.
+     * Cancels active jobs and dispatches interrupt requests to their assigned workers.
      *
-     * <p>This is the "quiesce" half of tearing a scope down, shared by project deletion, project
-     * archiving and task closure — each of those differs only in which rows it hands over. Every step is
-     * best effort: a worker that cannot be reached is logged and the rest still stop.
+     * <p>Shared by project deletion, archiving, and task closure. Operations are executed on a
+     * best-effort basis.
      *
-     * @param jobs detached descriptors, read in a transaction that has already committed
+     * @param jobs List of open job descriptors to terminate.
      */
     public void stopOpen(List<Job.Open> jobs, String reason) {
         for (var job : jobs) {

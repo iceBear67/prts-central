@@ -88,7 +88,7 @@ public sealed interface ClientboundMessage {
         }
     }
 
-    /** Instructs a worker to discard a volume and everything stored in it. */
+    /** Instructs a worker to delete a volume and its data. */
     record DeleteVolume(UUID requestId, UUID volumeId) implements ClientboundMessage {
         public DeleteVolume {
             Objects.requireNonNull(requestId, "requestId");

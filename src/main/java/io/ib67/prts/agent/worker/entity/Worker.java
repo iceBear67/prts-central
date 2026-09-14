@@ -36,11 +36,11 @@ public class Worker extends PanacheEntityBase {
     @Column(name = "name", nullable = false, columnDefinition = "varchar")
     private String name;
 
-    /** Whether this worker is paused from receiving new jobs. */
+    /** Whether this worker is disabled from receiving new jobs. */
     @Column(name = "disabled", nullable = false)
     private boolean disabled;
 
-    /** Lists one page of the registrations, by name. */
+    /** Lists a page of registered workers ordered by name and ID. */
     public static List<Worker> listPage(int offset, int length) {
         return Worker.<Worker>find("order by name, id")
                 .range(offset, offset + length - 1)

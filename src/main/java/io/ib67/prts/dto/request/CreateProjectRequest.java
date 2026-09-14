@@ -7,7 +7,8 @@ import jakarta.validation.constraints.Size;
 /**
  * Request payload to create a project.
  *
- * @param description What the project is for. Null or blank leaves it empty.
+ * @param name        project name
+ * @param description optional project description; defaults to empty
  */
 public record CreateProjectRequest(
         @NotBlank(message = "name is required")

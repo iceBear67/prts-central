@@ -8,12 +8,11 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * Request payload to open a task.
+ * Request payload to create a task.
  *
- * @param description What the task is about. Null or blank leaves it empty.
- * @param trackedAt   Link to the issue, pull request or ticket this task follows. Null or blank leaves
- *                    it empty.
- * @param scope       values the task contributes to its jobs; omitted means it contributes none
+ * @param description Task summary; empty string if omitted.
+ * @param trackedAt   External issue or pull request URL; empty string if omitted.
+ * @param scope       Execution attributes injected into jobs run under this task.
  */
 public record CreateTaskRequest(
         @NotBlank(message = "name is required")
@@ -26,7 +25,7 @@ public record CreateTaskRequest(
         String trackedAt,
         @Nullable @Valid TaskScope scope
 ) {
-    /** An absolute http(s) link, or nothing at all. */
+    /** Regex pattern matching an optional HTTP/HTTPS URL. */
     public static final String TRACKED_AT = "(https?://\\S+)?";
 
     static final String TRACKED_AT_REJECTED = "trackedAt must be an http or https URL";

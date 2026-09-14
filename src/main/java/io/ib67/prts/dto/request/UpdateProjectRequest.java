@@ -7,8 +7,8 @@ import jakarta.ws.rs.BadRequestException;
 /**
  * Request payload to update a project.
  *
- * @param name        New name. Null keeps the existing name.
- * @param description New description, or blank to clear. Null keeps the existing description.
+ * @param name        new project name, or null to keep unchanged
+ * @param description new project description (blank to clear), or null to keep unchanged
  */
 public record UpdateProjectRequest(
         @Nullable @Size(min = 1, max = 200,

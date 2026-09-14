@@ -70,9 +70,7 @@ public class Fixtures {
     }
 
     /**
-     * Creates a project owned by a throwaway user.
-     *
-     * <p>A project always has an owner; use this only where no actor of the test is meant to be in it.
+     * Creates a project owned by an unprivileged test user.
      */
     public UUID createProject(String name) {
         return createProject(name, createActor("nobody"));
@@ -225,7 +223,7 @@ public class Fixtures {
         return id;
     }
 
-    /** Creates a worker volume record, already provisioned as far as the control plane is concerned. */
+    /** Creates a worker volume record in READY state. */
     @Transactional
     public UUID createVolume(UUID projectId, UUID workerId, String name) {
         return createVolume(projectId, workerId, name, VolumeState.READY);
@@ -245,7 +243,7 @@ public class Fixtures {
         return volume.getId();
     }
 
-    /** Opens a task in a project. */
+    /** Creates a task within a project. */
     @Transactional
     public UUID createTask(UUID projectId, Actor createdBy, String name, TaskScope scope) {
         var task = Task.builder()
@@ -258,7 +256,7 @@ public class Fixtures {
         return task.getId();
     }
 
-    /** Mounts a volume into a task. */
+    /** Associates a worker volume with a task at the given mount point. */
     @Transactional
     public void mountVolume(UUID taskId, UUID volumeId, String mountPoint) {
         TaskVolume.of(

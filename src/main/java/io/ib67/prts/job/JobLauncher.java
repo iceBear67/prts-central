@@ -123,17 +123,10 @@ public class JobLauncher {
     }
 
     /**
-     * Merges the layers a job's spec is built from.
+     * Merges configuration layers to build the effective job specification.
      *
-     * <p>Order is template &lt; task defaults &lt; caller override &lt; task binding. The task contributes
-     * twice on purpose: what a job may specialize goes underneath the override, and what it may not —
-     * the task's volumes and its identity — goes on top of everything.
-     *
-     * <p>Task values never pass through {@link JobSpecOverride#applyTo}: that path gates every supplied
-     * field against the caller's {@code job:spec:*} permissions, and the task's own were authorized when
-     * it was written.
-     *
-     * <p>Runs once at enqueue and again per dispatch attempt, so the task is re-read each time.
+     * <p>Precedence order: template &lt; task defaults &lt; caller override &lt; task bindings.
+     * Task attributes are applied directly without re-evaluating override permissions.
      */
     private ResolvedCreate resolve(UUID projectId, JobRequest request, JobSpecOverrideAuthorizer authorizer) {
         var project = projectService.findById(projectId).orElseThrow(NotFoundException::new);

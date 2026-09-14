@@ -45,8 +45,7 @@ class PendingJobDispatcherTest {
         dispatcher.jobConfig = jobConfig;
         when(jobConfig.pending().batch()).thenReturn(BATCH);
         when(workerService.hasSchedulableWorker()).thenReturn(true);
-        // Default arrangement: the entry is still queued when the job comes back. Left unstubbed the
-        // mock says it was cancelled mid-dispatch, sending every test down the stopCancelled path.
+        // Default: dispatch succeeds and entry remains active until marked dispatched.
         when(pendingJobService.markDispatched(any(), any())).thenReturn(true);
     }
 

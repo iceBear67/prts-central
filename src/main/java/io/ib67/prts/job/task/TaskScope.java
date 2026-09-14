@@ -13,16 +13,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * Values a {@link io.ib67.prts.job.task.entity.Task} contributes to every job launched under it.
+ * Execution attributes contributed by a {@link io.ib67.prts.job.task.entity.Task} to jobs executed under it.
  *
- * <p>Stored as {@code jsonb} on the task row, so it must stay Jackson-round-trippable.
+ * <p>Stored as {@code jsonb} on the task record. Permissions are validated upon task creation/update
+ * via {@link #authorize(JobSpecOverrideAuthorizer)}.
  *
- * <p>Task contributions are authorized once, when the task is written ({@link #authorize}), and are
- * therefore never routed through {@link io.ib67.prts.agent.job.JobSpecOverride} — that path gates every
- * supplied field against the <em>caller's</em> {@code job:spec:*} permissions, including empty
- * collections.
- *
- * @param resourceClass Replaces the template's default class. Null means the template decides.
+ * @param resourceClass Default resource class for task jobs, or null to inherit from template.
  */
 public record TaskScope(
         @Size(max = JobSpec.MAX_ENTRIES, message = "scope.environment must have at most {max} entries")
@@ -37,9 +33,9 @@ public record TaskScope(
                 message = "scope.resourceClass is not a valid resource class name")
         String resourceClass
 ) {
-    /** Environment variable naming the task a job belongs to. Callers cannot override it. */
+    /** Environment variable injected into jobs indicating task association. */
     public static final String TASK_ID_ENV = "PRTS_TASK_ID";
-    /** Label naming the task a job belongs to. Callers cannot override it. */
+    /** Label injected into jobs indicating task association. */
     public static final String TASK_ID_LABEL = "prts.task";
 
     public static final TaskScope EMPTY = new TaskScope(Map.of(), Map.of(), null);
@@ -51,16 +47,7 @@ public record TaskScope(
     }
 
     /**
-     * Charges the writer for what this scope contributes, field by field.
-     *
-     * <p>Every job under the task adopts these values without passing them through
-     * {@link io.ib67.prts.agent.job.JobSpecOverride}, so this is the one place they are paid for. It has
-     * to run wherever a scope is written, or {@code task:manage} — a {@code MEMBER} by default — would
-     * be a way around {@code job:spec:environment}, {@code job:spec:labels} and {@code job:resource-class}.
-     *
-     * <p>Contributing nothing costs nothing: an absent field and an empty one are the same value here
-     * (unlike an override, where supplied-but-empty is still gated), so only what the scope carries is
-     * checked.
+     * Validates that the caller has permissions to configure the non-empty attributes of this scope.
      */
     public void authorize(JobSpecOverrideAuthorizer authorizer) {
         Objects.requireNonNull(authorizer, "authorizer");
@@ -76,10 +63,7 @@ public record TaskScope(
     }
 
     /**
-     * Layers this scope's defaults over a template spec, beneath any caller override.
-     *
-     * <p>Precedence is template &lt; task &lt; override: the task is more specific than the template it
-     * instantiates, and a job may still specialize what its task declares.
+     * Overlays task default environment and labels on top of the template specification, beneath caller overrides.
      */
     public JobSpec defaultsTo(JobSpec base) {
         Objects.requireNonNull(base, "base");
@@ -99,12 +83,9 @@ public record TaskScope(
     }
 
     /**
-     * Applies what a caller may not override: the volumes the task mounts, and the task's identity.
+     * Binds immutable task properties (task ID and attached volumes) onto the job specification.
      *
-     * <p>Runs after {@code JobSpecOverride.applyTo}. Identity has to win, or a caller could claim
-     * membership in a task by writing {@link #TASK_ID_ENV} into its own override.
-     *
-     * @param volumes the task's mounts, keyed by volume ID
+     * @param volumes Attached volume mounts keyed by volume ID.
      */
     public static JobSpec bindTo(JobSpec spec, UUID taskId, Map<UUID, JobSpec.VolumeSpec> volumes) {
         Objects.requireNonNull(spec, "spec");

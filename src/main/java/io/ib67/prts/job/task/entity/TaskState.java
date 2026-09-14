@@ -4,24 +4,19 @@ package io.ib67.prts.job.task.entity;
  * Lifecycle of a task.
  */
 public enum TaskState {
-    /** The task accepts new jobs and its scope is applied to them. */
+    /** Task is active and accepting new jobs and mounts. */
     OPEN,
-    /** The task was closed and is being torn down; new jobs are refused. */
+    /** Task closure initiated; resources are being torn down. */
     CLOSING,
-    /** Teardown finished. The task is kept as a record of the work it scoped. */
+    /** Teardown complete; task record retained as execution history. */
     CLOSED;
 
-    /** Note this is not the negation of {@link #acceptsChanges()}: a {@code CLOSING} task is neither. */
+    /** Returns true if teardown has completed. */
     public boolean isClosed() {
         return this == CLOSED;
     }
 
-    /**
-     * Whether the task still takes new jobs, volume mounts and scope edits.
-     *
-     * <p>False from the moment it starts closing: teardown drops the mounts and stops the jobs, and
-     * would never converge if either could still be added to underneath it.
-     */
+    /** Returns true if the task accepts job executions, volume attachments, or updates. */
     public boolean acceptsChanges() {
         return this == OPEN;
     }

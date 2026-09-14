@@ -1,8 +1,7 @@
 package io.ib67.prts.dto;
 
 /**
- * How many artifacts occupy how many bytes, over whatever scope the caller counted —
- * a job's in-flight upload reservations, or every artifact stored.
+ * Aggregate artifact metrics representing total file count and byte size.
  */
 public record ArtifactUsage(long count, long bytes) {
 }

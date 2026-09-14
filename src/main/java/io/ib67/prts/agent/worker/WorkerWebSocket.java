@@ -81,8 +81,7 @@ public class WorkerWebSocket {
             workerService.registerWorker(
                     r.workerId(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
         } catch (IllegalStateException e) {
-            // The id is already held by a live session. This connection stays unregistered, so every
-            // later message it sends is refused by acceptMessage.
+            // Registration rejected (e.g. duplicate active session); connection remains unregistered.
             return new ClientboundMessage.Response(false, e.getMessage());
         }
         connection.userData().put(INTERNAL_WORKER_ID, r.workerId().toString());

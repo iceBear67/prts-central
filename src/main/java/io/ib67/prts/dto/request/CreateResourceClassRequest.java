@@ -7,8 +7,8 @@ import jakarta.validation.constraints.PositiveOrZero;
 /**
  * Request payload to create a global resource class.
  *
- * <p>The three capacities carry no unit of their own: they are compared against the numbers a worker
- * reports for itself, and zero means the class asks for nothing on that axis.
+ * <p>Capacity requirements are unitless minimum thresholds matched against worker capacities;
+ * zero indicates no minimum requirement.
  */
 public record CreateResourceClassRequest(
         // Ensure both null and pattern mismatches produce consistent validation messages.
@@ -19,7 +19,7 @@ public record CreateResourceClassRequest(
         @PositiveOrZero(message = "memCount must not be negative") int memCount,
         @PositiveOrZero(message = "diskSize must not be negative") int diskSize
 ) {
-    /** Pattern for valid resource class names. Its length is {@code ResourceClass.MAX_NAME_LENGTH}. */
+    /** Regex pattern for valid resource class names up to {@code ResourceClass.MAX_NAME_LENGTH} characters. */
     public static final String NAME = "[A-Za-z0-9][A-Za-z0-9._-]{0,63}";
 
 }

@@ -18,10 +18,7 @@ import java.util.NoSuchElementException;
 import java.util.UUID;
 
 /**
- * Allocates and releases worker volumes on behalf of a project.
- *
- * <p>A volume belongs to its project, not to any task. Tasks mount it, and closing a task only drops
- * the mount — a volume leaves its worker exactly when someone deletes it here.
+ * Allocates and releases project worker volumes.
  */
 @ApplicationScoped
 public class VolumeService {
@@ -33,11 +30,10 @@ public class VolumeService {
     WorkerService workerService;
 
     /**
-     * Allocates a volume on a worker chosen by the scheduler.
+     * Allocates a volume on a worker selected by the scheduler.
      *
-     * <p>The row is committed as {@link VolumeState#PROVISIONING} before the blocking RPC, since a
-     * transaction may not span one. A worker that refuses leaves nothing behind: the row is dropped
-     * again and the refusal reaches the caller.
+     * <p>Persists the record as {@link VolumeState#PROVISIONING} prior to the RPC,
+     * transitioning to {@link VolumeState#READY} on acknowledgment or removing the record on failure.
      */
     public WorkerVolume create(UUID projectId, String name, long sizeBytes) {
         var workerId = workerService.selectVolumeHost();
@@ -68,9 +64,9 @@ public class VolumeService {
     }
 
     /**
-     * Discards a volume and everything stored in it.
+     * Releases a volume and deletes its physical storage on the worker.
      *
-     * @throws ClientErrorException with HTTP 409 Conflict if any task still mounts it
+     * @throws ClientErrorException with 409 Conflict if still mounted by any task
      */
     public void delete(UUID projectId, UUID volumeId) {
         var workerId = QuarkusTransaction.requiringNew().call(() -> {
@@ -84,8 +80,7 @@ public class VolumeService {
                         "volume " + volumeId + " is mounted by " + mounts + " task(s); detach it first",
                         Response.Status.CONFLICT);
             }
-            // Stays RELEASING if the worker cannot be reached, so a repeated delete resumes rather than
-            // handing the volume back out while its data may already be gone.
+            // Transition to RELEASING so failed RPCs prevent reuse of partially deleted volumes.
             volume.setState(VolumeState.RELEASING);
             return volume.getWorker().getId();
         });
@@ -93,7 +88,7 @@ public class VolumeService {
         QuarkusTransaction.requiringNew().run(() -> WorkerVolume.deleteById(volumeId));
     }
 
-    /** Drops a row the worker never acknowledged creating. */
+    /** Removes a volume row if creation failed or was rejected. */
     private void discard(UUID volumeId) {
         try {
             QuarkusTransaction.requiringNew().run(() -> WorkerVolume.deleteById(volumeId));

@@ -40,11 +40,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * REST endpoint managing task scopes and the volumes they mount.
- *
- * <p>The path has to keep its literal {@code {projectId}} segment: {@code JobSpecOverridePermissions}
- * takes no {@code @ProjectId} argument and scopes its checks to that path parameter, so moving these
- * endpoints would silently disable the scope gating below.
+ * REST endpoints for managing tasks, execution scopes, and task volume mounts.
  */
 @Path("/project/{projectId}/task")
 @Produces(MediaType.APPLICATION_JSON)
@@ -112,7 +108,7 @@ public class TaskResource {
     }
 
     /**
-     * Edits a task. Only jobs created afterwards see the change.
+     * Updates an existing task.
      */
     @PATCH
     @Path("/{taskId}")
@@ -132,11 +128,7 @@ public class TaskResource {
     }
 
     /**
-     * Closes a task: its queued jobs are cancelled, its running jobs stopped, and its mounts dropped.
-     *
-     * <p>The volumes survive — they belong to the project and are only removed from a worker by
-     * {@code DELETE /project/{projectId}/volume/{volumeId}}. The task itself is kept as a record of the
-     * work it scoped, so this responds with the task rather than 204.
+     * Closes a task, cancelling its queued jobs, interrupting active jobs, and unmounting volumes.
      */
     @DELETE
     @Path("/{taskId}")
@@ -147,7 +139,7 @@ public class TaskResource {
         return TaskView.of(taskService.close(projectId, taskId));
     }
 
-    /** Mounts a project volume into the task, or moves an existing mount to a new path. */
+    /** Mounts a project volume into the task, or updates an existing mount path. */
     @PUT
     @Path("/{taskId}/volume/{volumeId}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -162,7 +154,7 @@ public class TaskResource {
         return TaskVolumeView.of(taskService.attach(projectId, taskId, volumeId, request.mountPoint()));
     }
 
-    /** Unmounts a volume from the task. The volume itself is untouched. */
+    /** Unmounts a volume from the task. */
     @DELETE
     @Path("/{taskId}/volume/{volumeId}")
     @RequirePermission(value = Perm.TASK_MANAGE, defaultRole = ProjectRole.MEMBER)

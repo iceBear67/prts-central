@@ -135,7 +135,7 @@ public class ArtifactService {
         storageService.deleteQuietly(objectKey);
     }
 
-    /** Counts every artifact stored across all projects, and the bytes they occupy. */
+    /** Aggregates total count and byte size of stored artifacts across all projects. */
     public ArtifactUsage stored() {
         // sum() returns null when no rows exist, whereas count() returns 0.
         var row = (Object[]) entityManager

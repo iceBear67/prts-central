@@ -72,10 +72,9 @@ public sealed interface ServerboundMessage {
     }
 
     /**
-     * Reports the outcome of a {@link ClientboundMessage.CreateVolume} or
-     * {@link ClientboundMessage.DeleteVolume}.
+     * Acknowledgment for {@link ClientboundMessage.CreateVolume} or {@link ClientboundMessage.DeleteVolume}.
      *
-     * @param message reason for the failure, ignored when {@code ok}
+     * @param message failure explanation if {@code ok} is false
      */
     record VolumeAck(UUID requestId, boolean ok, @Nullable String message) implements ServerboundMessage {
         public VolumeAck {

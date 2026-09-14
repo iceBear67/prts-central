@@ -81,7 +81,7 @@ cross-project view.
 | `DELETE /admin/user/{userId}/permission` | Revokes every grant, in any scope. |
 | `GET /admin/permission` | The whole `Perm` catalogue with each one's ban state. Read-only — bans come from `permission.banned`, see [authorization.md](authorization.md). |
 | `GET\|POST /admin/template`, `DELETE /admin/template/{id}` | The templates every project may use. Project templates are invisible here (404 on delete). |
-| `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | The only way a resource class is ever created — a worker reports its capacity but never declares a class, so nothing can be run until one exists. The catalogue is service-wide, keyed by name alone. `DELETE` is 409 while a job or template still names it. |
+| `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | Manages the service-wide resource class catalogue (keyed by name). Workers report physical capacity but do not define classes. `DELETE` returns 409 Conflict if referenced by existing jobs or templates. |
 | `PATCH /worker/{id}` | Rename. Holds only until the worker registers again under a name of its own — `Worker.upsert` takes the name from the registration. |
 | `DELETE /worker/{id}` | Drops the registration. 409 while connected, holding unfinished jobs, or hosting volumes (`worker_volume` carries a plain foreign key). |
 | `POST /worker/{id}/disconnect` | Closes the session; its unfinished jobs fail as on any disconnect. Deliberately separate from the delete. |
@@ -95,16 +95,9 @@ Listing page sizes are capped by `admin.list.max-page-size` (`AdminConfig`), mat
 
 ## Pagination
 
-Every listing that grows without a natural ceiling takes `?offset=&length=` through
-`Pages.clampLength(length, max)` / `Pages.clampOffset(offset, window)`; an omitted `length` means the
-cap, never "everything". Caps live in `job.list`, `job.log`, `job.task`, `admin.list` and
-`project.list`.
+Unbounded listings accept `?offset=&length=` with parameters bounded via `Pages.clampLength(length, max)` and `Pages.clampOffset(offset, window)`. An omitted `length` defaults to the configured maximum page size.
 
-A listing bounded by something other than data volume is left unpaged on purpose — `/admin/permission`
-(the `Perm` enum), `/worker/{id}/job` (one worker's concurrency), `.../task/{id}/volume` (one task's
-mounts), and `GET /project` (the caller's memberships, which clients build navigation from). Where an
-entity keeps both a paged and an unpaged finder, the unpaged one belongs to a caller that must see
-everything — secret resolution at dispatch, project teardown — and no endpoint may use it.
+Naturally bounded collections remain unpaged (e.g., `/admin/permission`, `/worker/{id}/job`, `.../task/{id}/volume`, and `GET /project`). Unpaged entity finders are reserved for internal routines that require complete result sets (such as secret resolution during dispatch or project teardown) and must not be exposed by unbounded endpoints.
 
 ## Current User
 
@@ -122,7 +115,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
 ## DTO & Exception Architecture
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.job`, `dto.project`, `dto.request`). A resource maps entities to DTOs itself where the entity carries everything the view shows; where the view needs a lookup or a permission check, the owning service's `viewOf` builds it (`JobService.viewOf`, `PendingJobService.viewOf`, `SubAccountService.viewOf`) and those views carry no static factory. Every other service method returns entities.
-- **User references**: Where a view names a user it does not describe (`JobView.requestedBy`, `TaskView.createdBy`, `SubAccountView.createdBy`), it carries a `UserInfo` `{id, name}` rather than a bare UUID. The referenced rows hold no foreign key and outlive the user, so `name` is `null` when the account has since been deleted — a gap, not an error. Views that are themselves *about* the user (`CurrentUserView`, `UserView`, `ProjectMemberView`) keep their own flat fields. Whoever builds the view resolves that user — the resource passes entities, never a `Map<UUID, User>`. Both a `Service.viewOf` and a static factory come in a single-entity form (`UserInfo.of(id)` reads the one account) and a collection form (`jobService.viewOf(projectId, jobs)`, `TaskView.of(tasks)`) that resolves the whole page in one `User.mapByIds`; a listing must call the collection form rather than mapping over the single one.
+- **User references**: Views referencing external users (`JobView.requestedBy`, `TaskView.createdBy`, `SubAccountView.createdBy`) embed `UserInfo` (`{id, name}`) instead of a bare UUID. Because user records may be deleted, `name` is null when the user no longer exists. Paginated listings must resolve users in bulk via collection methods (such as `jobService.viewOf(projectId, jobs)` or `User.mapByIds`) rather than querying each individually.
 - **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest` and `UpdateProjectRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
 - **Exception Mapping**: All 4xx and 5xx responses return `{ "message": ... }`, with the exception of 401.
   - `NoSuchElementException`: Mapped to 404 by `NotFoundMapper` with the exception message.
@@ -133,7 +126,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
   - **Deserialization Failures**: `ServerJacksonMessageBodyReader` wraps Jackson's `DatabindException` into a generic `WebApplicationException` with status 400. `ClientErrorMapper` unwraps the cause chain to preserve the original exception message and status thrown from constructors. Malformed JSON without an underlying application exception retains the default 400 response.
 - **OpenAPI**: `EndpointOASFilter` runs at build time to augment the OpenAPI document with inferred metadata:
   - A **`default` response** with `ErrorView` is added to every operation to document the standard error format without enumerating all possible codes.
-  - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`). The exclusion list (`BYPASSES_WRITABLE`) has to match the endpoints that skip that guard by design — archive, unarchive and `DELETE /project/{projectId}` — or the document promises a status they never return.
+  - Common status codes are inferred from method signatures: **401** on all operations, **400** on methods taking request bodies, **404** on methods with path parameters, and **409** on mutating project endpoints under `/project/{projectId}` (due to `requireWritable`, excluding operations defined in `BYPASSES_WRITABLE` such as archive, unarchive, and project deletion).
   - The **success status** is inferred from `@ResponseStatus`, defaulting to 204 for `void` methods (correcting SmallRye's default assumption of 200/201).
   - Error responses include the `ErrorView` schema, except 401 which has an empty body.
   - Custom `@APIResponse` annotations are reserved for special responses (such as `JobResource.createJob`'s `JobStatusView` schema), as SmallRye replaces generated success responses when manual annotations are present.

@@ -19,36 +19,29 @@ Plaintext secrets are never stored in the database or serialized inside `job.spe
 - **Template Deletion and Pending Jobs**: Deleting a template does not alter existing queue entries (`job.template_id` does not enforce a foreign key, and pending entries store the request payload as `jsonb`). If a pending job's referenced template no longer exists during dispatch, `PendingJobDispatcher` catches the `NotFoundException` and transitions the job to `FAILED`.
 
 ### Resource Classes (`ResourceClass`)
-- **Keying**: `name` is the whole primary key. The catalogue is service-wide — a class belongs to no project, and every project draws from the same one.
-- **Foreign Keys**: `job.resource_class` and `job_spec_template.resource_class` reference `resource_class (name)`.
-- **Lookup**: `ResourceClass.findByName(name)`, hand-written rather than a bare `findByIdOptional` so `JobLauncherTest` can mock it with `mockStatic`.
-- **Management**: `/api/admin/resource-class` (`admin:all`) is the only write path — a worker reports the capacity it has but never declares a class, so a fresh install can create neither a template nor a job until an admin defines one. Deletion is refused (409) while a job or template still names it, since both hold the FK above and a job is kept as the record of what ran.
-- **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the default does not — and a `TaskScope.resourceClass` stands in for the template's as that default, since both were set by someone already permitted to: a template costs `job:template:manage`, and a task scope is charged `job:resource-class` by `TaskScope.authorize` when it is written.
+- **Keying**: Primary key is `name`. The catalogue is service-wide and shared across all projects.
+- **Foreign Keys**: `job.resource_class` and `job_spec_template.resource_class` reference `resource_class(name)`.
+- **Lookup**: `ResourceClass.findByName(name)` wraps `findByIdOptional` to facilitate test mocking via `Mockito.mockStatic`.
+- **Management**: Managed via `/api/admin/resource-class` (`admin:all`). Workers report physical metrics but do not define classes. Deletion returns 409 Conflict if referenced by existing jobs or templates.
+- **Override Rule**: Overriding a resource class requires `job:resource-class`. Retaining the default class (from the template or `TaskScope.resourceClass`) requires no additional permission.
 
 ## Volume Isolation
 
-`JobSpec.requireVolumesIn(project)` rejects a spec whose volumes are unknown, belong to another project,
-are not `READY`, **span more than one worker**, or mount at an unusable path. The cross-worker check
-belongs here rather than at placement: `WorkerScheduler` collapses every reason it cannot place a job
-into `"no available worker can run this job"`, so a cross-worker spec would silently back off until it
-expired.
+`JobSpec.requireVolumesIn(project)` validates that all requested volumes exist, belong to the project,
+are in `READY` state, share the same worker host, and specify valid mount paths. Cross-worker volume
+mismatches are rejected at validation rather than during scheduling to prevent unschedulable jobs from queueing.
 
-`JobSpec.VolumeSpec.MOUNT_POINT` is the path rule — an absolute path of non-empty segments, no `.` or
-`..`, no whitespace or control characters, no trailing slash, at most 512 characters. The control plane
-never resolves these paths; it forwards them to a worker that turns them into bind mounts, which is
-precisely why it may not pass a traversing one along. `requireVolumesIn` runs on the merged spec after
-`TaskScope.bindTo`, so it covers task mounts and caller overrides alike; `AttachVolumeRequest` declares
-the same constant so `PUT .../task/{taskId}/volume/{volumeId}` refuses at the edge instead of at
-dispatch.
+`JobSpec.VolumeSpec.MOUNT_POINT` validates mount paths: absolute path of non-empty segments, no `.` or
+`..`, no whitespace or control characters, no trailing slash, and at most 512 characters. Validation
+occurs on the merged specification after `TaskScope.bindTo`, covering both task mounts and job overrides.
+`AttachVolumeRequest` applies the same pattern at the API edge.
 
 ## Task Layer
 
-Values a `Task` contributes are merged in `JobLauncher.resolve` around the override, never through it:
-`TaskScope.defaultsTo` goes underneath (a job may specialize), `TaskScope.bindTo` on top (volumes and
-identity, which it may not). Neither takes a `JobSpecOverrideAuthorizer` — see
-[task-scope.md](task-scope.md) for why routing them through `applyTo` would charge the requester for the
-task's own permissions. What the scope carries is gated once instead, by `TaskScope.authorize` at the
-task write endpoints.
+Attributes contributed by a `Task` are merged in `JobLauncher.resolve`:
+`TaskScope.defaultsTo` applies beneath caller overrides, while `TaskScope.bindTo` (volumes and task identity)
+applies on top and cannot be overridden. Task attributes do not use `JobSpecOverrideAuthorizer`, as task scope
+permissions are validated upon task creation/update via `TaskScope.authorize` (see [task-scope.md](task-scope.md)).
 
 ## Per-Field Override Gating (`JobSpecOverride`)
 

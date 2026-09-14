@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * REST endpoint over the messages left for the calling user.
+ * REST resource for managing notifications of the authenticated user.
  */
 @Path("/notification")
 @Produces(MediaType.APPLICATION_JSON)
@@ -65,7 +65,7 @@ public class NotificationResource {
         notificationService.setRead(userContext.require().getId(), notificationId, false);
     }
 
-    /** Leaves a message for everyone who can log in. */
+    /** Broadcasts a notification to all active login users. */
     @POST
     @Path("/broadcast")
     @Consumes(MediaType.APPLICATION_JSON)

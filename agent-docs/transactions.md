@@ -12,7 +12,7 @@ PRTS-Central avoids long-lived `@Transactional` boundaries because worker schedu
 - **Closed Contexts**: Because entities outlive their persistence context, eager associations must be loaded via explicit `join fetch` queries (`...Fetched`, e.g., `Job.findByIdFetched`).
 - **Pessimistic Locking**: Use `LockModeType.PESSIMISTIC_WRITE` when checking and transitioning mutable entities (job state updates, lock acquisition, pending queue claims).
 - **Self-Invocation**: Because `@Transactional` interceptors do not intercept same-class method calls, services invoke `QuarkusTransaction.requiringNew()` explicitly.
-- **A Joined Transaction Cannot Fail Softly**: a `@Transactional` method that joins its caller's transaction marks it rollback-only when it throws, and the caller catching the exception does not undo that. Anything a caller wants to attempt without risking its own work must report the miss in its return value — `NotificationService.notifyIfPresent` returns `Optional` for exactly this, so a job failing for a requester who has since been deleted still fails.
+- **Joined Transaction Rollback**: When a `@Transactional` method joins an active transaction and throws, the transaction is marked rollback-only regardless of whether the caller catches the exception. Optional operations should return status (e.g. `Optional`) instead of throwing; for example, `NotificationService.notifyIfPresent` avoids aborting job transitions if the requester no longer exists.
 
 ## Transaction Boundaries
 

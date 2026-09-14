@@ -27,7 +27,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * Manages task scopes: their lifecycle, the volumes they mount, and the values they contribute to jobs.
+ * Service managing task lifecycles, volume attachments, and execution scopes.
  */
 @ApplicationScoped
 public class TaskService {
@@ -45,9 +45,9 @@ public class TaskService {
     }
 
     /**
-     * Resolves a task that still accepts changes — a new job, a volume mount, or a scope edit.
+     * Resolves a task and verifies that it is open for modifications.
      *
-     * @throws ClientErrorException with HTTP 409 Conflict if the task is closing or closed
+     * @throws ClientErrorException with HTTP 409 Conflict if closing or closed
      */
     public Task requireOpen(UUID projectId, UUID taskId) {
         var task = require(projectId, taskId);
@@ -106,14 +106,10 @@ public class TaskService {
     }
 
     /**
-     * Closes a task and tears it down: queued jobs are cancelled, running ones are stopped, and the
-     * task's volume mounts are dropped.
+     * Initiates task closure: cancels queued jobs, interrupts active jobs, and unmounts attached volumes.
      *
-     * <p>Volumes themselves survive — they belong to the project, may be mounted by other tasks, and are
-     * only removed from a worker by an explicit delete.
-     *
-     * <p>Teardown is not guaranteed to finish here. A job dispatched while work was being stopped leaves
-     * the task {@code CLOSING}, and {@link TaskTeardownDispatcher} finishes it on a later sweep.
+     * <p>If active jobs cannot be immediately terminated, the task remains in {@code CLOSING} state
+     * for asynchronous cleanup by {@link TaskTeardownDispatcher}.
      */
     public Task close(UUID projectId, UUID taskId) {
         var closing = QuarkusTransaction.requiringNew().call(() -> {
@@ -129,11 +125,7 @@ public class TaskService {
         return QuarkusTransaction.requiringNew().call(() -> require(projectId, taskId));
     }
 
-    /**
-     * Runs one teardown pass over a closing task.
-     *
-     * @return true once the task reached {@link TaskState#CLOSED}
-     */
+    /** Executes a teardown pass over a closing task. */
     public boolean teardown(UUID taskId) {
         try {
             var cancelled = QuarkusTransaction.requiringNew().call(() -> PendingJob.cancelActiveInTask(taskId));
@@ -187,7 +179,7 @@ public class TaskService {
         return mount;
     }
 
-    /** Removes a mount. The volume itself is untouched. */
+    /** Removes a volume mount from the task. */
     @Transactional
     public void detach(UUID projectId, UUID taskId, UUID volumeId) {
         requireOpen(projectId, taskId);
@@ -203,10 +195,7 @@ public class TaskService {
     }
 
     /**
-     * The volumes a task's jobs mount, in {@link JobSpec} form.
-     *
-     * <p>The size limit is the volume's whole length: a task shares one volume across its jobs rather
-     * than carving a quota out of it per job.
+     * Returns the volume mounts for a task as a map of {@link JobSpec.VolumeSpec} keyed by volume ID.
      */
     public Map<UUID, JobSpec.VolumeSpec> mountsOf(UUID taskId) {
         return TaskVolume.listByTaskFetched(taskId).stream()
@@ -218,7 +207,7 @@ public class TaskService {
     }
 
     /**
-     * A task's jobs must all be placeable on one worker, so everything it mounts has to live there.
+     * Validates that all volumes attached to a task reside on the same worker.
      */
     private static void requireSameHost(UUID taskId, WorkerVolume volume) {
         var host = TaskVolume.workerOf(taskId);

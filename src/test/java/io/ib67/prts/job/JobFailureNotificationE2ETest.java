@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies the message {@link JobService#applyState} leaves the requester of a job that failed.
+ * Tests job failure notification delivery via {@link JobService#applyState}.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -67,8 +67,7 @@ class JobFailureNotificationE2ETest {
     }
 
     /**
-     * {@code requested_by} carries no foreign key, so the requester may be gone by the time the job
-     * fails — and the transition must land anyway.
+     * Verifies that job failure transitions succeed even if the requesting user has been deleted.
      */
     @Test
     void aRequesterWhoNoLongerExistsStillLetsTheJobFail() {
@@ -81,7 +80,7 @@ class JobFailureNotificationE2ETest {
         assertTrue(inTx(() -> Notification.<Notification>listAll()).isEmpty(), "nobody was written to");
     }
 
-    /** Nobody signs in as a sub-account, so its failures reach the person who created it. */
+    /** Verifies that failure notifications for sub-account jobs are delivered to the sub-account creator. */
     @Test
     void aSubAccountsFailureReachesItsCreator() {
         var ci = fixtures.createSubAccount(project, "ci", requester);

@@ -23,7 +23,7 @@ import org.jboss.logging.Logger;
 public class DevAdminSeeder {
     private static final Logger LOG = Logger.getLogger(DevAdminSeeder.class);
 
-    /** Identity of the auto-login account, also what {@code ExampleDataSeeder} hands its projects to. */
+    /** Identity of the development auto-login account. */
     public static final String EMAIL = "dev@localhost";
     public static final String NAME = "dev";
 
@@ -43,9 +43,7 @@ public class DevAdminSeeder {
         return token;
     }
 
-    // Seeding observes StartupEvent rather than @PostConstruct: DevAuthMechanism dereferences this
-    // bean's client proxy on the IO thread, and a @PostConstruct would run these queries there
-    // whenever the proxy is what first creates the bean.
+    // Observes StartupEvent to avoid running database queries on the IO thread during proxy creation.
     void seed(@Observes StartupEvent event) {
         // Open a transaction manually during application startup.
         var issued = QuarkusTransaction.requiringNew().call(() -> {

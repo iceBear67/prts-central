@@ -34,10 +34,7 @@ import org.jboss.resteasy.reactive.RestResponse;
 import java.util.List;
 
 /**
- * Administrative endpoints for the resource class catalogue, which is service-wide.
- *
- * <p>Every template and every job names a class, and a worker only reports the capacity it has — it
- * never declares a class — so an installation cannot run anything until one is defined here.
+ * Administrative endpoints for the service-wide resource class catalogue.
  */
 @Path("/admin/resource-class")
 @Produces(MediaType.APPLICATION_JSON)
@@ -80,10 +77,9 @@ public class AdminResourceClassResource {
     }
 
     /**
-     * Changes what a class demands. The name is its identity and cannot be edited.
+     * Updates resource class specifications.
      *
-     * <p>Jobs already placed keep the worker they ran on, but one still queued is matched against the
-     * new numbers when it is next dispatched.
+     * <p>Queued jobs will be matched against the updated requirements upon subsequent dispatch attempts.
      */
     @PATCH
     @Path("/{name}")
@@ -108,8 +104,7 @@ public class AdminResourceClassResource {
     /**
      * Deletes a resource class.
      *
-     * <p>Refused with 409 while a job or a template still names it: both hold a foreign key to the row,
-     * and a job is kept as the record of what ran rather than cascaded away with the class.
+     * <p>Returns 409 Conflict if the class is referenced by existing jobs or templates.
      */
     @DELETE
     @Path("/{name}")

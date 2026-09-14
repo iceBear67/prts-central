@@ -84,7 +84,7 @@ public class ProjectService {
         return project;
     }
 
-    /** Applies the fields the caller supplied; a null argument leaves that field as it was. */
+    /** Updates project metadata; non-null arguments replace existing values. */
     @Transactional
     public Project update(UUID id, @Nullable String name, @Nullable String description) {
         var project = require(id);
@@ -161,10 +161,9 @@ public class ProjectService {
     }
 
     /**
-     * Tells workers to discard the project's volumes.
+     * Requests worker volume deletion for all project volumes.
      *
-     * <p>{@code worker_volume.project_id} cascades, so without this the rows vanish while the data stays
-     * on the workers with nothing left pointing at it.
+     * <p>Invoked prior to project deletion because {@code worker_volume.project_id} cascades at the database level.
      */
     private void deleteVolumes(UUID projectId) {
         Map<UUID, UUID> hosts;

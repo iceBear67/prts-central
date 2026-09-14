@@ -75,7 +75,7 @@ public class SubAccount extends PanacheEntityBase {
         return account;
     }
 
-    /** Finds a sub-account by its user ID, with the account's own user fetched. */
+    /** Finds a sub-account by user ID with its user entity eagerly fetched. */
     public static Optional<SubAccount> findFetched(UUID userId) {
         return find("from SubAccount s join fetch s.user where s.userId = ?1", userId)
                 .firstResultOptional();
@@ -87,12 +87,12 @@ public class SubAccount extends PanacheEntityBase {
                 userId, projectId).firstResultOptional();
     }
 
-    /** Unpaged on purpose: {@code ProjectService.delete} has to reach every sub-account it owns. */
+    /** Lists all sub-accounts for a project with user entities fetched (used during project deletion). */
     public static List<SubAccount> listByProjectFetched(UUID projectId) {
         return find("from SubAccount s join fetch s.user where s.project.id = ?1", projectId).list();
     }
 
-    /** One page of the same, for the endpoint that shows them. */
+    /** Lists a paginated slice of sub-accounts for a project with user entities fetched, ordered by name. */
     public static List<SubAccount> listByProjectFetched(UUID projectId, int offset, int length) {
         return find("from SubAccount s join fetch s.user where s.project.id = ?1 "
                 + "order by s.user.name, s.userId", projectId)
@@ -113,7 +113,7 @@ public class SubAccount extends PanacheEntityBase {
                 .findFirst();
     }
 
-    /** Maps sub-account IDs to their owning project IDs; users who are not sub-accounts are omitted. */
+    /** Maps sub-account user IDs to their owning project IDs, omitting non-sub-account users. */
     public static Map<UUID, UUID> owningProjectsOf(Collection<UUID> userIds) {
         if (userIds.isEmpty()) {
             return Map.of();

@@ -9,8 +9,8 @@ import java.util.UUID;
 /**
  * View of a volume as a task mounts it.
  *
- * @param mountPoint where this task's jobs mount it; another task may mount it elsewhere
- * @param length     allocated bytes
+ * @param mountPoint Mount path within the container for this task.
+ * @param length     Total volume capacity in bytes.
  */
 public record TaskVolumeView(
         UUID volumeId,

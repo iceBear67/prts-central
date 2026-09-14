@@ -93,8 +93,7 @@ public class AdminUserResource {
             @NotNull(message = "a request body is required") @Valid SetPermissionsRequest request) {
         var perms = request.resolved();
         requireUser(userId);
-        // permission.project_id is a bare UUID with no foreign key, so nothing downstream would object
-        // to a scope that names no project — and the all-zero UUID is read back as the global scope.
+        // Validate project existence because user_permission.project_id lacks a foreign key constraint.
         projectService.require(projectId);
         userService.setPermissions(userId, projectId, perms);
         return detailOf(userId);

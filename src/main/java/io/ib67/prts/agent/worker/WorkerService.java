@@ -206,9 +206,9 @@ public class WorkerService {
     }
 
     /**
-     * Picks a worker to host a new volume.
+     * Selects a worker to host a new volume.
      *
-     * @throws ClientErrorException with HTTP 409 Conflict if no worker can take it
+     * @throws ClientErrorException with HTTP 409 Conflict if no worker is available
      */
     public UUID selectVolumeHost() {
         return scheduler.selectVolumeHost().orElseThrow(() -> new ClientErrorException(
@@ -216,20 +216,20 @@ public class WorkerService {
     }
 
     /**
-     * Asks a worker to allocate a volume, blocking until it acknowledges.
+     * Requests volume allocation on the specified worker, blocking until acknowledged.
      *
      * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
-     * @throws IllegalStateException if the worker refuses or does not answer
+     * @throws IllegalStateException if allocation fails or times out
      */
     public void createVolume(UUID workerId, UUID volumeId, UUID projectId, String name, long sizeBytes) {
         requireConnected(workerId).getRpc().createVolume(volumeId, projectId, name, sizeBytes);
     }
 
     /**
-     * Asks a worker to discard a volume, blocking until it acknowledges.
+     * Requests volume deletion on the specified worker, blocking until acknowledged.
      *
      * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
-     * @throws IllegalStateException if the worker refuses or does not answer
+     * @throws IllegalStateException if deletion fails or times out
      */
     public void deleteVolume(UUID workerId, UUID volumeId) {
         requireConnected(workerId).getRpc().deleteVolume(volumeId);
@@ -260,9 +260,9 @@ public class WorkerService {
     }
 
     /**
-     * Asks the worker running the job to cancel it.
+     * Sends a job cancellation request to the worker hosting the job.
      *
-     * @return true if the message was sent, false if the worker is disconnected
+     * @return true if sent, false if the worker is disconnected
      */
     public boolean cancelJob(UUID workerId, UUID jobId) {
         var worker = activeWorkers.get(workerId);
@@ -274,9 +274,9 @@ public class WorkerService {
     }
 
     /**
-     * Tells the worker to terminate and discard the job.
+     * Sends an interrupt request to terminate and discard a job immediately on the worker.
      *
-     * @return true if the message was sent, false if the worker is disconnected
+     * @return true if sent, false if the worker is disconnected
      */
     public boolean interrupt(UUID workerId, UUID jobId, String reason) {
         var worker = activeWorkers.get(workerId);

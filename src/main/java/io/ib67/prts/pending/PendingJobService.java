@@ -76,12 +76,12 @@ public class PendingJobService {
                 .filter(pending -> pending.getProject().getId().equals(projectId));
     }
 
-    /** The view for one queued job, showing its payload only to a caller who may create jobs. */
+    /** Builds the view for a queued job, including the payload only when permitted. */
     public PendingJobView viewOf(UUID projectId, PendingJob pending) {
         return viewOf(List.of(pending), jobAccess.mayCreate(projectId)).getFirst();
     }
 
-    /** The views for a listing, resolving the whole page's requesters in one query. */
+    /** Builds views for multiple queued jobs, batch-resolving requesters. */
     public List<PendingJobView> viewOf(UUID projectId, List<PendingJob> queued) {
         return viewOf(queued, jobAccess.mayCreate(projectId));
     }
@@ -150,14 +150,12 @@ public class PendingJobService {
     }
 
     /**
-     * Records the job a dispatch attempt produced.
+     * Records the created job for a dispatched pending job.
      *
-     * <p>The entry is claimed in one transaction and launched outside it, so a bulk cancellation
-     * ({@code PendingJob.cancelActive}, run by project archival, project deletion and task teardown) can
-     * land on the row while its job is being created. Reporting that lets the dispatcher stop the job it
-     * just started, rather than leaving the queue reading {@code CANCELLED} while a container runs.
+     * <p>The entry is claimed in one transaction and launched outside it, so concurrent bulk cancellation
+     * (e.g. project archival, deletion, or task teardown) may have cancelled the row during launch.
      *
-     * @return false if the entry stopped being {@code DISPATCHING} while the job was being launched
+     * @return false if the pending job is no longer in {@code DISPATCHING} state
      */
     @Transactional
     public boolean markDispatched(UUID pendingId, UUID jobId) {

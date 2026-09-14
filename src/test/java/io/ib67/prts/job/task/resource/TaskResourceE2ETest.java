@@ -129,7 +129,7 @@ class TaskResourceE2ETest {
                 .body("volumes", empty());
     }
 
-    /** A new scope replaces the old one outright rather than merging into it. */
+    /** Verifies that updating task scope replaces the entire scope configuration rather than merging. */
     @Test
     void editingTheScopeReplacesIt() {
         allowScopeWrites(member);
@@ -180,7 +180,7 @@ class TaskResourceE2ETest {
                 .body("task.trackedAt", equalTo("https://example.invalid/pr/42"));
     }
 
-    /** Both default to empty, and a blank edit clears them again. */
+    /** Verifies that description and trackedAt fields can be cleared via empty values. */
     @Test
     void describingIsOptionalAndReversible() {
         var id = openTask("pr-42");
@@ -267,7 +267,7 @@ class TaskResourceE2ETest {
         as(member).get("/api/project/" + other + "/task/" + id).then().statusCode(404);
     }
 
-    /** One volume, two tasks, each mounting it where it likes. */
+    /** Verifies that a volume can be mounted by multiple tasks at different mount points. */
     @Test
     void aVolumeIsSharedByTwoTasksAtDifferentPaths() {
         var worker = fixtures.createWorker("w1");
@@ -288,7 +288,7 @@ class TaskResourceE2ETest {
                 .body("[0].mountPoint", equalTo("/mnt/cache"));
     }
 
-    /** Closing a task drops its mounts; the volume and every other task's mount survive. */
+    /** Verifies that closing a task unmounts its volumes without deleting the volumes or affecting other tasks. */
     @Test
     void closingATaskOnlyUnmounts() {
         var worker = fixtures.createWorker("w1");
@@ -321,7 +321,7 @@ class TaskResourceE2ETest {
         as(viewer).get("/api/project/" + project + "/volume").then().statusCode(200).body("$", hasSize(1));
     }
 
-    /** A job can only be placed on a worker holding all of its volumes. */
+    /** Verifies that mounting volumes located on different workers to the same task is rejected. */
     @Test
     void volumesOnASecondWorkerCannotJoinTheTask() {
         var here = fixtures.createVolume(project, fixtures.createWorker("w1"), "here");
@@ -363,10 +363,7 @@ class TaskResourceE2ETest {
                 .body("[0].mountPoint", equalTo("/moved"));
     }
 
-    /**
-     * The control plane forwards a mount point to a worker that binds it, so it refuses anything that
-     * is not a plain absolute path rather than leaving the traversal to be resolved there.
-     */
+    /** Verifies that invalid or non-normalized mount points are rejected. */
     @ParameterizedTest
     @ValueSource(strings = {"data", "/../etc", "/data/../../etc", "/data/./x", "/data/", "/data//x", "/"})
     void anUnusableMountPointIsRejected(String mountPoint) {
@@ -393,8 +390,7 @@ class TaskResourceE2ETest {
     }
 
     /**
-     * A task's scope reaches every job under it without passing the override gate, so writing one is
-     * charged what overriding the same field would cost. `task:manage` alone is not enough.
+     * Verifies that defining scope fields requires corresponding job override permissions in addition to task:manage.
      */
     @ParameterizedTest
     @MethodSource("gatedScopeFields")
@@ -430,7 +426,7 @@ class TaskResourceE2ETest {
                 .body("message", equalTo("missing permission: " + Perm.JOB_RESOURCE_CLASS.permission()));
     }
 
-    /** Absent and empty are the same value in a scope, so contributing nothing costs nothing. */
+    /** Verifies that an empty task scope does not require override permissions. */
     @Test
     void aScopeThatContributesNothingCostsNothing() {
         as(member).contentType(ContentType.JSON)

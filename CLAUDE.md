@@ -143,9 +143,8 @@ and the entities both have been), so a path is the part that goes stale while th
   that takes and returns the view: `JobService.viewOf`, `PendingJobService.viewOf`,
   `SubAccountService.viewOf`. Each has a single-entity form and a collection form; the collection form
   resolves the whole page at once (`User.mapByIds`, `Artifact.listByJobs`) and a listing must use it.
-  **Never take a `Function` or a pre-resolved map so the caller can supply what the builder could look
-  up** — that parameter is the smell this rule replaced. A view needing nothing but its entity
-  (`TaskView`, `WorkerVolumeView`) keeps its static `of`.
+  **Never take a `Function` or a pre-resolved map so the caller supplies lookups that the builder should perform directly.**
+  A view needing nothing but its entity (`TaskView`, `WorkerVolumeView`) keeps its static `of`.
 - **Don't invent a type to carry a shape.** A service method, or a record, that exists only to reshape data
   its caller can already reach is the resource's work —
   `ScopedGrants.of(permissionService.grantsOf(id))`, not `PermissionService.grantsByScope`. Two callers

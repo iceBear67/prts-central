@@ -16,10 +16,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * Named resource requirement profile used to match jobs to capable workers.
- *
- * <p>Classes are service-wide: the name is the whole identity, and every project draws from the same
- * catalogue. Only an admin defines one — see {@code AdminResourceClassResource}.
+ * Service-wide resource profile specifying CPU, memory, and disk requirements for job placement.
  */
 @Entity
 @Table(name = "resource_class")
@@ -44,7 +41,7 @@ public class ResourceClass extends PanacheEntityBase {
     @Column(name = "disk_size", nullable = false)
     private int diskSize;
 
-    // Hand-written rather than a bare findByIdOptional so callers stay mockable with mockStatic.
+    // Static wrapper around findByIdOptional to enable mockStatic in tests.
     public static Optional<ResourceClass> findByName(String name) {
         return findByIdOptional(name);
     }

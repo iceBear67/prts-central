@@ -58,10 +58,7 @@ public class UserIdentityAugmenter implements SecurityIdentityAugmentor {
             LOG.warnf("not registering %s from %s: the token carries no email claim", subject, issuer);
             return Optional.empty();
         }
-        // The email is only ever a display identity — authentication binds on (issuer, subject), and
-        // findByEmail reaches no authentication path — but an admin searching for a colleague's address
-        // should not find someone who merely typed it at the provider. A provider that omits the claim
-        // is taken at its word; one that says "not verified" is not.
+        // Reject unverified emails to prevent identity misrepresentation in searches.
         if ("false".equalsIgnoreCase(claim(identity, "email_verified"))) {
             LOG.warnf("not registering %s from %s: the provider reports its email as unverified",
                     subject, issuer);
@@ -80,7 +77,7 @@ public class UserIdentityAugmenter implements SecurityIdentityAugmentor {
         }
     }
 
-    /** Only the token: {@code (issuer, subject)} is the binding key, so an attribute must not steer it. */
+    /** Extracts the token issuer directly from the JWT principal. */
     @Nullable
     private static String issuer(SecurityIdentity identity) {
         return identity.getPrincipal() instanceof JsonWebToken token ? token.getIssuer() : null;

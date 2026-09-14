@@ -17,9 +17,9 @@ Tests are divided into three distinct execution tiers:
 - **Panache Static Mocking**:
   - Hand-written entity static finders (`JobSpecTemplate.findVisibleFetched`, `ResourceClass.findByName`) can be mocked via `Mockito.mockStatic`. `ResourceClass.findByName` exists only to wrap `findByIdOptional` for exactly this reason — keep the wrapper when a mocked caller depends on it.
   - Inherited Panache static methods (`findById`, `persist`, `listAll`) fail outside Quarkus augmentation; beans relying on them must be tested in Tier C.
-  - *Caution*: `mockStatic(Entity.class)` stubs **every** static the class has, including ones Lombok generates. That is `builder()`, and — for any entity with a `@Builder.Default` field, such as `Job.state` and `WorkerVolume.state` — the `$default$<field>()` the no-arg constructor calls, so even `new Entity()` interacts with the mock. Always construct entity test fixtures *before* opening a `mockStatic` block, including inside `thenReturn(...)` arguments: an exception thrown while evaluating one leaves the stubbing unfinished, and the `UnfinishedStubbingException` raised at close hides the real cause.
+  - *Caution*: `mockStatic(Entity.class)` stubs all static methods, including Lombok-generated `builder()` and `$default$<field>()` (used by `@Builder.Default` fields like `Job.state` and `WorkerVolume.state`). Instantiate entity fixtures before opening a `mockStatic` block to avoid mock interference and `UnfinishedStubbingException`.
 - **Transaction Stubbing**: Use `io.ib67.prts.testing.InlineTransactions` in a try-with-resources block to execute `QuarkusTransaction.requiringNew()` synchronously on the test thread.
-- **Expected-Failure Noise**: A test that drives a failure path on purpose wraps the acting call in `io.ib67.prts.testing.MutedLogs` — best-effort handlers log the whole stack trace, which otherwise buries the CI report. Applies to Tier C as well.
+- **Log Muting (`MutedLogs`)**: Tests driving expected-failure paths should wrap calls in `io.ib67.prts.testing.MutedLogs` to suppress noisy stack traces. Applies to Tier C as well.
 
 ## Tier C Constraints & Fixtures
 
@@ -27,7 +27,7 @@ Tests are divided into three distinct execution tiers:
 - **Authentication in Tests (`Fixtures`)**:
   - Dev auto-login is disabled under `%test`.
   - Standard tests authenticate using real Personal Access Tokens generated via `Fixtures#actor` and `Fixtures.as(actor)`.
-- **Project Ownership (`Fixtures#createProject`)**: `ProjectService.create` takes an owner, so every fixture project has one. Pass the `Actor` that should own it; the `createProject(name)` overload registers a throwaway `nobody` user instead, which counts towards `user` and `user_to_project` rows.
+- **Project Ownership (`Fixtures#createProject`)**: `ProjectService.create` requires an owner. Tests should pass an explicit `Actor`; `createProject(name)` defaults to creating a throwaway user.
 - **Worker Cleanup**: Active worker registrations in `WorkerService.activeWorkers` reside in-memory; tests interacting with WebSockets must disconnect workers and clear sessions in `@AfterEach`.
 - **E2E Filtering**: Tier C test classes must follow the naming pattern `*E2ETest.java` to be excluded from standard `./gradlew test` runs.
 

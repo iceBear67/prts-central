@@ -7,7 +7,7 @@ import io.smallrye.config.WithDefault;
 public interface ProjectConfig {
     ListConfig list();
 
-    /** Caps the project catalogues a member lists: templates, secrets, sub-accounts, volumes. */
+    /** Maximum page size for project resource listings (templates, secrets, sub-accounts, volumes). */
     interface ListConfig {
         @WithDefault("50")
         int maxPageSize();

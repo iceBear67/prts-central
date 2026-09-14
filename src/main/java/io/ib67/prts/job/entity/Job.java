@@ -112,10 +112,8 @@ public class Job extends PanacheEntityBase {
     private UUID templateId;
 
     /**
-     * Task whose scope this job ran under, or {@code null} if it belongs to no task.
-     *
-     * <p>Carries no foreign key: a task is closed rather than deleted, and its jobs outlive it as the
-     * record of what it scoped.
+     * ID of the task context for this job, or {@code null} if unassociated.
+     * Stored without a foreign key constraint to preserve execution history after task closure.
      */
     @Nullable
     @Column(name = "task_id", updatable = false)
@@ -232,16 +230,13 @@ public class Job extends PanacheEntityBase {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
     }
 
-    /** How many jobs hold this resource class. Guards deletion of a class still referenced. */
+    /** Returns the number of jobs referencing the specified resource class. */
     public static long countByResourceClass(String name) {
         return count("resourceClass.name = ?1", name);
     }
 
     /**
-     * Detached descriptor of an unfinished job.
-     *
-     * <p>Reaching a job's worker means an RPC, which cannot run inside a transaction — so the rows are
-     * read and closed over first.
+     * Detached descriptor of an active job used for external worker RPCs outside transaction boundaries.
      */
     public record Open(UUID id, @Nullable UUID worker) {
         public Open {

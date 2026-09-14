@@ -25,13 +25,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Mounts a {@link WorkerVolume} into a {@link Task}.
- *
- * <p>The relation is many-to-many: one volume may be shared by several tasks, and each of them mounts
- * it wherever it likes — which is why {@code mountPoint} lives on this row rather than on the volume.
- *
- * <p>Closing a task drops its mounts and nothing else. Volumes outlive the tasks that used them and are
- * only removed from the worker by an explicit delete.
+ * Entity mapping a {@link WorkerVolume} mount into a {@link Task} at a specified container path.
  */
 @Entity
 @Table(name = "task_volume")
@@ -81,21 +75,18 @@ public class TaskVolume extends PanacheEntityBase {
         return findByIdOptional(new Id(taskId, volumeId));
     }
 
-    /** How many tasks currently mount this volume. Guards deletion of a volume still in use. */
+    /** Returns the number of tasks mounting the specified volume. */
     public static long countByVolume(UUID volumeId) {
         return count("id.volumeId", volumeId);
     }
 
-    /** Drops every mount of a task. The volumes themselves are untouched. */
+    /** Deletes all volume mounts for the specified task. */
     public static long deleteByTask(UUID taskId) {
         return delete("id.taskId", taskId);
     }
 
     /**
-     * The worker hosting this task's volumes, or empty if it mounts none.
-     *
-     * <p>A job may only be placed on a worker holding all of its volumes, so a task with mounts is
-     * effectively pinned to one. Attaching enforces this rather than storing it.
+     * Returns the worker hosting this task's volumes, or empty if no volumes are attached.
      */
     public static Optional<UUID> workerOf(UUID taskId) {
         return TaskVolume.<TaskVolume>find(

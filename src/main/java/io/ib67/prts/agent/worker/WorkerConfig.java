@@ -5,7 +5,7 @@ import jakarta.validation.constraints.NotBlank;
 
 @ConfigMapping(prefix = "worker")
 public interface WorkerConfig {
-    /** Blank would authenticate a blank {@code X-Worker-Token}, which is also why there is no default. */
+    /** Shared secret required for {@code X-Worker-Token} worker authentication. */
     @NotBlank(message = "worker.secret must not be blank: an empty secret authenticates an empty header")
     String secret();
 }

@@ -15,8 +15,8 @@ import java.util.UUID;
 /**
  * View of a task scope.
  *
- * @param trackedAt link to the issue, pull request or ticket the task follows; empty if it tracks none
- * @param closedAt  null until teardown finished
+ * @param trackedAt Issue or pull request link; empty string if none.
+ * @param closedAt  Timestamp when task was closed, or null if open.
  */
 public record TaskView(
         UUID id,
@@ -42,12 +42,12 @@ public record TaskView(
         Objects.requireNonNull(createdAt, "createdAt");
     }
 
-    /** Builds the view for a lone task, resolving its opener. */
+    /** Creates a TaskView for a single task, resolving creator details. */
     public static TaskView of(Task task) {
         return of(task, UserInfo.of(task.getCreatedBy()));
     }
 
-    /** Builds the views for a listing, resolving the whole page's openers in one query. */
+    /** Creates TaskViews for a list of tasks, resolving creator details in bulk. */
     public static List<TaskView> of(List<Task> tasks) {
         var users = User.mapByIds(tasks.stream().map(Task::getCreatedBy).distinct().toList());
         return tasks.stream()

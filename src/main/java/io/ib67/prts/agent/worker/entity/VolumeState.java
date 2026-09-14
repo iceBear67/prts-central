@@ -2,19 +2,16 @@ package io.ib67.prts.agent.worker.entity;
 
 /**
  * Provisioning state of a {@link WorkerVolume}.
- *
- * <p>The row is committed before the blocking {@code CreateVolume} RPC runs, so a volume the worker
- * has not acknowledged yet must be distinguishable from one it has.
  */
 public enum VolumeState {
-    /** The row exists but the worker has not acknowledged creating it. */
+    /** Volume allocation requested, awaiting worker acknowledgment. */
     PROVISIONING,
-    /** The worker holds the volume; it may be mounted and scheduled onto. */
+    /** Volume successfully allocated and ready for job mounting. */
     READY,
-    /** A delete was issued; the row is removed once the worker acknowledges. */
+    /** Volume deletion requested, awaiting worker acknowledgment. */
     RELEASING;
 
-    /** Whether jobs may mount this volume. */
+    /** Returns true if the volume is ready to be mounted. */
     public boolean isUsable() {
         return this == READY;
     }

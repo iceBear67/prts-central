@@ -5,7 +5,7 @@ import io.ib67.prts.agent.worker.entity.ResourceClass;
 import java.util.Objects;
 
 /**
- * View of a resource class: the capacity a job of this class needs from the worker running it.
+ * View of a resource class specification.
  */
 public record ResourceClassView(
         String name,

@@ -68,10 +68,7 @@ sequenceDiagram
 - **Asynchronous Enqueue**: `POST .../job` never creates an active job synchronously; it persists a `PendingJob` and returns `201 Created` with `PendingJobView`.
 - **Request Immutability**: `JobRequest` embeds `templateId`, `create_override`, the resolved `resourceClass`, and an optional `taskId`. Secrets are not stored in queue rows.
 - **Requester Identity**: `requested_by` is stored explicitly on `PendingJob` and carried to `Job`.
-- **Task Scope**: a request naming a task is merged against it in `JobLauncher.resolve` — which runs at
-  enqueue *and* on every dispatch attempt, so the task is re-read each time. A task that closed in
-  between conflicts, and the dispatcher fails the entry as it does for a deleted template. `taskId`
-  carries no foreign key, for the same reason `templateId` does not. See [task-scope.md](task-scope.md).
+- **Task Scope**: Requests with a `taskId` resolve task defaults and bindings during enqueue and again at each dispatch attempt. If the task is closed before dispatch, `PendingJobDispatcher` fails the job. The `taskId` column does not enforce a foreign key constraint, matching `templateId` (see [task-scope.md](task-scope.md)).
 
 ## Dispatch Flow (`PendingJobDispatcher`)
 
@@ -111,11 +108,7 @@ stateDiagram-v2
 - **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent worker reports are ignored.
 - **Worker Disconnect**: When a worker disconnects, `WorkerService.failJobsOf` transitions all open jobs on that worker to `FAILED`.
 - **`JobService.discard`**: Deletes a `PENDING` job only if `job.worker` is null. Throws `IllegalStateException` if a worker was already assigned.
-- **Failure Notification**: Every transition into `FAILED` leaves `requested_by` a message, so a worker's
-  own report, the disconnect that orphaned the job and a scheduler that threw all reach the requester
-  from the one place. It goes through `NotificationService.notifyIfPresent` rather than `notify`:
-  `requested_by` carries no foreign key, and a miss thrown from `applyState`'s transaction would roll
-  back the transition being reported. Terminal states other than `FAILED` say nothing.
+- **Failure Notification**: Transitions to `FAILED` notify `requested_by` via `NotificationService.notifyIfPresent`. Using `notifyIfPresent` ensures that non-existent or deleted users do not trigger exceptions that would roll back the terminal state transition. Other terminal states do not generate notifications.
 
 ## Mutual Exclusion (`JobLock`)
 

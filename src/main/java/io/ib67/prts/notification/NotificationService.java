@@ -11,19 +11,18 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Leaves messages for users on behalf of the components of the system.
+ * Service for delivering system notifications to users.
  */
 @ApplicationScoped
 public class NotificationService {
 
     /**
-     * Leaves a message for a recipient who may since have been deleted.
+     * Sends a notification if the recipient (or owning creator for a sub-account) exists.
      *
-     * <p>Separate from {@link #notify} because a caller reporting on its own work cannot catch the miss:
-     * throwing out of a {@code @Transactional} method that joined the caller's transaction marks it
-     * rollback-only, so the message about the work would undo the work.
+     * <p>Returns {@link Optional#empty()} instead of throwing to prevent marking the caller's
+     * joined transaction as rollback-only when the recipient no longer exists.
      *
-     * @return empty if neither the recipient nor, for a sub-account, its creator still exists
+     * @return the created notification, or empty if the recipient no longer exists
      */
     @Transactional
     public Optional<Notification> notifyIfPresent(
@@ -35,10 +34,9 @@ public class NotificationService {
     }
 
     /**
-     * Leaves the same message for everyone who can log in, one row each. Sub-accounts are skipped:
-     * nobody signs in as one, so nobody would ever read it.
+     * Broadcasts a notification to all non-sub-account users.
      *
-     * @return how many recipients it reached
+     * @return number of notifications created
      */
     @Transactional
     public int broadcast(String from, String title, String content) {

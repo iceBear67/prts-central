@@ -59,7 +59,7 @@ class TaskScopeTest {
         assertEquals(Map.of("tier", "task"), merged.labels());
     }
 
-    /** A job may specialize what its task declares, so the override still lands on top. */
+    /** Verifies that explicit job overrides take precedence over task scope defaults. */
     @Test
     void aCallerOverrideStillBeatsTheDefaults() {
         var scope = new TaskScope(Map.of("A", "task", "B", "task"), Map.of(), null);
@@ -88,7 +88,7 @@ class TaskScopeTest {
         assertEquals(Map.of(VOLUME, new JobSpec.VolumeSpec("/shared", 4096L)), bound.volumes());
     }
 
-    /** Identity must win, or a caller could claim membership in a task by writing the variable itself. */
+    /** Verifies that task identity environment and label entries overwrite user-supplied values. */
     @Test
     void identityIsNotOverridable() {
         var claimed = spec(
@@ -117,9 +117,8 @@ class TaskScopeTest {
     }
 
     /**
-     * A task's values reach every job under it without passing the override gate, so writing them has
-     * to cost what overriding them would. Otherwise `task:manage` (a MEMBER) is a way around
-     * `job:spec:environment`, `job:spec:labels` and `job:resource-class`.
+     * Verifies that declaring environment variables, labels, and resource classes in a task scope
+     * validates the corresponding override permissions.
      */
     @Test
     void writingAScopeIsChargedFieldByField() {
@@ -134,7 +133,7 @@ class TaskScopeTest {
         verifyNoMoreInteractions(authorizer);
     }
 
-    /** Absent and empty are the same value here, so a scope that contributes nothing costs nothing. */
+    /** Verifies that an empty task scope requires no override permissions. */
     @Test
     void anEmptyScopeIsChargedForNothing() {
         var authorizer = mock(JobSpecOverrideAuthorizer.class);
@@ -155,8 +154,7 @@ class TaskScopeTest {
     }
 
     /**
-     * JobSpec does not copy its collections, and a spec that skipped every override holds the managed
-     * template entity's own maps — so neither layer may write into what it was handed.
+     * Verifies that scope defaulting and volume binding do not mutate input spec collections.
      */
     @Test
     void neitherLayerMutatesTheSpecItWasGiven() {

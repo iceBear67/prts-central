@@ -27,9 +27,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * A message left for a user by a component of the system.
+ * System notification sent to an individual user.
  *
- * <p>A site-wide notice is fanned out, one row per recipient, so that each carries its own read state.
+ * <p>Broadcast notifications are fanned out into per-recipient rows to track read status individually.
  */
 @Entity
 @Table(
@@ -55,7 +55,7 @@ public class Notification extends PanacheEntityBase {
     @ToString.Exclude
     private User recipient;
 
-    /** Who left the message. Named sender because {@code from} is a reserved word in SQL. */
+    /** Notification source identifier. Named {@code sender} because {@code from} is a SQL reserved keyword. */
     @Column(name = "sender", nullable = false, updatable = false, columnDefinition = "varchar")
     private String sender;
 
@@ -72,7 +72,7 @@ public class Notification extends PanacheEntityBase {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
-    /** Lists a user's messages, most recent first. */
+    /** Lists notifications for a recipient, ordered by creation time descending. */
     public static List<Notification> listByRecipient(UUID recipient, int offset, int limit) {
         return Notification.<Notification>find(
                         "recipient.id = ?1 order by createdAt desc, id desc", recipient)
@@ -80,7 +80,7 @@ public class Notification extends PanacheEntityBase {
                 .list();
     }
 
-    /** Resolves a message only if it belongs to the given user. */
+    /** Finds a notification by ID and recipient. */
     public static Optional<Notification> findForRecipient(UUID recipient, UUID id) {
         return Notification.<Notification>find("id = ?1 and recipient.id = ?2", id, recipient)
                 .firstResultOptional();
