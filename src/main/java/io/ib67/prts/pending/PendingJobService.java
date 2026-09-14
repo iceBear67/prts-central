@@ -1,8 +1,13 @@
 package io.ib67.prts.pending;
 
+import io.ib67.prts.dto.UserInfo;
+import io.ib67.prts.dto.job.PendingJobView;
+import io.ib67.prts.dto.request.CreateJobRequest;
+import io.ib67.prts.job.JobAccess;
 import io.ib67.prts.job.JobConfig;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.project.ProjectService;
+import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -32,6 +37,8 @@ public class PendingJobService {
     UserContext userContext;
     @Inject
     JobConfig jobConfig;
+    @Inject
+    JobAccess jobAccess;
 
     /**
      * Enqueues an authorized job request to be dispatched when a worker is available.
@@ -67,6 +74,35 @@ public class PendingJobService {
     public Optional<PendingJob> findInProject(UUID projectId, UUID pendingId) {
         return PendingJob.<PendingJob>findByIdOptional(pendingId)
                 .filter(pending -> pending.getProject().getId().equals(projectId));
+    }
+
+    /** The view for one queued job, showing its payload only to a caller who may create jobs. */
+    public PendingJobView viewOf(UUID projectId, PendingJob pending) {
+        return viewOf(List.of(pending), jobAccess.mayCreate(projectId)).getFirst();
+    }
+
+    /** The views for a listing, resolving the whole page's requesters in one query. */
+    public List<PendingJobView> viewOf(UUID projectId, List<PendingJob> queued) {
+        return viewOf(queued, jobAccess.mayCreate(projectId));
+    }
+
+    private List<PendingJobView> viewOf(List<PendingJob> queued, boolean withRequest) {
+        var users = User.mapByIds(queued.stream().map(PendingJob::getRequestedBy).distinct().toList());
+        return queued.stream()
+                .map(pending -> new PendingJobView(
+                        pending.getId(),
+                        pending.getProject().getId(),
+                        pending.getState(),
+                        UserInfo.of(pending.getRequestedBy(), users.get(pending.getRequestedBy())),
+                        pending.getRequest().resourceClass(),
+                        pending.getCreatedAt(),
+                        pending.getExpiresAt(),
+                        pending.getState().isSettled() ? null : pending.getNextAttemptAt(),
+                        pending.getAttempts(),
+                        pending.getLastError(),
+                        pending.getJobId(),
+                        withRequest ? CreateJobRequest.of(pending.getRequest()) : null))
+                .toList();
     }
 
     /**

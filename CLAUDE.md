@@ -130,12 +130,22 @@ and the entities both have been), so a path is the part that goes stale while th
   `JobSpecOverride`'s fields, where absent must be told from supplied-but-empty because only a
   supplied field is gated.
 - **Authorization lives at the endpoint**, not in the services. Services take plain arguments or domain
-  values (`JobRequest`), never wire DTOs; request-shape validation stays in the resource.
+  values (`JobRequest`), never wire DTOs; request-shape validation stays in the resource. The exception
+  is a `viewOf` (below), which owns the visibility gate deciding what its own view shows.
 - **A resource shapes; it never queries.** `EntityManager` does not appear in a resource — anything that
   needs one goes on the entity as a Panache finder or into the service owning the concept, which is what
   those layers are for. Put it where that concept already lives: `ArtifactService.stored()` beside its
   `reservedFor()`, `UserToProject.countByProjects` beside the `Job.countVisibleByProjects` its caller
-  already uses. What stays at the endpoint is grouping, merging and mapping into view records.
+  already uses. What stays at the endpoint is grouping, merging and paging.
+- **A view a resource cannot build from what it holds is built by `Service.viewOf`, not a static
+  factory.** When rendering needs a lookup or a permission check — the requester behind an ID, a job's
+  artifacts, whether the caller may see a re-run payload — the service owning the entity injects what
+  that takes and returns the view: `JobService.viewOf`, `PendingJobService.viewOf`,
+  `SubAccountService.viewOf`. Each has a single-entity form and a collection form; the collection form
+  resolves the whole page at once (`User.mapByIds`, `Artifact.listByJobs`) and a listing must use it.
+  **Never take a `Function` or a pre-resolved map so the caller can supply what the builder could look
+  up** — that parameter is the smell this rule replaced. A view needing nothing but its entity
+  (`TaskView`, `WorkerVolumeView`) keeps its static `of`.
 - **Don't invent a type to carry a shape.** A service method, or a record, that exists only to reshape data
   its caller can already reach is the resource's work —
   `ScopedGrants.of(permissionService.grantsOf(id))`, not `PermissionService.grantsByScope`. Two callers

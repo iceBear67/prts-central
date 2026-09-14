@@ -4,9 +4,7 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.job.entity.Artifact;
-import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobState;
-import io.ib67.prts.user.User;
 import jakarta.annotation.Nullable;
 
 import java.time.Instant;
@@ -14,11 +12,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
- * View representing a job's execution state, metadata, and artifacts.
+ * View representing a job's execution state, metadata, and artifacts. Built by {@code JobService.viewOf}.
  *
  * @param resourceClass The resolved resource class name used for execution.
  * @param createRequest Request payload needed to re-run this job, or null if omitted or forbidden.
@@ -98,43 +94,4 @@ public record JobView(
         }
     }
 
-    /** Builds the view for a lone job, resolving its requester and artifacts. */
-    public static JobView of(Job job, @Nullable CreateJobRequest createRequest) {
-        return of(job, UserInfo.of(job.getRequestedBy()), Artifact.listByJob(job.getId()), createRequest);
-    }
-
-    /**
-     * Builds the views for a listing, resolving the whole page's requesters and artifacts in one
-     * query each.
-     *
-     * @param createRequest each job's re-run payload, or null where it is omitted or forbidden
-     */
-    public static List<JobView> of(List<Job> jobs, Function<Job, CreateJobRequest> createRequest) {
-        var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
-        var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
-                .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
-        return jobs.stream()
-                .map(job -> of(
-                        job,
-                        UserInfo.of(job.getRequestedBy(), users.get(job.getRequestedBy())),
-                        artifacts.getOrDefault(job.getId(), List.of()),
-                        createRequest.apply(job)))
-                .toList();
-    }
-
-    private static JobView of(
-            Job job, UserInfo requestedBy, List<Artifact> artifacts, @Nullable CreateJobRequest createRequest) {
-        return new JobView(
-                job.getId(),
-                job.getProject().getId(),
-                job.getCreatedAt(),
-                job.getCompletedAt(),
-                job.getState(),
-                job.getWorker(),
-                requestedBy,
-                job.getResourceClass().getName(),
-                SpecView.of(job.getSpec()),
-                artifacts.stream().map(ArtifactView::of).toList(),
-                createRequest);
-    }
 }

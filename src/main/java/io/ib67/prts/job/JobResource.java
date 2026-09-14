@@ -17,7 +17,6 @@ import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
-import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.storage.StorageService;
@@ -160,7 +159,6 @@ public class JobResource {
         var window = Pages.clampLength(length, jobConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
         var depth = start + window;
-        var mayCreate = jobAccess.mayCreate(projectId);
         var jobs = taskId == null
                 ? jobService.listVisible(projectId, depth)
                 : jobService.listVisibleInTask(projectId, taskId, depth);
@@ -168,8 +166,8 @@ public class JobResource {
                 ? PendingJob.listUnplacedByProject(projectId, depth)
                 : PendingJob.listUnplacedByTask(taskId, depth);
         return Stream.<JobStatusView>concat(
-                        JobView.of(jobs, job -> requestFor(mayCreate, job.toRequest())).stream(),
-                        PendingJobView.of(queued, pending -> requestFor(mayCreate, pending.getRequest())).stream())
+                        jobService.viewOf(projectId, jobs).stream(),
+                        pendingJobService.viewOf(projectId, queued).stream())
                 .sorted(Comparator.comparing(JobStatusView::createdAt).reversed())
                 .skip(start)
                 .limit(window)
@@ -187,7 +185,7 @@ public class JobResource {
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("jobId") UUID jobId) {
         var job = jobService.findInProject(projectId, jobId);
         if (job.isPresent()) {
-            return viewOf(projectId, job.get());
+            return jobService.viewOf(projectId, job.get());
         }
         var pending = pendingJobService.findInProject(projectId, jobId)
                 .orElseThrow(NotFoundException::new);
@@ -196,22 +194,8 @@ public class JobResource {
                 ? Optional.<Job>empty()
                 : jobService.findInProject(projectId, pending.getJobId());
         return dispatched
-                .map(it -> (JobStatusView) viewOf(projectId, it))
-                .orElseGet(() -> viewOf(projectId, pending));
-    }
-
-    private JobView viewOf(UUID projectId, Job job) {
-        return JobView.of(job, requestFor(jobAccess.mayCreate(projectId), job.toRequest()));
-    }
-
-    private PendingJobView viewOf(UUID projectId, PendingJob pending) {
-        return PendingJobView.of(pending, requestFor(jobAccess.mayCreate(projectId), pending.getRequest()));
-    }
-
-    /** Returns the creation request details if the caller has permission to create jobs. */
-    @Nullable
-    private static CreateJobRequest requestFor(boolean mayCreate, @Nullable JobRequest request) {
-        return request != null && mayCreate ? CreateJobRequest.of(request) : null;
+                .map(it -> (JobStatusView) jobService.viewOf(projectId, it))
+                .orElseGet(() -> pendingJobService.viewOf(projectId, pending));
     }
 
     /**
@@ -233,9 +217,8 @@ public class JobResource {
             @NotNull(message = "a request body is required") @Valid CreateJobRequest request) {
         projectService.requireWritable(projectId);
         var authorized = jobLauncher.authorize(projectId, request.toRequest(), overridePermissions);
-        var pending = pendingJobService.enqueue(projectId, authorized);
-        // Not viewOf: the caller holds job:create by definition here, so the request always comes back.
-        return PendingJobView.of(pending, CreateJobRequest.of(pending.getRequest()));
+        // The caller holds job:create by definition here, so the request always comes back.
+        return pendingJobService.viewOf(projectId, pendingJobService.enqueue(projectId, authorized));
     }
 
     /** Cancels an active job or queued pending job. */
@@ -249,12 +232,11 @@ public class JobResource {
             var pending = pendingJobService.findInProject(projectId, jobId)
                     .orElseThrow(NotFoundException::new);
             if (pending.getJobId() == null) {
-                return viewOf(projectId, pendingJobService.cancel(projectId, jobId));
+                return pendingJobService.viewOf(projectId, pendingJobService.cancel(projectId, jobId));
             }
             jobId = pending.getJobId();
         }
-        var cancelled = jobService.cancel(projectId, jobId);
-        return JobView.of(cancelled, null);
+        return jobService.viewOf(projectId, jobService.cancel(projectId, jobId));
     }
 
     @GET

@@ -15,7 +15,6 @@ import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
 import io.ib67.prts.user.SubAccountService;
 import io.ib67.prts.user.UserContext;
-import io.ib67.prts.user.UserService;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -51,8 +50,6 @@ public class SubAccountResource {
     @Inject
     ProjectConfig projectConfig;
     @Inject
-    UserService userService;
-    @Inject
     AccessTokenService accessTokenService;
     @Inject
     ProjectService projectService;
@@ -70,7 +67,7 @@ public class SubAccountResource {
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
         // A sub-account is created with no grants, so there is nothing to look up.
-        return SubAccountView.of(account, List.of());
+        return subAccountService.viewOf(account, List.of());
     }
 
     @GET
@@ -81,8 +78,8 @@ public class SubAccountResource {
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        var accounts = subAccountService.list(projectId, Pages.clampOffset(offset, window), window);
-        return SubAccountView.of(accounts, account -> userService.permissionsOf(account.getUserId(), projectId));
+        return subAccountService.viewOf(
+                projectId, subAccountService.list(projectId, Pages.clampOffset(offset, window), window));
     }
 
     @GET
@@ -90,8 +87,7 @@ public class SubAccountResource {
     @Transactional
     public SubAccountView getSubAccount(
             @ProjectId @PathParam("projectId") UUID projectId, @PathParam("userId") UUID userId) {
-        var account = subAccountService.require(projectId, userId);
-        return SubAccountView.of(account, userService.permissionsOf(userId, projectId));
+        return subAccountService.viewOf(projectId, subAccountService.require(projectId, userId));
     }
 
     @DELETE
@@ -114,10 +110,8 @@ public class SubAccountResource {
         var perms = request.resolved();
         projectService.requireWritable(projectId);
         subAccountService.setPermissions(projectId, userId, perms);
-        var account = subAccountService.require(projectId, userId);
-        // The grants just written, not a fresh read: the permission cache is only invalidated once
-        // this transaction commits, so permissionsOf would still answer with the old set here.
-        return SubAccountView.of(account, perms);
+        // The grants just written, not a fresh read — see the overload's contract.
+        return subAccountService.viewOf(subAccountService.require(projectId, userId), perms);
     }
 
     @GET

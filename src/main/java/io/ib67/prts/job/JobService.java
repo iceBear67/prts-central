@@ -2,6 +2,10 @@ package io.ib67.prts.job;
 
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.dto.UserInfo;
+import io.ib67.prts.dto.job.JobView;
+import io.ib67.prts.dto.request.CreateJobRequest;
+import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
@@ -9,6 +13,7 @@ import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.notification.NotificationService;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.storage.ArtifactService;
+import io.ib67.prts.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -25,6 +30,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Manages job state transitions, cancellations, and logs.
@@ -41,6 +47,8 @@ public class JobService {
     ArtifactService artifactService;
     @Inject
     NotificationService notificationService;
+    @Inject
+    JobAccess jobAccess;
 
     public Job require(UUID id) {
         return Job.<Job>findByIdOptional(id)
@@ -76,6 +84,52 @@ public class JobService {
         Task.findInProject(projectId, taskId)
                 .orElseThrow(() -> new NotFoundException("no such task in project " + projectId + ": " + taskId));
         return Job.listVisibleByTask(taskId, limit);
+    }
+
+    /** The view for one job, showing its re-run payload only to a caller who may create jobs. */
+    public JobView viewOf(UUID projectId, Job job) {
+        return viewOf(List.of(job), jobAccess.mayCreate(projectId)).getFirst();
+    }
+
+    /** The views for a project listing, resolving the whole page's requesters and artifacts. */
+    public List<JobView> viewOf(UUID projectId, List<Job> jobs) {
+        return viewOf(jobs, jobAccess.mayCreate(projectId));
+    }
+
+    /**
+     * The views for a listing that spans projects — one worker's jobs, an admin surface. There is no
+     * single project to gate on, so the re-run payload is left out.
+     */
+    public List<JobView> viewOf(List<Job> jobs) {
+        return viewOf(jobs, false);
+    }
+
+    private List<JobView> viewOf(List<Job> jobs, boolean withRequest) {
+        var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
+        var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
+                .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
+        return jobs.stream()
+                .map(job -> new JobView(
+                        job.getId(),
+                        job.getProject().getId(),
+                        job.getCreatedAt(),
+                        job.getCompletedAt(),
+                        job.getState(),
+                        job.getWorker(),
+                        UserInfo.of(job.getRequestedBy(), users.get(job.getRequestedBy())),
+                        job.getResourceClass().getName(),
+                        JobView.SpecView.of(job.getSpec()),
+                        artifacts.getOrDefault(job.getId(), List.of()).stream()
+                                .map(JobView.ArtifactView::of)
+                                .toList(),
+                        withRequest ? createRequestOf(job) : null))
+                .toList();
+    }
+
+    @Nullable
+    private static CreateJobRequest createRequestOf(Job job) {
+        var request = job.toRequest();
+        return request == null ? null : CreateJobRequest.of(request);
     }
 
     /**

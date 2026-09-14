@@ -11,6 +11,7 @@ import io.ib67.prts.dto.WorkerView;
 import io.ib67.prts.dto.WorkerVolumeView;
 import io.ib67.prts.dto.job.JobView;
 import io.ib67.prts.dto.request.RenameWorkerRequest;
+import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.Job;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -43,6 +44,8 @@ public class WorkerResource {
     WorkerService workerService;
     @Inject
     AdminConfig adminConfig;
+    @Inject
+    JobService jobService;
 
     @GET
     @Transactional
@@ -109,8 +112,7 @@ public class WorkerResource {
     @Transactional
     public List<JobView> listWorkerJobs(@PathParam("id") UUID id) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
-        // An admin listing across projects: no re-run payload is offered here.
-        return JobView.of(Job.listOpenByWorker(id), job -> null);
+        return jobService.viewOf(Job.listOpenByWorker(id));
     }
 
     /** Lists the volumes hosted on this worker across all projects. */
