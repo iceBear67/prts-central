@@ -42,6 +42,10 @@ public enum Perm {
 
     JOB_READ("job:read", false),
     JOB_LOG_READ("job:log:read", false),
+    /** View live and recorded ACP sessions for a job. */
+    JOB_AGENT_READ("job:agent:read", false),
+    /** Interact with a job's ACP agent (prompt, cancel, respond). */
+    JOB_AGENT_INTERACT("job:agent:interact", false),
     JOB_ARTIFACT_READ("job:artifact:read", false),
     /** Permission to delete an artifact and its underlying storage object. */
     JOB_ARTIFACT_DELETE("job:artifact:delete", false),

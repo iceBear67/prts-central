@@ -47,6 +47,18 @@ Fixing this requires workers to report real usage (via `UpdateResourceInfo` or a
 which `VolumeService` would persist. Control-plane-side reservation is insufficient since actual disk
 usage is worker-determined.
 
+## ACP: `$/cancel_request` not supported
+
+`$/cancel_request` carries `params.requestId`, requiring the proxy to inspect and rewrite IDs inside the payload rather than just the envelope. `session/cancel` currently serves user cancellation needs. Supporting this requires parameter-level ID mapping in `AgentChannel`.
+
+## ACP: per-frame serverbound acknowledgments
+
+`WorkerWebSocket` sends a `Response` for every `ServerboundMessage.AgentFrame`, adding per-chunk ack overhead during streaming turns. Omitting acks would require returning `Uni<Void>` for ACP frames, diverging from the current uniform acknowledgment contract.
+
+## ACP: uncoalesced transcript storage
+
+`agent_event` stores each frame verbatim, producing one row per streamed token chunk. Coalescing consecutive chunks (`agent_message_chunk`, `agent_thought_chunk`) by `messageId` in `AgentTranscript` would reduce row volume at the expense of buffering.
+
 ## Test gaps
 
 Remaining testing gaps and current constraints:
@@ -55,5 +67,6 @@ Remaining testing gaps and current constraints:
 - **Artifact upload and storage**: Upload quotas, presigned URL flow, and S3 object deletion in `ProjectService.delete` against LocalStack (requires worker-side upload requests).
 - **`ProjectService` concurrent deletion (`Rows.BUSY`)**: Triggering the race condition between `stopWork` and table locking in `deleteRows` requires precise multi-threaded transaction coordination.
 - **Worker WebSocket `@OnError` handling**: Error reply behavior through websockets-next needs further verification.
+- **ACP viewer socket OIDC authentication**: `AgentWebSocketE2ETest` tests handshake auth via PAT. Browser OIDC session cookie authentication is unexercised because `%test` disables OIDC.
 - **Worker reconnection / re-registration**: Verifying that closing an old connection does not unregister a newly re-registered worker session.
 - **Concurrent `JobLock` acquisition on new lock names**: Concurrent first-time acquisition races rely on database unique constraint violation handling in `WorkerScheduler.acquireLock`, which requires multi-threaded concurrent transaction testing.

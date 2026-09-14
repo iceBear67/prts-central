@@ -1,5 +1,6 @@
 package io.ib67.prts.agent.worker;
 
+import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.storage.ArtifactService;
@@ -25,6 +26,8 @@ public class WorkerWebSocket {
     JobService jobService;
     @Inject
     ArtifactService artifactService;
+    @Inject
+    AgentService agentService;
 
     // Disconnecting unregisters the worker and fails any orphaned running jobs.
     @OnClose
@@ -50,6 +53,9 @@ public class WorkerWebSocket {
             case ServerboundMessage.JobStateUpdate u -> handleJobStateUpdate(u);
             case ServerboundMessage.UploadArtifactRequest r -> handleUploadArtifactRequest(r);
             case ServerboundMessage.VolumeAck ack -> handleVolumeAck(ack);
+            case ServerboundMessage.AgentAttached a -> handleAgentAttached(a);
+            case ServerboundMessage.AgentFrame f -> handleAgentFrame(f);
+            case ServerboundMessage.AgentDetached d -> handleAgentDetached(d);
         };
     }
 
@@ -127,6 +133,28 @@ public class WorkerWebSocket {
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot begin artifact upload for job %s", r.jobId());
             return new ClientboundMessage.Response(false, e.getMessage() == null ? "upload failed" : e.getMessage());
+        }
+    }
+
+    private ClientboundMessage handleAgentAttached(ServerboundMessage.AgentAttached a) {
+        return agentCall(a.jobId(),
+                () -> agentService.onAttached(workerId(), a.jobId(), a.initialize(), a.sessionId()));
+    }
+
+    private ClientboundMessage handleAgentFrame(ServerboundMessage.AgentFrame f) {
+        return agentCall(f.jobId(), () -> agentService.onFrame(workerId(), f.jobId(), f.frame()));
+    }
+
+    private ClientboundMessage handleAgentDetached(ServerboundMessage.AgentDetached d) {
+        return agentCall(d.jobId(), () -> agentService.onDetached(workerId(), d.jobId(), d.reason()));
+    }
+    private ClientboundMessage agentCall(UUID jobId, Runnable call) {
+        try {
+            call.run();
+            return new ClientboundMessage.Response(true, "");
+        } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
+            LOG.errorf("cannot handle an agent message for job %s: %s", jobId, e.getMessage());
+            return new ClientboundMessage.Response(false, e.getMessage());
         }
     }
 

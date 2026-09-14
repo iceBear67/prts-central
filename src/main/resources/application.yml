@@ -31,6 +31,10 @@ quarkus:
     devservices:
       buckets:
         - prts-artifacts
+  websockets-next:
+    server:
+      # Matched to http.limits.max-body-size for large ACP payloads (e.g. file pastes).
+      max-message-size: 1048576
   http:
     # Every API body is JSON describing one object; artifacts go straight to S3 on a presigned URL and
     # never pass through here. A megabyte is well past the largest job spec and well short of a
@@ -56,6 +60,10 @@ quarkus:
           policy: "authenticated"
           auth-mechanism:
             - "worker-token"
+        agent_ws:
+          paths:
+            - "/ws/project/*"
+          policy: "authenticated"
 
 
 "%dev":
@@ -135,6 +143,12 @@ permission:
   # Globally disabled permissions. Denied to all callers, including administrators.
   # Invalid permission names or 'admin:all' will cause startup failure. Requires restart to change.
   banned: [ ]
+
+acp:
+  # Maximum concurrent sessions (including subagents) per job.
+  max-sessions-per-job: 32
+  max-viewers-per-job: 8
+  max-page-size: 50
 
 job:
   log:

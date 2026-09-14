@@ -13,6 +13,10 @@ Configured via `quarkus.http.auth.permission` in `application.yml`:
 | **OIDC Auth Code** | Browser redirect / callback on `/api/*` | 1001 | Authorization-code flow against Gitea. `UserIdentityAugmenter` maps `(issuer, subject)` to local `User` record; provisions on first login via `UserService.provision`. Disabled in `%dev` and `%test`. |
 | **Worker Auth** | `X-Worker-Token` on `/ws/worker` | Dedicated | Validates header against `worker.secret`. Grants shared `"worker"` principal. |
 
+`/ws/project/*` (the ACP viewer socket) requires authentication via OIDC session cookie or PAT.
+Authorization is enforced programmatically in `AgentWebSocket` via `JobAccess` rather than
+`@RequirePermission`, which requires JAX-RS request context. See [agent-acp.md](agent-acp.md).
+
 `HttpAuthenticationMechanism`, `IdentityProvider` and `SecurityIdentityAugmentor` all run on the IO
 thread. Their database work belongs inside `context.runBlocking` (`AccessTokenIdentityProvider`,
 `UserIdentityAugmenter`), and **no bean they inject may query from its constructor or `@PostConstruct`** —

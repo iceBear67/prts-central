@@ -1,5 +1,7 @@
 package io.ib67.prts.agent.worker;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.Worker;
@@ -29,6 +31,8 @@ public class WorkerService {
 
     @Inject
     JobService jobService;
+    @Inject
+    AgentService agentService;
 
     private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
     private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
@@ -162,6 +166,7 @@ public class WorkerService {
         }
         scheduler.onWorkerRemoved(id);
         worker.getRpc().failAll(new IllegalStateException("worker disconnected"));
+        agentService.onWorkerGone(id);
         failJobsOf(id);
     }
 
@@ -271,6 +276,11 @@ public class WorkerService {
         }
         worker.getRpc().cancelJob(jobId);
         return true;
+    }
+
+    /** Sends a JSON-RPC frame to a job's ACP agent. */
+    public void sendAgentFrame(UUID workerId, UUID jobId, JsonNode frame) {
+        requireConnected(workerId).getRpc().sendAgentFrame(jobId, frame);
     }
 
     /**

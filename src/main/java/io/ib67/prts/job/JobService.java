@@ -1,5 +1,6 @@
 package io.ib67.prts.job;
 
+import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.dto.UserInfo;
@@ -19,6 +20,9 @@ import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
+import jakarta.transaction.Status;
+import jakarta.transaction.Synchronization;
+import jakarta.transaction.TransactionSynchronizationRegistry;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.NotFoundException;
@@ -49,6 +53,10 @@ public class JobService {
     NotificationService notificationService;
     @Inject
     JobAccess jobAccess;
+    @Inject
+    AgentService agentService;
+    @Inject
+    TransactionSynchronizationRegistry transactionRegistry;
 
     public Job require(UUID id) {
         return Job.<Job>findByIdOptional(id)
@@ -161,6 +169,7 @@ public class JobService {
         var previous = job.getState();
         job.transitionTo(JobState.CANCELLED);
         JobLock.releaseBy(jobId);
+        closeAgentAfterCommit(jobId);
         persistLog(job, "state", previous + " -> " + JobState.CANCELLED, false);
         return new CancelledJob(job, job.getWorker());
     }
@@ -198,12 +207,36 @@ public class JobService {
         job.transitionTo(state);
         if (state.isTerminal()) {
             JobLock.releaseBy(jobId);
+            closeAgentAfterCommit(jobId);
         }
         persistLog(job, "state", previous + " -> " + state, state == JobState.FAILED);
         if (state == JobState.FAILED) {
             reportFailure(job);
         }
         return found;
+    }
+
+    /**
+     * Closes the ACP channel post-commit to avoid network I/O inside an active transaction.
+     */
+    private void closeAgentAfterCommit(UUID jobId) {
+        transactionRegistry.registerInterposedSynchronization(new Synchronization() {
+            @Override
+            public void beforeCompletion() {
+            }
+
+            @Override
+            public void afterCompletion(int status) {
+                if (status != Status.STATUS_COMMITTED) {
+                    return;
+                }
+                try {
+                    agentService.onJobClosed(jobId);
+                } catch (RuntimeException e) {
+                    LOG.errorf(e, "cannot close the agent channel of job %s", jobId);
+                }
+            }
+        });
     }
 
     /**

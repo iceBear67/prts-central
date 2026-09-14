@@ -5,8 +5,8 @@
 ## Message Model
 
 The protocol is defined by two sealed interfaces:
-- `ServerboundMessage`: Inbound messages from workers (`Register`, `UpdateResourceInfo`, `JobCreated`, `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`, `VolumeAck`).
-- `ClientboundMessage`: Outbound messages to workers (`Response`, `CreateJob`, `CancelJob`, `InterruptJob`, `PresignedUpload`, `CreateVolume`, `DeleteVolume`).
+- `ServerboundMessage`: Inbound messages from workers (`Register`, `UpdateResourceInfo`, `JobCreated`, `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`, `VolumeAck`, `AgentAttached`, `AgentFrame`, `AgentDetached`).
+- `ClientboundMessage`: Outbound messages to workers (`Response`, `CreateJob`, `CancelJob`, `InterruptJob`, `PresignedUpload`, `CreateVolume`, `DeleteVolume`, `AgentFrame`).
 
 ### Serialization & Dispatch
 - **Polymorphism**: Serialized via Jackson using property `"type"`. New message types must be registered in `@JsonSubTypes` and handled in `WorkerWebSocket#acceptMessage`.
@@ -40,6 +40,16 @@ session lingers, the worker must retry or an administrator can terminate it via 
 - **Timeouts**: `createJob` blocks for up to 30 seconds for `JobCreated`; `createVolume` / `deleteVolume` for up to 60, since allocating a disk can outlast starting a container.
 - **Cancellation**: `cancelJob` is fire-and-forget.
 - **Interruption (`InterruptJob`)**: Signals immediate container termination without expecting terminal status callbacks (used during project deletion).
+
+## ACP Agent Frames
+
+- `AgentAttached(jobId, initialize, sessionId)`: Announces that the worker initialized an ACP agent session. Central caches the `initialize` response to serve subsequent browser joins.
+- `AgentFrame(jobId, frame)`: Relays raw JSON-RPC frames bidirectionally.
+- `AgentDetached(jobId, reason)`: Signals that the agent process terminated while the job remains active.
+
+`ClientboundMessage.AgentFrame` is unacknowledged; correlation is handled at the JSON-RPC layer by `AgentService`. Serverbound `AgentFrame` messages receive standard `Response` acknowledgments.
+
+See [agent-docs/agent-acp.md](../agent-docs/agent-acp.md) for routing, method allowlists, and transcript persistence.
 
 ## Volumes
 

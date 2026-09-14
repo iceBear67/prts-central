@@ -30,6 +30,16 @@ public class JobAccess {
         return allows(Perm.JOB_TEMPLATE_READ, projectId, ProjectRole.NONE);
     }
 
+    /** Checks whether the caller may view a job's ACP session. */
+    public boolean mayReadAgent(UUID projectId) {
+        return allows(Perm.JOB_AGENT_READ, projectId, ProjectRole.VIEWER);
+    }
+
+    /** Checks whether the caller may interact with a job's ACP agent. */
+    public boolean mayInteractWithAgent(UUID projectId) {
+        return allows(Perm.JOB_AGENT_INTERACT, projectId, ProjectRole.MEMBER);
+    }
+
     private boolean allows(Perm perm, UUID projectId, ProjectRole defaultRole) {
         var user = userContext.get();
         return user != null && permissionService.allows(user.getId(), perm, projectId, defaultRole);

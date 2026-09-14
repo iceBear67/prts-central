@@ -6,8 +6,8 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 
 | Scope | Min Role | Permissions | Endpoints & Operations |
 | --- | --- | --- | --- |
-| **Project Read** | `VIEWER` | `project:read`, `job:read`, `job:log:read`, `job:artifact:read`, `task:read` | `GET /project/{projectId}`<br/>`GET .../job`<br/>`GET .../job/{id}`<br/>`GET .../job/{id}/log`<br/>`GET .../job/artifact/{id}`<br/>`GET .../volume`<br/>`GET .../task[/{id}]`<br/>`GET .../task/{id}/volume` |
-| **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
+| **Project Read** | `VIEWER` | `project:read`, `job:read`, `job:log:read`, `job:artifact:read`, `job:agent:read`, `task:read` | `GET /project/{projectId}`<br/>`GET .../job`<br/>`GET .../job/{id}`<br/>`GET .../job/{id}/log`<br/>`GET .../job/{id}/agent/session[/{sessionId}/event]`<br/>`GET .../job/artifact/{id}`<br/>`GET .../volume`<br/>`GET .../task[/{id}]`<br/>`GET .../task/{id}/volume` |
+| **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `job:agent:interact`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
 | **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST/DELETE .../job/template[/{id}]`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
 | **Project Creation** | None (global) | `project:create` | `POST /project` — the caller becomes its `OWNER`. Sub-accounts cannot (409): they hold no project role. |
 | **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
@@ -57,6 +57,13 @@ per-field override checks.
 
 `JobResource.createJob` does **not** repeat a task check. `JobLauncher.resolve` needs the task anyway to
 merge its scope, and conflicts there (409) if it is closing or closed. See [task-scope.md](task-scope.md).
+
+### 5. Agent Sessions
+
+- `GET .../job/{jobId}/agent/session`: Lists ACP sessions for the job. Requires `job:agent:read`.
+- `GET .../job/{jobId}/agent/session/{sessionId}/event?offset=&length=`: Paginated JSON-RPC frames for a session, capped by `acp.max-page-size`. Requires `job:agent:read`.
+
+Live ACP interaction uses WebSocket `/ws/project/{projectId}/job/{jobId}/agent` instead of REST. See [agent-acp.md](agent-acp.md).
 
 ## Volumes
 

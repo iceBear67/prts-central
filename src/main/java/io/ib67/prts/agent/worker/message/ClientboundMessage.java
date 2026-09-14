@@ -2,6 +2,7 @@ package io.ib67.prts.agent.worker.message;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.fasterxml.jackson.databind.JsonNode;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 
@@ -23,6 +24,7 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ClientboundMessage.PresignedUpload.class, name = "presignedUpload"),
         @JsonSubTypes.Type(value = ClientboundMessage.CreateVolume.class, name = "createVolume"),
         @JsonSubTypes.Type(value = ClientboundMessage.DeleteVolume.class, name = "deleteVolume"),
+        @JsonSubTypes.Type(value = ClientboundMessage.AgentFrame.class, name = "agentFrame"),
 })
 public sealed interface ClientboundMessage {
     record Response(boolean ok, String message) implements ClientboundMessage {
@@ -93,6 +95,14 @@ public sealed interface ClientboundMessage {
         public DeleteVolume {
             Objects.requireNonNull(requestId, "requestId");
             Objects.requireNonNull(volumeId, "volumeId");
+        }
+    }
+
+    /** Unacknowledged JSON-RPC frame dispatched to a job's ACP agent. */
+    record AgentFrame(UUID jobId, JsonNode frame) implements ClientboundMessage {
+        public AgentFrame {
+            Objects.requireNonNull(jobId, "jobId");
+            Objects.requireNonNull(frame, "frame");
         }
     }
 

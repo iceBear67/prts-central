@@ -26,6 +26,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/job-spec.md](agent-docs/job-spec.md) | changing `JobSpec`, secrets, templates, resource classes, or the override gating |
 | [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, worker volumes, or task teardown |
 | [agent-docs/worker-protocol.md](docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
+| [agent-docs/agent-acp.md](agent-docs/agent-acp.md) | the ACP proxy: the method allowlist, id rewriting, agent sessions and their transcript |
 | [agent-docs/authorization.md](agent-docs/authorization.md) | auth mechanisms, `Perm`, `@RequirePermission`, roles, sub-accounts |
 | [agent-docs/http-surface.md](agent-docs/http-surface.md) | adding or changing an endpoint, a DTO, a mapper, or the OpenAPI filter |
 | [agent-docs/artifacts.md](agent-docs/artifacts.md) | the upload / quota / S3 path |
@@ -43,6 +44,7 @@ holds the services and value objects.
 | Package | Role |
 | --- | --- |
 | `agent.worker` | Live worker sessions, the WebSocket protocol (`.message`), scheduling, `VolumeService`; `.entity` = `Worker`, `ResourceClass`, `WorkerVolume`, `VolumeState` |
+| `agent.acp` | The ACP proxy between a job's agent and the browsers watching it: `AgentService` (routing, allowlist, id rewriting), `AgentTranscript` (the stored side), `AgentWebSocket`, `AcpFrame` / `AcpMethod`; `.entity` = `AgentSession`, `AgentEvent`, `AgentDirection` |
 | `agent.job` | `JobSpec` value object, override/permission gating; `.entity` = `JobSpecTemplate`, `JobLock` |
 | `job` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads, `stopOpen`), `JobResource`, `JobAccess`, `JobConfig`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` / `JobState` / `ProjectRole` plus the `JobRequest` value |
 | `job.task` | `Task` scopes: `TaskScope` value object, `TaskService`, `TaskTeardownDispatcher`; `.entity` = `Task`, `TaskState`, `TaskVolume` |
@@ -53,7 +55,7 @@ holds the services and value objects.
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
 | `dev` | `ExampleDataSeeder`, the `%dev`-only startup seeding — no production code may depend on it |
-| `dto` | Outward-facing view records, grouped `dto.admin` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
+| `dto` | Outward-facing view records, grouped `dto.admin` / `dto.agent` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |
 

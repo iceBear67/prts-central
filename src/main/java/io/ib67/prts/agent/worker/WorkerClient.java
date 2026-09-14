@@ -1,5 +1,6 @@
 package io.ib67.prts.agent.worker;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
@@ -80,6 +81,15 @@ public final class WorkerClient {
             conn.sendText(new ClientboundMessage.CancelJob(jobId)).await().atMost(SEND_TIMEOUT);
         } catch (RuntimeException e) {
             throw new IllegalStateException("failed to cancel job on worker", e);
+        }
+    }
+
+    /** Dispatches an unacknowledged ACP frame to the job's agent. */
+    public void sendAgentFrame(UUID jobId, JsonNode frame) {
+        try {
+            conn.sendText(new ClientboundMessage.AgentFrame(jobId, frame)).await().atMost(SEND_TIMEOUT);
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("failed to send an agent frame to the worker", e);
         }
     }
 
