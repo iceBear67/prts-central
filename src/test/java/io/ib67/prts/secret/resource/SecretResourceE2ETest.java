@@ -72,10 +72,10 @@ class SecretResourceE2ETest {
 
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
-                .body("name", contains("TOKEN"))
+                .body("items.name", contains("TOKEN"))
                 // SecretView only exposes metadata and excludes secret values.
-                .body("[0]", not(hasKey("value")))
-                .body("[0].description", nullValue());
+                .body("items[0]", not(hasKey("value")))
+                .body("items[0].description", nullValue());
     }
 
     @Test
@@ -89,7 +89,7 @@ class SecretResourceE2ETest {
 
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
-                .body("name", contains("MINE"));
+                .body("items.name", contains("MINE"));
     }
 
     @Test
@@ -201,10 +201,10 @@ class SecretResourceE2ETest {
 
         as(alice).get("/api/project/{p}/secret", other).then()
                 .statusCode(200)
-                .body("name", contains("TOKEN"));
+                .body("items.name", contains("TOKEN"));
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
-                .body("name", contains("TOKEN"));
+                .body("items.name", contains("TOKEN"));
     }
 
     @Test
@@ -267,7 +267,7 @@ class SecretResourceE2ETest {
         as(alice).delete("/api/project/{p}/secret/{n}", project, "TOKEN").then().statusCode(204);
         as(alice).get("/api/project/{p}/secret", project).then()
                 .statusCode(200)
-                .body("$", empty());
+                .body("items", empty());
     }
 
     @Test

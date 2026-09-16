@@ -66,10 +66,17 @@ public class User extends PanacheEntityBase {
 
     /** Searches users by name or email with pagination, ordered by creation time descending. */
     public static List<User> search(@Nullable String query, int offset, int limit) {
-        var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
-        return find("lower(name) like ?1 or lower(email) like ?1 order by id desc", filter)
+        return find("lower(name) like ?1 or lower(email) like ?1 order by id desc", like(query))
                 .range(offset, offset + limit - 1)
                 .list();
+    }
+
+    public static long countSearch(@Nullable String query) {
+        return count("lower(name) like ?1 or lower(email) like ?1", like(query));
+    }
+
+    private static String like(@Nullable String query) {
+        return query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
     }
 
     /** Finds users by IDs, returning an ID-to-User map of existing records. */

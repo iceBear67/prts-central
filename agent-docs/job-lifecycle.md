@@ -104,6 +104,7 @@ stateDiagram-v2
 
 ### Invariants & State Transition Rules
 - **Authoritative Transitions**: All state changes must go through `Job#transitionTo`, ensuring `completedAt` remains synchronized with the DB check constraint `job_completion_consistency`.
+- **`started_at`**: Stamped by `WorkerScheduler.claimJob`, beside the `worker` assignment — placement is the only start the control plane observes, since no later protocol message reports one. It stays null on a job that never reached a worker, so `created_at` (enqueue) and `started_at` together separate queue time from run time. Not covered by a check constraint: a job cancelled while queued has a `completed_at` and no `started_at`.
 - **Concurrency**: `JobService.applyState` and `JobService.cancel` acquire `PESSIMISTIC_WRITE` locks on the `job` row.
 - **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent worker reports are ignored.
 - **Worker Disconnect**: When a worker disconnects, `WorkerService.failJobsOf` transitions all open jobs on that worker to `FAILED`.

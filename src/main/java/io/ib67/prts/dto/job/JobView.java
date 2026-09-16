@@ -2,6 +2,7 @@ package io.ib67.prts.dto.job;
 
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.dto.UserInfo;
+import io.ib67.prts.dto.WorkerInfo;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.job.entity.Artifact;
 import io.ib67.prts.job.entity.JobState;
@@ -16,17 +17,22 @@ import java.util.UUID;
 /**
  * View representing a job's execution state, metadata, and artifacts. Built by {@code JobService.viewOf}.
  *
+ * @param createdAt     When the job was enqueued, which is not when it began running.
+ * @param startedAt     When a worker took the job; null while it is still queued, and on one
+ *                      cancelled before placement. {@code startedAt - createdAt} is queue time.
  * @param resourceClass The resolved resource class name used for execution.
  * @param createRequest Request payload needed to re-run this job, or null if omitted or forbidden.
  * @param requestedBy   Who requested the job.
+ * @param worker        The host that ran it, or null while unplaced.
  */
 public record JobView(
         UUID id,
         UUID projectId,
         Instant createdAt,
+        @Nullable Instant startedAt,
         @Nullable Instant completedAt,
         JobState state,
-        @Nullable UUID worker,
+        @Nullable WorkerInfo worker,
         UserInfo requestedBy,
         String resourceClass,
         @Nullable SpecView spec,
@@ -43,6 +49,11 @@ public record JobView(
         Objects.requireNonNull(requestedBy, "requestedBy");
         Objects.requireNonNull(resourceClass, "resourceClass");
         Objects.requireNonNull(artifacts, "artifacts");
+    }
+
+    @Override
+    public String type() {
+        return TYPE;
     }
 
     public record ArtifactView(UUID id, String name) {

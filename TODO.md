@@ -23,7 +23,7 @@ Harmless today, and for the same reason it is uncollectable: it holds no `JobLoc
 releases in its `finally` before reporting the job unplaceable), and it does not skew placement
 (`pendingJobCount` reads the worker's self-reported count).
 
-It is also **hidden rather than collected**: `Job.listVisibleByProject` — behind `GET
+It is also **hidden rather than collected**: `Job.listVisible` — behind `GET
 /project/{projectId}/job` and the `Job.countByProject` counts on `GET /project/{projectId}` — filters
 on `state <> PENDING or worker is not null`, so an orphan is not listed as a job nobody will ever
 touch. The row still exists, and `GET .../job/{jobId}` would still return it to anyone holding the id,
@@ -31,8 +31,8 @@ which nothing publishes.
 
 Closing it means a startup sweep failing `PENDING` rows with `worker IS NULL` older than some
 threshold. The threshold must exceed the 30s `createJob` timeout, or it will fail rows still
-legitimately in flight. It belongs in `project`, not `pending` — the row is a `Job`. The `VISIBLE`
-predicate goes with it.
+legitimately in flight. It belongs in `project`, not `pending` — the row is a `Job`. The
+`VISIBLE_ROW` / `VISIBLE_ALIASED` predicate goes with it.
 
 ## `worker_volume.used` is never written
 
@@ -58,6 +58,24 @@ usage is worker-determined.
 ## ACP: uncoalesced transcript storage
 
 `agent_event` stores each frame verbatim, producing one row per streamed token chunk. Coalescing consecutive chunks (`agent_message_chunk`, `agent_thought_chunk`) by `messageId` in `AgentTranscript` would reduce row volume at the expense of buffering.
+
+## A schema shared by a request and a response publishes no `required`
+
+`describeShapes` states `required` from the declaration, but withholds it from any schema a request
+body reaches at any depth. Four are shared: `CreateJobRequest`, `JobSpecOverride`, `TaskScope` and
+`JobSpec.VolumeSpec`. As a response they publish every key optional, which is accurate for *sending*
+and wrong for *receiving* — `TaskScope.environment` may be omitted on the way in (the constructor
+normalizes null to empty) and is always present on the way out. A client that wants the received
+shape has to restate those four types by hand.
+
+Closing it means splitting the response shape from the request shape **in the document**, not in
+Java: `JobView.createRequest` is a `CreateJobRequest` on purpose, because a re-run posts it straight
+back. The filter would clone each shared schema, state `required` on the copy, and rewrite the refs
+reaching it from the response side — a fixed point, since a clone is itself response-side. The
+reference sites cooperate (`TaskView.scope`, `SpecView.volumes`, `JobView.createRequest` and
+`PendingJobView.request` are all response-only), but the copy has to be deep along any rewritten path:
+MP OpenAPI's `getAll`/`setAll` copy is shallow, so mutating a child in place would mutate the
+original's too. Four extra component schemas for the client, and names for them.
 
 ## Test gaps
 

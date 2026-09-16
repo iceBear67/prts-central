@@ -3,6 +3,7 @@ package io.ib67.prts.testing;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
+import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.Worker;
@@ -117,16 +118,27 @@ public class Fixtures {
         secretService.create(projectId, name, null, value);
     }
 
-    @Transactional
     public ResourceClass createResourceClass(String name) {
+        return createResourceClass(name, true);
+    }
+
+    /** A class that is not shared is open only to the projects passed to {@link #allowResourceClass}. */
+    @Transactional
+    public ResourceClass createResourceClass(String name, boolean shared) {
         var klass = ResourceClass.builder()
                 .name(name)
                 .numCpus(1)
                 .memCount(512)
                 .diskSize(1024)
+                .shared(shared)
                 .build();
         klass.persistAndFlush();
         return klass;
+    }
+
+    @Transactional
+    public void allowResourceClass(UUID projectId, ResourceClass klass) {
+        ProjectResourceClass.of(Project.<Project>findById(projectId), attach(klass)).persistAndFlush();
     }
 
     /** Creates a project-scoped or global template. */
@@ -152,13 +164,22 @@ public class Fixtures {
     @Transactional
     public UUID createJob(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
                           @Nullable UUID workerId, @Nullable UUID templateId) {
+        return createJob(projectId, requestedBy, klass, state, workerId, templateId, null);
+    }
+
+    @Transactional
+    public UUID createJob(UUID projectId, Actor requestedBy, ResourceClass klass, JobState state,
+                          @Nullable UUID workerId, @Nullable UUID templateId, @Nullable UUID taskId) {
         var job = Job.builder()
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
                 .resourceClass(attach(klass))
                 .spec(spec("alpine"))
                 .worker(workerId)
+                // Placement is what stamps startedAt, so a fixture that has a host has one too.
+                .startedAt(workerId == null ? null : Instant.now())
                 .templateId(templateId)
+                .taskId(taskId)
                 .build();
         // Update state via transitionTo to ensure timestamps are set properly.
         job.transitionTo(state);
@@ -191,9 +212,21 @@ public class Fixtures {
 
     /** Creates a queued pending job. */
     public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass) {
+        return createQueuedJob(projectId, requestedBy, templateId, resourceClass, null);
+    }
+
+    /** Creates a queued pending job scoped to a task. */
+    public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass,
+                                @Nullable UUID taskId) {
         var now = Instant.now();
-        return createQueuedJob(projectId, requestedBy, templateId, resourceClass,
+        return createQueuedJob(projectId, requestedBy, templateId, resourceClass, taskId,
                 now.plus(Duration.ofHours(1)), now);
+    }
+
+    public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass,
+                                Instant expiresAt, Instant nextAttemptAt) {
+        return createQueuedJob(projectId, requestedBy, templateId, resourceClass, null,
+                expiresAt, nextAttemptAt);
     }
 
     /**
@@ -201,12 +234,12 @@ public class Fixtures {
      */
     @Transactional
     public UUID createQueuedJob(UUID projectId, Actor requestedBy, UUID templateId, String resourceClass,
-                                Instant expiresAt, Instant nextAttemptAt) {
+                                @Nullable UUID taskId, Instant expiresAt, Instant nextAttemptAt) {
         var pending = PendingJob.builder()
                 .project(Project.<Project>findById(projectId))
                 .requestedBy(requestedBy.id())
                 // resource_class is required on pending_job.
-                .request(new JobRequest(templateId, null, resourceClass, null))
+                .request(new JobRequest(templateId, null, resourceClass, taskId))
                 .state(PendingJobState.QUEUED)
                 .expiresAt(expiresAt)
                 .nextAttemptAt(nextAttemptAt)

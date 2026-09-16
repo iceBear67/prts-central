@@ -3,14 +3,19 @@ package io.ib67.prts.agent.worker.resource;
 import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.VolumeService;
+import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
+import io.ib67.prts.dto.WorkerVolumeDetailView;
 import io.ib67.prts.dto.WorkerVolumeView;
 import io.ib67.prts.dto.request.CreateVolumeRequest;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.job.task.entity.TaskVolume;
 import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -19,6 +24,7 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -28,7 +34,6 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -47,15 +52,40 @@ public class ProjectVolumeResource {
     @GET
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
-    public List<WorkerVolumeView> listVolumes(
+    public Page<WorkerVolumeView> listVolumes(
             @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("query") @Nullable String query,
+            @QueryParam("state") @Nullable VolumeState state,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        return WorkerVolume.listByProject(projectId, Pages.clampOffset(offset, window), window).stream()
-                .map(WorkerVolumeView::of)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                WorkerVolume.search(null, projectId, state, query, start, window).stream()
+                        .map(WorkerVolumeView::of)
+                        .toList(),
+                start,
+                window,
+                WorkerVolume.countSearch(null, projectId, state, query));
+    }
+
+    /**
+     * One volume together with the tasks mounting it.
+     *
+     * <p>{@code task_volume} is many-to-many and a delete refuses while any mount remains, so the
+     * mounts are what an operator looking at a volume they want to remove actually needs.
+     */
+    @GET
+    @Path("/{volumeId}")
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
+    public WorkerVolumeDetailView getVolume(
+            @ProjectId @PathParam("projectId") UUID projectId, @PathParam("volumeId") UUID volumeId) {
+        var volume = WorkerVolume.findInProject(projectId, volumeId)
+                .orElseThrow(() -> new NotFoundException(
+                        "no such volume in project " + projectId + ": " + volumeId));
+        return WorkerVolumeDetailView.of(volume, TaskVolume.listByVolumeFetched(volumeId));
     }
 
     /**

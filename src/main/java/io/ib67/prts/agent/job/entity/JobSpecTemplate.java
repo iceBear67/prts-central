@@ -82,6 +82,10 @@ public class JobSpecTemplate extends PanacheEntityBase {
                 .list();
     }
 
+    public static long countVisible(UUID projectId) {
+        return count("project is null or project.id = ?1", projectId);
+    }
+
     public static Optional<JobSpecTemplate> findVisibleFetched(UUID projectId, UUID id) {
         return find(VISIBLE_TO + " and t.id = ?2", projectId, id).firstResultOptional();
     }
@@ -89,11 +93,19 @@ public class JobSpecTemplate extends PanacheEntityBase {
     private static final String GLOBAL =
             "from JobSpecTemplate t left join fetch t.resourceClass where t.project is null";
 
-    /** Lists one page of the global templates. */
-    public static List<JobSpecTemplate> listGlobalFetched(int offset, int length) {
-        return find(GLOBAL + " order by t.name, t.id")
+    /** Lists one page of the global templates, matching {@code query} against the name. */
+    public static List<JobSpecTemplate> searchGlobal(@Nullable String query, int offset, int length) {
+        return find(GLOBAL + " and lower(t.name) like ?1 order by t.name, t.id", like(query))
                 .range(offset, offset + length - 1)
                 .list();
+    }
+
+    public static long countGlobal(@Nullable String query) {
+        return count("project is null and lower(name) like ?1", like(query));
+    }
+
+    private static String like(@Nullable String query) {
+        return query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
     }
 
     public static Optional<JobSpecTemplate> findGlobalFetched(UUID id) {

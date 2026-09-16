@@ -5,6 +5,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.AccessTokenView;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.request.CreateSubAccountRequest;
 import io.ib67.prts.dto.IssuedTokenView;
 import io.ib67.prts.dto.request.SetPermissionsRequest;
@@ -13,8 +14,10 @@ import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.secret.user.AccessTokenService;
+import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.SubAccountService;
 import io.ib67.prts.user.UserContext;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -34,7 +37,6 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -56,6 +58,12 @@ public class SubAccountResource {
     @Inject
     UserContext userContext;
 
+    /**
+     * Opens a sub-account, optionally with its grants and its credential.
+     *
+     * <p>All three land in one transaction, so a refused permission name or a failed mint leaves no
+     * half-made account behind. The token appears only here; nothing reads it back afterwards.
+     */
     @POST
     @Consumes(MediaType.APPLICATION_JSON)
     @ResponseStatus(RestResponse.StatusCode.CREATED)
@@ -64,22 +72,36 @@ public class SubAccountResource {
             @ProjectId @PathParam("projectId") UUID projectId,
             @NotNull(message = "a request body is required") @Valid CreateSubAccountRequest request) {
         projectService.requireWritable(projectId);
+        // Resolved before the first write so an unknown permission name costs nothing.
+        var permissions = request.resolvedPermissions();
         var account = subAccountService.create(
                 projectId, request.name(), userContext.require().getId());
-        // New sub-accounts have no initial grants.
-        return subAccountService.viewOf(account, List.of());
+        if (!permissions.isEmpty()) {
+            subAccountService.setPermissions(projectId, account.getUserId(), permissions);
+        }
+        var issued = request.issueToken() ? accessTokenService.issue(account.getUserId()) : null;
+        // Pass the grants directly: the permission cache is invalidated only once this commits.
+        return subAccountService.viewOf(account, permissions, issued == null
+                ? null
+                : new IssuedTokenView(issued.token(), issued.issuedAt()));
     }
 
     @GET
     @Transactional
-    public List<SubAccountView> listSubAccounts(
+    public Page<SubAccountView> listSubAccounts(
             @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("query") @Nullable String query,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        return subAccountService.viewOf(
-                projectId, subAccountService.list(projectId, Pages.clampOffset(offset, window), window));
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                subAccountService.viewOf(
+                        projectId, subAccountService.search(projectId, query, start, window)),
+                start,
+                window,
+                SubAccount.countByProject(projectId, query));
     }
 
     @GET
@@ -111,7 +133,7 @@ public class SubAccountResource {
         projectService.requireWritable(projectId);
         subAccountService.setPermissions(projectId, userId, perms);
         // Pass updated permissions directly to bypass uncommitted permission cache.
-        return subAccountService.viewOf(subAccountService.require(projectId, userId), perms);
+        return subAccountService.viewOf(subAccountService.require(projectId, userId), perms, null);
     }
 
     @GET

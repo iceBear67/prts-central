@@ -4,6 +4,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
+import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.Worker;
@@ -116,7 +117,8 @@ public class ExampleDataSeeder {
                 dev, alice, bob,
                 small,
                 resourceClass("standard", 4, 8192, 64),
-                resourceClass("large", 16, 65536, 512),
+                // Not shared: only the projects named under it may ask for the big host.
+                resourceClass("large", 16, 65536, 512, false),
                 worker("worker-alpha", false),
                 worker("worker-beta", true),
                 template("shell", null, small, new JobSpec(
@@ -144,6 +146,8 @@ public class ExampleDataSeeder {
                 cast.dev().getId());
         userService.grant(cast.alice().getId(), project.getId(), ProjectRole.MEMBER);
         userService.grant(cast.bob().getId(), project.getId(), ProjectRole.VIEWER);
+        // The one project the restricted class is open to; the others see only small and standard.
+        ProjectResourceClass.of(project, cast.large()).persistAndFlush();
         permissionService.grant(cast.alice().getId(), Perm.JOB_SPEC_ENVIRONMENT, project.getId());
         permissionService.grant(cast.bob().getId(), Perm.JOB_LOG_READ, project.getId());
 
@@ -368,11 +372,16 @@ public class ExampleDataSeeder {
     }
 
     private ResourceClass resourceClass(String name, int cpus, int memory, int disk) {
+        return resourceClass(name, cpus, memory, disk, true);
+    }
+
+    private ResourceClass resourceClass(String name, int cpus, int memory, int disk, boolean shared) {
         var klass = ResourceClass.builder()
                 .name(name)
                 .numCpus(cpus)
                 .memCount(memory)
                 .diskSize(disk)
+                .shared(shared)
                 .build();
         klass.persistAndFlush();
         return klass;
@@ -442,6 +451,11 @@ public class ExampleDataSeeder {
         job.transitionTo(state);
         if (job.isCompleted()) {
             job.setCompletedAt(at.plus(Objects.requireNonNull(took, "took")));
+        }
+        // Placement stamps startedAt, so a seeded job that has a host has one, and `took` reads as
+        // run time rather than run time plus however long it waited.
+        if (job.getWorker() != null) {
+            job.setStartedAt(at);
         }
         job.persistAndFlush();
         backdate("job", job.getId(), at);

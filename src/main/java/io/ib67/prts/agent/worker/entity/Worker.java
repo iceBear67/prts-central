@@ -11,10 +11,13 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import lombok.ToString;
 
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Persistent worker entity storing registration details and disabled status across reconnects.
@@ -45,6 +48,15 @@ public class Worker extends PanacheEntityBase {
         return Worker.<Worker>find("order by name, id")
                 .range(offset, offset + length - 1)
                 .list();
+    }
+
+    /** Finds workers by IDs, returning an ID-to-Worker map of existing registrations. */
+    public static Map<UUID, Worker> mapByIds(Collection<UUID> ids) {
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return Worker.<Worker>find("id in ?1", ids).stream()
+                .collect(Collectors.toMap(Worker::getId, worker -> worker));
     }
 
     public static Worker upsert(UUID id, String name) {

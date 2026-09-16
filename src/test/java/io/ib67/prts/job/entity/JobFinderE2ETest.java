@@ -4,6 +4,7 @@ import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.quarkus.test.junit.QuarkusTest;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -79,7 +80,7 @@ class JobFinderE2ETest {
         var second = fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
 
         assertEquals(List.of(second),
-                inTx(() -> Job.listVisibleByProject(project, 1).stream().map(Job::getId).toList()));
+                inTx(() -> Job.listVisible(inProject(null, null), 0, 1).stream().map(Job::getId).toList()));
     }
 
     @Test
@@ -154,7 +155,37 @@ class JobFinderE2ETest {
         assertEquals(2, inTx(() -> Job.listOpenByWorker(worker).size()).intValue());
     }
 
+    /** A task and a state each narrow the listing, and the count follows the same predicate. */
+    @Test
+    void theTaskAndTheStateNarrowTheList() {
+        var task = UUID.randomUUID();
+        var inTask = fixtures.createJob(project, alice, small, JobState.SUCCESS, null, null, task);
+        fixtures.createJob(project, alice, small, JobState.FAILED, null, null, task);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+
+        assertEquals(List.of(inTask),
+                inTx(() -> Job.listVisible(inProject(task, JobState.SUCCESS), 0, NO_LIMIT)
+                        .stream().map(Job::getId).toList()));
+        assertEquals(1, inTx(() -> Job.countVisible(inProject(task, JobState.SUCCESS))).longValue());
+        assertEquals(2, inTx(() -> Job.countVisible(inProject(task, null))).longValue());
+        assertEquals(2, inTx(() -> Job.countVisible(inProject(null, JobState.SUCCESS))).longValue());
+    }
+
+    /** An unplaced PENDING job is out of the count for the same reason it is out of the list. */
+    @Test
+    void theCountMatchesWhatIsVisible() {
+        fixtures.createJob(project, alice, small, JobState.PENDING, null);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, null);
+
+        assertEquals(1, inTx(() -> Job.countVisible(inProject(null, null))).longValue());
+    }
+
     private List<UUID> visible() {
-        return inTx(() -> Job.listVisibleByProject(project, NO_LIMIT).stream().map(Job::getId).toList());
+        return inTx(() -> Job.listVisible(inProject(null, null), 0, NO_LIMIT)
+                .stream().map(Job::getId).toList());
+    }
+
+    private Job.Filter inProject(@Nullable UUID taskId, @Nullable JobState state) {
+        return Job.Filter.builder().project(project).task(taskId).state(state).build();
     }
 }

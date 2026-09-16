@@ -73,4 +73,8 @@ public class JobLog extends PanacheEntityBase {
     public static List<JobLog> listByJob(UUID jobId, int offset, int length) {
         return find("job.id", chronological(), jobId).range(offset, offset + length - 1).list();
     }
+
+    public static long countByJob(UUID jobId) {
+        return count("job.id", jobId);
+    }
 }

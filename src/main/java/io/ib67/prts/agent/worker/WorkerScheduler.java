@@ -10,6 +10,7 @@ import jakarta.annotation.Nullable;
 import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
 
+import java.time.Instant;
 import java.util.Comparator;
 import java.util.Map;
 import java.util.Objects;
@@ -91,6 +92,9 @@ final class WorkerScheduler {
 
     /**
      * Assigns the worker to the job in the database. Returns false if the job is already completed.
+     *
+     * <p>Placement is also where {@code startedAt} is stamped: the worker has accepted the job by
+     * this point, and nothing later in the protocol reports a start of its own.
      */
     private boolean claimJob(UUID jobId, UUID workerId) {
         return QuarkusTransaction.requiringNew().call(() -> {
@@ -99,6 +103,7 @@ final class WorkerScheduler {
                 return false;
             }
             job.setWorker(workerId);
+            job.setStartedAt(Instant.now());
             return true;
         });
     }

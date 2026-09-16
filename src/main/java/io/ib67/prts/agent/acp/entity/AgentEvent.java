@@ -95,4 +95,8 @@ public class AgentEvent extends PanacheEntityBase {
     public static List<AgentEvent> listBySession(UUID sessionId, int offset, int length) {
         return find("agentSession.id", Sort.by("id"), sessionId).range(offset, offset + length - 1).list();
     }
+
+    public static long countBySession(UUID sessionId) {
+        return count("agentSession.id", sessionId);
+    }
 }

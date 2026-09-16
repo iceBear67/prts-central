@@ -26,6 +26,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -95,19 +96,31 @@ public class Artifact extends PanacheEntityBase {
      */
     public static List<Artifact> search(
             @Nullable UUID projectId, @Nullable UUID jobId, int offset, int length) {
-        var query = new StringBuilder(
-                "from Artifact a join fetch a.job j join fetch j.project where 1 = 1");
         var parameters = new HashMap<String, Object>();
+        return find("from Artifact a join fetch a.job j join fetch j.project where "
+                        + where(projectId, jobId, parameters)
+                        + " order by a.createdAt desc, a.id desc", parameters)
+                .range(offset, offset + length - 1)
+                .list();
+    }
+
+    public static long countSearch(@Nullable UUID projectId, @Nullable UUID jobId) {
+        var parameters = new HashMap<String, Object>();
+        return count("from Artifact a join a.job j where " + where(projectId, jobId, parameters),
+                parameters);
+    }
+
+    private static String where(
+            @Nullable UUID projectId, @Nullable UUID jobId, Map<String, Object> parameters) {
+        var where = new StringBuilder("1 = 1");
         if (projectId != null) {
-            query.append(" and j.project.id = :project");
+            where.append(" and j.project.id = :project");
             parameters.put("project", projectId);
         }
         if (jobId != null) {
-            query.append(" and j.id = :job");
+            where.append(" and j.id = :job");
             parameters.put("job", jobId);
         }
-        return find(query.append(" order by a.createdAt desc, a.id desc").toString(), parameters)
-                .range(offset, offset + length - 1)
-                .list();
+        return where.toString();
     }
 }

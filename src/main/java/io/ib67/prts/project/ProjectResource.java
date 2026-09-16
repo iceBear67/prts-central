@@ -1,11 +1,17 @@
 package io.ib67.prts.project;
 
+import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
+import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.PermissionView;
+import io.ib67.prts.dto.ResourceClassView;
 import io.ib67.prts.dto.project.ProjectDetailView;
 import io.ib67.prts.dto.project.ProjectMemberView;
+import io.ib67.prts.dto.project.ProjectStatsView;
 import io.ib67.prts.dto.project.ProjectView;
 import io.ib67.prts.dto.request.CreateProjectRequest;
 import io.ib67.prts.dto.request.SetMemberRoleRequest;
@@ -14,16 +20,20 @@ import io.ib67.prts.dto.request.UpdateProjectRequest;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.stats.StatsService;
 import io.ib67.prts.user.PermissionService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.ib67.prts.user.UserService;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
+import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
@@ -33,6 +43,7 @@ import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
@@ -55,6 +66,10 @@ public class ProjectResource {
     PermissionService permissionService;
     @Inject
     UserContext userContext;
+    @Inject
+    StatsService statsService;
+    @Inject
+    ProjectConfig projectConfig;
 
     /** Lists projects where the current user is a member. */
     @GET
@@ -94,6 +109,55 @@ public class ProjectResource {
         var jobs = new ProjectDetailView.Jobs(
                 counts.visible(), counts.running(), PendingJob.countActive(projectId));
         return ProjectDetailView.of(project, role, access, members, jobs);
+    }
+
+    /**
+     * This project's own statistics: the admin dashboard's aggregation with a project predicate,
+     * behind the project's read gate rather than {@code admin:all}.
+     */
+    @GET
+    @Path("/{projectId}/stats")
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
+    public ProjectStatsView getProjectStats(@ProjectId @PathParam("projectId") UUID projectId) {
+        projectService.require(projectId);
+        var volumes = WorkerVolume.allocated(projectId);
+        var completions = statsService.completions(projectId);
+        return new ProjectStatsView(
+                new ProjectStatsView.Jobs(
+                        Job.countByState(projectId),
+                        StatsService.hourlyLast(completions, StatsService.WINDOW_HOURS_LONG),
+                        StatsService.dailyLast(completions)),
+                new ProjectStatsView.Tasks(Task.countByState(projectId)),
+                new ProjectStatsView.Storage(volumes.count(), volumes.bytes()));
+    }
+
+    /**
+     * The resource classes this project may run in.
+     *
+     * <p>{@code GET /resource-class} publishes the whole catalogue; this is the half of it this
+     * project may actually name — the shared classes plus the ones an admin opened to it. A job form
+     * or a task scope editor offers this one, or it would draw a picker the submit refuses.
+     */
+    @GET
+    @Path("/{projectId}/resource-class")
+    @Transactional
+    @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
+    public Page<ResourceClassView> listResourceClasses(
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("query") @Nullable String query,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
+        projectService.require(projectId);
+        var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                ResourceClass.listAvailableTo(projectId, query, start, window).stream()
+                        .map(ResourceClassView::of)
+                        .toList(),
+                start,
+                window,
+                ResourceClass.countAvailableTo(projectId, query));
     }
 
     /**

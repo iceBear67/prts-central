@@ -43,4 +43,8 @@ public record PendingJobView(
         Objects.requireNonNull(expiresAt, "expiresAt");
     }
 
+    @Override
+    public String type() {
+        return TYPE;
+    }
 }

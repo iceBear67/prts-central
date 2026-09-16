@@ -4,6 +4,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.Pages;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.admin.AdminProjectView;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.job.entity.Job;
@@ -19,8 +20,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
-import java.util.List;
-
 /**
  * Administrative endpoints for cross-project queries.
  */
@@ -34,23 +33,28 @@ public class AdminProjectResource {
 
     @GET
     @Transactional
-    public List<AdminProjectView> listProjects(
+    public Page<AdminProjectView> listProjects(
             @QueryParam("query") @Nullable String query,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        var projects = Project.search(query, Pages.clampOffset(offset, window), window);
+        var start = Pages.clampOffset(offset, window);
+        var projects = Project.search(query, start, window);
         // Batch query aggregated metrics for the page of projects.
         var ids = projects.stream().map(Project::getId).toList();
         var members = UserToProject.countByProjects(ids);
         var jobs = Job.countVisibleByProjects(ids);
         var queued = PendingJob.countActiveByProjects(ids);
-        return projects.stream()
-                .map(project -> AdminProjectView.of(
-                        project,
-                        members.getOrDefault(project.getId(), 0L),
-                        jobs.getOrDefault(project.getId(), 0L),
-                        queued.getOrDefault(project.getId(), 0L)))
-                .toList();
+        return new Page<>(
+                projects.stream()
+                        .map(project -> AdminProjectView.of(
+                                project,
+                                members.getOrDefault(project.getId(), 0L),
+                                jobs.getOrDefault(project.getId(), 0L),
+                                queued.getOrDefault(project.getId(), 0L)))
+                        .toList(),
+                start,
+                window,
+                Project.countSearch(query));
     }
 }

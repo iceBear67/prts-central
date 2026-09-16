@@ -32,6 +32,7 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,6 +89,17 @@ public class Job extends PanacheEntityBase {
     /** Null until the job reaches a terminal {@link JobState}. */
     @Column(name = "completed_at")
     private Instant completedAt;
+
+    /**
+     * When a worker took the job, which is the only start the control plane observes.
+     *
+     * <p>Null while the job is still queued, and on one that was cancelled before placement —
+     * {@link #createdAt} is when it was enqueued, so the two together separate queue time from run
+     * time.
+     */
+    @Nullable
+    @Column(name = "started_at")
+    private Instant startedAt;
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
@@ -152,14 +164,50 @@ public class Job extends PanacheEntityBase {
 
     // Only jobs that have been assigned to a worker or are no longer pending are visible to readers.
     private static final String VISIBLE_ROW = "(state <> :pending or worker is not null)";
-    private static final String VISIBLE = "project.id = :project and " + VISIBLE_ROW;
+    /** {@link #VISIBLE_ROW} for the queries that alias the entity, which a join fetch requires. */
+    private static final String VISIBLE_ALIASED = "(j.state <> :pending or j.worker is not null)";
 
-    /** Lists visible jobs for a project in reverse chronological order. */
-    public static List<Job> listVisibleByProject(UUID projectId, int limit) {
-        return find(VISIBLE + " order by createdAt desc, id desc",
-                Map.of("project", projectId, "pending", JobState.PENDING))
-                .page(0, limit)
+    /**
+     * Which visible jobs a listing asks for. Each field narrows it further; an unset one leaves that
+     * dimension open.
+     *
+     * <p>One object rather than six positional arguments because no caller narrows on all of them —
+     * the worker timeline passed three literal nulls to reach the two it wanted. And because the
+     * listing and its total have to be narrowed identically or the page disagrees with the pager
+     * drawn from it: handing the same filter to both is what makes that structural rather than a rule
+     * every call site has to remember.
+     *
+     * @param projects the projects the caller may read, or null for every project ({@code admin:all})
+     */
+    @Builder
+    public record Filter(
+            @Nullable Collection<UUID> projects,
+            @Nullable UUID project,
+            @Nullable UUID task,
+            @Nullable JobState state,
+            @Nullable UUID worker,
+            @Nullable Instant since) {
+    }
+
+    /** Lists one window of the matching visible jobs, newest first. */
+    public static List<Job> listVisible(Filter filter, int offset, int length) {
+        if (reachesNothing(filter)) {
+            return List.of();
+        }
+        var parameters = new HashMap<String, Object>();
+        return Job.<Job>find("from Job j join fetch j.project join fetch j.resourceClass where "
+                        + where(filter, parameters) + " order by j.createdAt desc, j.id desc", parameters)
+                .range(offset, offset + length - 1)
                 .list();
+    }
+
+    /** What {@link #listVisible} would return unwindowed. */
+    public static long countVisible(Filter filter) {
+        if (reachesNothing(filter)) {
+            return 0;
+        }
+        var parameters = new HashMap<String, Object>();
+        return count("from Job j where " + where(filter, parameters), parameters);
     }
 
     /** Job count summary for a project. */
@@ -178,13 +226,17 @@ public class Job extends PanacheEntityBase {
         return new Counts((long) row[0], (long) row[1]);
     }
 
-    /** Counts visible jobs grouped by state across all projects. */
-    public static Map<JobState, Long> countByState() {
-        return Job.getEntityManager()
-                .createQuery("select state, count(id) from Job where " + VISIBLE_ROW + " group by state",
-                        Object[].class)
-                .setParameter("pending", JobState.PENDING)
-                .getResultList().stream()
+    /** Counts visible jobs grouped by state, across every project or within one. */
+    public static Map<JobState, Long> countByState(@Nullable UUID projectId) {
+        var query = Job.getEntityManager()
+                .createQuery("select j.state, count(j.id) from Job j where " + VISIBLE_ALIASED
+                        + (projectId == null ? "" : " and j.project.id = :project")
+                        + " group by j.state", Object[].class)
+                .setParameter("pending", JobState.PENDING);
+        if (projectId != null) {
+            query.setParameter("project", projectId);
+        }
+        return query.getResultList().stream()
                 .collect(Collectors.toMap(row -> (JobState) row[0], row -> (Long) row[1]));
     }
 
@@ -203,12 +255,39 @@ public class Job extends PanacheEntityBase {
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
     }
 
-    /** Lists visible jobs of a task in reverse chronological order. */
-    public static List<Job> listVisibleByTask(UUID taskId, int limit) {
-        return find("taskId = :task and " + VISIBLE_ROW + " order by createdAt desc, id desc",
-                Map.of("task", taskId, "pending", JobState.PENDING))
-                .page(0, limit)
-                .list();
+    // An empty project set matches nothing at all, which "in ()" cannot express.
+    private static boolean reachesNothing(Filter filter) {
+        return filter.projects() != null && filter.projects().isEmpty();
+    }
+
+    private static String where(Filter filter, Map<String, Object> parameters) {
+        var query = new StringBuilder(VISIBLE_ALIASED);
+        parameters.put("pending", JobState.PENDING);
+        if (filter.projects() != null) {
+            query.append(" and j.project.id in :projects");
+            parameters.put("projects", filter.projects());
+        }
+        if (filter.project() != null) {
+            query.append(" and j.project.id = :project");
+            parameters.put("project", filter.project());
+        }
+        if (filter.task() != null) {
+            query.append(" and j.taskId = :task");
+            parameters.put("task", filter.task());
+        }
+        if (filter.state() != null) {
+            query.append(" and j.state = :state");
+            parameters.put("state", filter.state());
+        }
+        if (filter.worker() != null) {
+            query.append(" and j.worker = :worker");
+            parameters.put("worker", filter.worker());
+        }
+        if (filter.since() != null) {
+            query.append(" and j.createdAt >= :since");
+            parameters.put("since", filter.since());
+        }
+        return query.toString();
     }
 
     /** Lists all uncompleted (PENDING or RUNNING) jobs for a project. */

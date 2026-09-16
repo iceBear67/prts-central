@@ -7,7 +7,8 @@ import io.ib67.prts.agent.acp.AgentTranscript;
 import io.ib67.prts.agent.acp.entity.AgentSession;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
-import io.ib67.prts.dto.agent.AgentEventPage;
+import io.ib67.prts.dto.Page;
+import io.ib67.prts.dto.agent.AgentEventView;
 import io.ib67.prts.dto.agent.AgentSessionView;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.ProjectRole;
@@ -55,7 +56,7 @@ public class AgentResource {
     @Path("/session/{sessionId}/event")
     @Transactional
     @RequirePermission(value = Perm.JOB_AGENT_READ, defaultRole = ProjectRole.VIEWER)
-    public AgentEventPage listEvents(
+    public Page<AgentEventView> listEvents(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("jobId") UUID jobId,
             @PathParam("sessionId") UUID sessionId,

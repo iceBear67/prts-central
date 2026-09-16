@@ -4,6 +4,7 @@ import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.task.TaskView;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.job.task.entity.TaskState;
@@ -16,8 +17,6 @@ import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
-
-import java.util.List;
 
 /**
  * Administrative listing of tasks across every project.
@@ -32,12 +31,17 @@ public class AdminTaskResource {
 
     @GET
     @Transactional
-    public List<TaskView> listTasks(
+    public Page<TaskView> listTasks(
             @QueryParam("query") @Nullable String query,
             @QueryParam("state") @Nullable TaskState state,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return TaskView.of(Task.search(query, state, Pages.clampOffset(offset, window), window));
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                TaskView.of(Task.search(null, query, state, start, window)),
+                start,
+                window,
+                Task.countSearch(null, query, state));
     }
 }

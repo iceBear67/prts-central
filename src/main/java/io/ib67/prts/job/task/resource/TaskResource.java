@@ -5,6 +5,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpecOverridePermissions;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.request.AttachVolumeRequest;
 import io.ib67.prts.dto.request.CreateTaskRequest;
 import io.ib67.prts.dto.request.UpdateTaskRequest;
@@ -15,8 +16,10 @@ import io.ib67.prts.job.JobConfig;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.job.task.TaskService;
 import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.job.task.entity.TaskState;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.UserContext;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -59,13 +62,20 @@ public class TaskResource {
     @GET
     @Transactional
     @RequirePermission(value = Perm.TASK_READ, defaultRole = ProjectRole.VIEWER)
-    public List<TaskView> listTasks(
+    public Page<TaskView> listTasks(
             @ProjectId @PathParam("projectId") UUID projectId,
+            @QueryParam("query") @Nullable String query,
+            @QueryParam("state") @Nullable TaskState state,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         projectService.require(projectId);
         var window = Pages.clampLength(length, jobConfig.task().maxPageSize());
-        return TaskView.of(Task.listByProject(projectId, Pages.clampOffset(offset, window), window));
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                TaskView.of(Task.search(projectId, query, state, start, window)),
+                start,
+                window,
+                Task.countSearch(projectId, query, state));
     }
 
     @GET

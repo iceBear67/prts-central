@@ -102,14 +102,6 @@ public class WorkerVolume extends PanacheEntityBase {
         return length - used;
     }
 
-    /** Lists one page of the volumes hosted on the given worker, fetching owning projects. */
-    public static List<WorkerVolume> listByWorker(UUID workerId, int offset, int length) {
-        return find("from WorkerVolume v join fetch v.project where v.worker.id = ?1 "
-                + "order by v.name, v.id", workerId)
-                .range(offset, offset + length - 1)
-                .list();
-    }
-
     public static long countByWorker(UUID workerId) {
         return count("worker.id", workerId);
     }
@@ -142,61 +134,81 @@ public class WorkerVolume extends PanacheEntityBase {
                 + "where v.project.id = ?1 order by v.name", projectId).list();
     }
 
-    /** Lists a page of volumes for a project, eagerly fetching worker and project associations. */
-    public static List<WorkerVolume> listByProject(UUID projectId, int offset, int length) {
-        return find("from WorkerVolume v join fetch v.worker join fetch v.project "
-                + "where v.project.id = ?1 order by v.name, v.id", projectId)
-                .range(offset, offset + length - 1)
-                .list();
-    }
-
     /** Finds a volume by ID, eagerly fetching worker and project associations. */
     public static Optional<WorkerVolume> findByIdFetched(UUID volumeId) {
         return find("from WorkerVolume v join fetch v.worker join fetch v.project where v.id = ?1", volumeId)
                 .firstResultOptional();
     }
 
+    /** Finds a volume within a project, eagerly fetching worker and project associations. */
     public static Optional<WorkerVolume> findInProject(UUID projectId, UUID volumeId) {
-        return WorkerVolume.<WorkerVolume>findByIdOptional(volumeId)
-                .filter(volume -> volume.getProject().getId().equals(projectId));
+        return find("from WorkerVolume v join fetch v.worker join fetch v.project "
+                + "where v.id = ?1 and v.project.id = ?2", volumeId, projectId).firstResultOptional();
     }
 
     /**
      * Lists one page of volumes across every worker and project, narrowed by whichever of the host,
-     * the owning project and the state is given.
+     * the owning project, the state and the name fragment is given.
      */
     public static List<WorkerVolume> search(
             @Nullable UUID workerId, @Nullable UUID projectId, @Nullable VolumeState state,
-            int offset, int length) {
-        var query = new StringBuilder(
-                "from WorkerVolume v join fetch v.worker join fetch v.project where 1 = 1");
+            @Nullable String query, int offset, int length) {
         var parameters = new HashMap<String, Object>();
-        if (workerId != null) {
-            query.append(" and v.worker.id = :worker");
-            parameters.put("worker", workerId);
-        }
-        if (projectId != null) {
-            query.append(" and v.project.id = :project");
-            parameters.put("project", projectId);
-        }
-        if (state != null) {
-            query.append(" and v.state = :state");
-            parameters.put("state", state);
-        }
-        return find(query.append(" order by v.name, v.id").toString(), parameters)
+        var where = where(workerId, projectId, state, query, parameters);
+        return find("from WorkerVolume v join fetch v.worker join fetch v.project where " + where
+                        + " order by v.name, v.id", parameters)
                 .range(offset, offset + length - 1)
                 .list();
     }
 
+    public static long countSearch(
+            @Nullable UUID workerId, @Nullable UUID projectId, @Nullable VolumeState state,
+            @Nullable String query) {
+        var parameters = new HashMap<String, Object>();
+        return count("from WorkerVolume v where "
+                + where(workerId, projectId, state, query, parameters), parameters);
+    }
+
+    private static String where(
+            @Nullable UUID workerId, @Nullable UUID projectId, @Nullable VolumeState state,
+            @Nullable String query, Map<String, Object> parameters) {
+        var where = new StringBuilder("1 = 1");
+        if (workerId != null) {
+            where.append(" and v.worker.id = :worker");
+            parameters.put("worker", workerId);
+        }
+        if (projectId != null) {
+            where.append(" and v.project.id = :project");
+            parameters.put("project", projectId);
+        }
+        if (state != null) {
+            where.append(" and v.state = :state");
+            parameters.put("state", state);
+        }
+        if (query != null && !query.isBlank()) {
+            where.append(" and lower(v.name) like :name");
+            parameters.put("name", "%" + query.strip().toLowerCase() + "%");
+        }
+        return where.toString();
+    }
+
+    /** Drops every volume row hosted on a worker, for a host that is never coming back. */
+    public static long deleteByWorker(UUID workerId) {
+        return delete("worker.id", workerId);
+    }
+
     /**
-     * Volume count and allocated bytes across every worker. Allocated, not consumed: nothing writes
-     * {@link #used} yet (see TODO.md).
+     * Volume count and allocated bytes, across every worker or within one project. Allocated, not
+     * consumed: nothing writes {@link #used} yet (see TODO.md).
      */
-    public static StorageUsage allocated() {
+    public static StorageUsage allocated(@Nullable UUID projectId) {
         // sum() returns null when no rows exist, whereas count() returns 0.
-        var row = (Object[]) getEntityManager()
-                .createQuery("select count(v), sum(v.length) from WorkerVolume v")
-                .getSingleResult();
+        var query = getEntityManager().createQuery("select count(v), sum(v.length) from WorkerVolume v"
+                + (projectId == null ? "" : " where v.project.id = :project"));
+        if (projectId != null) {
+            query.setParameter("project", projectId);
+        }
+        var row = (Object[]) query.getSingleResult();
         var bytes = (Long) row[1];
         return new StorageUsage((long) row[0], bytes == null ? 0 : bytes);
     }

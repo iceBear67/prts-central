@@ -59,9 +59,16 @@ public class Project extends PanacheEntityBase {
 
     /** Searches projects by name with pagination, ordered by creation time descending. */
     public static List<Project> search(@Nullable String query, int offset, int limit) {
-        var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
-        return find("lower(name) like ?1 order by id desc", filter)
+        return find("lower(name) like ?1 order by id desc", like(query))
                 .range(offset, offset + limit - 1)
                 .list();
+    }
+
+    public static long countSearch(@Nullable String query) {
+        return count("lower(name) like ?1", like(query));
+    }
+
+    private static String like(@Nullable String query) {
+        return query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
     }
 }

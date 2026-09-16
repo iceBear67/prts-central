@@ -14,7 +14,8 @@ class AdminStatsViewTest {
 
     @Test
     void aJobGroupingCarriesEveryStateEvenWhenTheQueryReturnedNone() {
-        var jobs = new AdminStatsView.Jobs(Map.of(JobState.SUCCESS, 3L), 3, List.of());
+        var jobs = new AdminStatsView.Jobs(
+                Map.of(JobState.SUCCESS, 3L), 3, List.of(), List.of(), List.of());
 
         assertEquals(JobState.values().length, jobs.byState().size());
         assertEquals(3L, jobs.byState().get(JobState.SUCCESS));

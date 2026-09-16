@@ -1,11 +1,13 @@
 package io.ib67.prts.dto.admin;
 
+import io.ib67.prts.dto.Counts;
+import io.ib67.prts.dto.DailyCount;
+import io.ib67.prts.dto.HourlyCount;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.task.entity.TaskState;
 import io.ib67.prts.pending.PendingJobState;
 
 import java.time.Instant;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -50,22 +52,21 @@ public record AdminStatsView(
      * @param byState          Job counts grouped by state.
      * @param completedLast24h Jobs completed within the window {@code hourlyLast24h} covers.
      * @param hourlyLast24h    One bucket per hour, oldest first, always 24 entries.
+     * @param hourlyLast30d    The same series widened to 30 days, always 720 entries. Its last 24
+     *                         buckets are {@code hourlyLast24h}.
+     * @param dailyLast90d     One bucket per UTC day, oldest first, always 90 entries.
      */
-    public record Jobs(Map<JobState, Long> byState, long completedLast24h, List<Hourly> hourlyLast24h) {
+    public record Jobs(
+            Map<JobState, Long> byState,
+            long completedLast24h,
+            List<HourlyCount> hourlyLast24h,
+            List<HourlyCount> hourlyLast30d,
+            List<DailyCount> dailyLast90d) {
         public Jobs {
             byState = filled(JobState.class, Objects.requireNonNull(byState, "byState"));
             Objects.requireNonNull(hourlyLast24h, "hourlyLast24h");
-        }
-    }
-
-    /**
-     * Jobs that reached a terminal state within one hour-aligned hour.
-     *
-     * @param hour Start of the hour the bucket covers.
-     */
-    public record Hourly(Instant hour, long success, long failed, long cancelled) {
-        public Hourly {
-            Objects.requireNonNull(hour, "hour");
+            Objects.requireNonNull(hourlyLast30d, "hourlyLast30d");
+            Objects.requireNonNull(dailyLast90d, "dailyLast90d");
         }
     }
 
@@ -102,13 +103,7 @@ public record AdminStatsView(
         }
     }
 
-    // A grouping is published with every state present and zero-filled, so a client reading it never has
-    // to tell a key the server omitted from a count of none.
     private static <E extends Enum<E>> Map<E, Long> filled(Class<E> type, Map<E, Long> counts) {
-        var all = new EnumMap<E, Long>(type);
-        for (var value : type.getEnumConstants()) {
-            all.put(value, counts.getOrDefault(value, 0L));
-        }
-        return all;
+        return Counts.filled(type, counts);
     }
 }

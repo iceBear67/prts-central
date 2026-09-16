@@ -18,6 +18,11 @@ public record SetPermissionsRequest(
      * Resolves and deduplicates the requested permissions.
      */
     public List<Perm> resolved() {
+        return resolve(permissions);
+    }
+
+    /** Shared with the requests that carry a permission set of their own. */
+    public static List<Perm> resolve(List<String> permissions) {
         return permissions.stream()
                 .map(name -> Perm.byPermission(name)
                         .orElseThrow(() -> new BadRequestException("unknown permission: " + name)))

@@ -145,10 +145,10 @@ class WorkerWebSocketE2ETest {
         assertEquals("", response.message());
         as(admin).get("/api/worker").then()
                 .statusCode(200)
-                .body("id", contains(workerId.toString()))
-                .body("[0].name", equalTo("w1"))
-                .body("[0].connected", equalTo(true))
-                .body("[0].disabled", equalTo(false));
+                .body("items.id", contains(workerId.toString()))
+                .body("items[0].name", equalTo("w1"))
+                .body("items[0].connected", equalTo(true))
+                .body("items[0].disabled", equalTo(false));
     }
 
     /** Re-registering with a new name updates the worker record. */
@@ -231,8 +231,8 @@ class WorkerWebSocketE2ETest {
 
         as(admin).get("/api/worker").then()
                 .statusCode(200)
-                .body("[0].info.pending", equalTo(3))
-                .body("[0].info.current.numCpus", equalTo(2));
+                .body("items[0].info.pending", equalTo(3))
+                .body("items[0].info.current.numCpus", equalTo(2));
     }
 
     /** Disconnecting a worker marks its open jobs as FAILED. */

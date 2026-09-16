@@ -4,8 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.ib67.prts.agent.acp.entity.AgentDirection;
 import io.ib67.prts.agent.acp.entity.AgentEvent;
 import io.ib67.prts.agent.acp.entity.AgentSession;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.UserInfo;
-import io.ib67.prts.dto.agent.AgentEventPage;
+import io.ib67.prts.dto.agent.AgentEventView;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.user.User;
 import io.quarkus.narayana.jta.QuarkusTransaction;
@@ -123,7 +124,8 @@ public class AgentTranscript {
     }
 
     /** Returns a paginated view of session events, batch-resolving actor user info. */
-    public AgentEventPage viewOf(UUID projectId, UUID jobId, UUID sessionId, int offset, int length) {
+    public Page<AgentEventView> viewOf(
+            UUID projectId, UUID jobId, UUID sessionId, int offset, int length) {
         AgentSession.findInProject(projectId, jobId, sessionId).orElseThrow(() -> new NotFoundException(
                 "no such agent session in job " + jobId + ": " + sessionId));
         var events = AgentEvent.listBySession(sessionId, offset, length);
@@ -132,9 +134,9 @@ public class AgentTranscript {
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList());
-        return new AgentEventPage(
+        return new Page<>(
                 events.stream()
-                        .map(event -> new AgentEventPage.AgentEventView(
+                        .map(event -> new AgentEventView(
                                 event.getId(),
                                 event.getCreatedAt(),
                                 event.getDirection(),
@@ -145,6 +147,7 @@ public class AgentTranscript {
                                 event.getFrame()))
                         .toList(),
                 offset,
-                length);
+                length,
+                AgentEvent.countBySession(sessionId));
     }
 }

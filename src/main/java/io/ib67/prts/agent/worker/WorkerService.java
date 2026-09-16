@@ -6,6 +6,7 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.dto.WorkerRemovalView;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.JobState;
@@ -123,29 +124,48 @@ public class WorkerService {
     /**
      * Deletes a worker's registration.
      *
-     * <p>The worker must be disconnected, have no in-flight jobs, and host no volumes before deletion.
+     * <p>The worker must be disconnected either way: a live session means the host is not gone, and
+     * {@link #disconnect} says so explicitly. Without {@code force} it must additionally hold no
+     * unfinished job and host no volume, since releasing a volume needs the worker to acknowledge it.
+     *
+     * <p>{@code force} is the operator stating that the host is never coming back: the volume rows go
+     * without the RPC — storage is abandoned, not reclaimed — and the jobs it was holding fail, because
+     * nothing will ever report on them.
      */
-    public void delete(UUID id) {
+    public WorkerRemovalView delete(UUID id, boolean force) {
         synchronized (roster) {
             if (activeWorkers.containsKey(id)) {
                 throw new ClientErrorException(
                         "worker " + id + " is connected; disconnect it first", Response.Status.CONFLICT);
             }
-            QuarkusTransaction.requiringNew().run(() -> {
+            if (!force) {
+                QuarkusTransaction.requiringNew().run(() -> {
+                    var worker = requireRow(id);
+                    var open = Job.listOpenByWorker(id).size();
+                    if (open > 0) {
+                        throw new ClientErrorException(
+                                "worker " + id + " still has " + open + " unfinished job(s)",
+                                Response.Status.CONFLICT);
+                    }
+                    var volumes = WorkerVolume.countByWorker(id);
+                    if (volumes > 0) {
+                        throw new ClientErrorException(
+                                "worker " + id + " still hosts " + volumes + " volume(s)",
+                                Response.Status.CONFLICT);
+                    }
+                    worker.delete();
+                });
+                return new WorkerRemovalView(0, 0);
+            }
+            QuarkusTransaction.requiringNew().run(() -> requireRow(id));
+            var failed = failJobsOf(id);
+            return QuarkusTransaction.requiringNew().call(() -> {
                 var worker = requireRow(id);
-                var open = Job.listOpenByWorker(id).size();
-                if (open > 0) {
-                    throw new ClientErrorException(
-                            "worker " + id + " still has " + open + " unfinished job(s)",
-                            Response.Status.CONFLICT);
-                }
-                var volumes = WorkerVolume.countByWorker(id);
-                if (volumes > 0) {
-                    throw new ClientErrorException(
-                            "worker " + id + " still hosts " + volumes + " volume(s)",
-                            Response.Status.CONFLICT);
-                }
+                // Volumes first: worker_volume carries a plain foreign key to the row being removed.
+                // Their task mounts follow through task_volume's ON DELETE CASCADE.
+                var dropped = WorkerVolume.deleteByWorker(id);
                 worker.delete();
+                return new WorkerRemovalView(dropped, failed);
             });
         }
     }
@@ -170,15 +190,18 @@ public class WorkerService {
         failJobsOf(id);
     }
 
-    private void failJobsOf(UUID workerId) {
+    /** Fails everything the worker was still holding. Returns how many, best effort. */
+    private int failJobsOf(UUID workerId) {
         try {
             var open = QuarkusTransaction.requiringNew()
                     .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
             for (var jobId : open) {
                 jobService.applyState(jobId, JobState.FAILED);
             }
+            return open.size();
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot fail the jobs of disconnected worker %s", workerId);
+            return 0;
         }
     }
 

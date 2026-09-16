@@ -18,6 +18,7 @@ import java.util.UUID;
 import static io.ib67.prts.testing.Fixtures.as;
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.notNullValue;
@@ -71,7 +72,8 @@ class SubAccountResourceE2ETest {
 
         as(alice).get("/api/project/{p}/subaccount", project).then()
                 .statusCode(200)
-                .body("$", empty());
+                .body("items", empty())
+                .body("total", equalTo(0));
     }
 
     @Test
@@ -104,10 +106,53 @@ class SubAccountResourceE2ETest {
                 .body("userId", notNullValue())
                 // Name is trimmed before storing.
                 .body("name", equalTo("ci"))
-                // Newly created sub-accounts have no permissions granted by default.
+                // Neither grants nor a token were asked for, so the account holds neither.
                 .body("permissions", empty())
+                .body("token", nullValue())
                 .body("createdBy.id", equalTo(alice.id().toString()))
                 .body("createdBy.name", equalTo("alice"));
+    }
+
+    /**
+     * Grants and the credential in the same call, in one transaction: separately, a failure at the
+     * second or third step leaves a half-made account in the list.
+     */
+    @Test
+    void oneCallOpensAUsableSubAccount() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        var token = as(alice).contentType(ContentType.JSON).body(Map.of(
+                        "name", "ci-runner",
+                        "permissions", List.of(Perm.JOB_CREATE.permission(), Perm.JOB_READ.permission()),
+                        "issueToken", true))
+                .post("/api/project/{p}/subaccount", project).then()
+                .statusCode(201)
+                .body("name", equalTo("ci-runner"))
+                .body("permissions", containsInAnyOrder(
+                        Perm.JOB_CREATE.permission(), Perm.JOB_READ.permission()))
+                .body("token.token", notNullValue())
+                .body("token.issuedAt", notNullValue())
+                .extract().path("token.token").toString();
+
+        // The credential works, and it is the only time it is ever returned.
+        given().header("Authorization", "Bearer " + token)
+                .get("/api/project/{p}/job", project).then().statusCode(200);
+    }
+
+    /** An unknown permission name is rejected before anything is written. */
+    @Test
+    void aSubAccountIsNotOpenedWhenItsGrantsAreRejected() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of(
+                        "name", "ci", "permissions", List.of("job:teleport")))
+                .post("/api/project/{p}/subaccount", project).then()
+                .statusCode(400)
+                .body("message", equalTo("unknown permission: job:teleport"));
+
+        as(alice).get("/api/project/{p}/subaccount", project).then().body("items", empty());
     }
 
     @Test
@@ -156,7 +201,12 @@ class SubAccountResourceE2ETest {
 
         as(alice).get("/api/project/{p}/subaccount", project).then()
                 .statusCode(200)
-                .body("name", contains("mine-ci"));
+                .body("items.name", contains("mine-ci"));
+
+        as(alice).queryParam("query", "MINE").get("/api/project/{p}/subaccount", project).then()
+                .statusCode(200)
+                .body("items.name", contains("mine-ci"))
+                .body("total", equalTo(1));
     }
 
     @Test
@@ -362,7 +412,7 @@ class SubAccountResourceE2ETest {
                 .then().statusCode(204);
         as(alice).get("/api/project/{p}/subaccount", project).then()
                 .statusCode(200)
-                .body("$", empty());
+                .body("items", empty());
         as(alice).get("/api/project/{p}/subaccount/{u}", project, ci.id()).then().statusCode(404);
         // Deleting the sub-account also deletes its user record and invalidates its token.
         as(ci).get("/api/project").then().statusCode(401);

@@ -1,9 +1,11 @@
 package io.ib67.prts.user;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.dto.IssuedTokenView;
 import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.dto.project.SubAccountView;
 import io.ib67.prts.job.entity.Project;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -38,9 +40,9 @@ public class SubAccountService {
         return SubAccount.listByProjectFetched(projectId);
     }
 
-    /** Lists a paginated slice of sub-accounts of a project. */
-    public List<SubAccount> list(UUID projectId, int offset, int length) {
-        return SubAccount.listByProjectFetched(projectId, offset, length);
+    /** Lists a paginated slice of a project's sub-accounts, matching {@code query} against the name. */
+    public List<SubAccount> search(UUID projectId, @Nullable String query, int offset, int length) {
+        return SubAccount.searchByProject(projectId, query, offset, length);
     }
 
     /** Finds a sub-account in a project or throws {@link NotFoundException}. */
@@ -52,14 +54,18 @@ public class SubAccountService {
 
     /** Builds a view for a sub-account, resolving its current permissions. */
     public SubAccountView viewOf(UUID projectId, SubAccount account) {
-        return viewOf(account, userService.permissionsOf(account.getUserId(), projectId));
+        return viewOf(account, userService.permissionsOf(account.getUserId(), projectId), null);
     }
 
     /**
      * Builds a view for a sub-account with pre-supplied permissions to avoid stale cache reads before commit.
+     *
+     * @param token The credential this call minted, or null when it minted none. Nothing can read it
+     *              back afterwards, so the response that issued it is the only place it appears.
      */
-    public SubAccountView viewOf(SubAccount account, Collection<Perm> permissions) {
-        return view(account, permissions, UserInfo.of(account.getCreatedBy()));
+    public SubAccountView viewOf(
+            SubAccount account, Collection<Perm> permissions, @Nullable IssuedTokenView token) {
+        return view(account, permissions, UserInfo.of(account.getCreatedBy()), token);
     }
 
     /** Builds views for a list of sub-accounts, batch-resolving creator details. */
@@ -69,17 +75,21 @@ public class SubAccountService {
                 .map(account -> view(
                         account,
                         userService.permissionsOf(account.getUserId(), projectId),
-                        UserInfo.of(account.getCreatedBy(), users.get(account.getCreatedBy()))))
+                        UserInfo.of(account.getCreatedBy(), users.get(account.getCreatedBy())),
+                        null))
                 .toList();
     }
 
-    private static SubAccountView view(SubAccount account, Collection<Perm> permissions, UserInfo createdBy) {
+    private static SubAccountView view(
+            SubAccount account, Collection<Perm> permissions, UserInfo createdBy,
+            @Nullable IssuedTokenView token) {
         return new SubAccountView(
                 account.getUserId(),
                 account.getUser().getName(),
                 permissions.stream().map(Perm::permission).sorted().toList(),
                 createdBy,
-                account.getCreatedAt());
+                account.getCreatedAt(),
+                token);
     }
 
     @Transactional

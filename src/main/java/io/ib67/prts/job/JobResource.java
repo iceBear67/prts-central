@@ -11,7 +11,7 @@ import io.ib67.prts.dto.*;
 import io.ib67.prts.dto.job.*;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
-import io.ib67.prts.pending.PendingJob;
+import io.ib67.prts.dto.request.UpdateTemplateRequest;
 import io.ib67.prts.pending.PendingJobService;
 import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
@@ -35,7 +35,6 @@ import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
 import java.util.Comparator;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -72,7 +71,7 @@ public class JobResource {
     @Path("/template")
     @Transactional
     @RequirePermission(value = Perm.PROJECT_READ, defaultRole = ProjectRole.VIEWER)
-    public List<JobSpecTemplateView> listTemplates(
+    public Page<JobSpecTemplateView> listTemplates(
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
@@ -80,10 +79,14 @@ public class JobResource {
         projectService.require(projectId);
         var withSpec = jobAccess.mayReadTemplate(projectId);
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        return JobSpecTemplate.listVisibleFetched(projectId, Pages.clampOffset(offset, window), window)
-                .stream()
-                .map(template -> JobSpecTemplateView.of(template, withSpec))
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                JobSpecTemplate.listVisibleFetched(projectId, start, window).stream()
+                        .map(template -> JobSpecTemplateView.of(template, withSpec))
+                        .toList(),
+                start,
+                window,
+                JobSpecTemplate.countVisible(projectId));
     }
 
     @GET
@@ -113,14 +116,59 @@ public class JobResource {
         var template = JobSpecTemplate.builder()
                 .name(request.name())
                 .spec(spec)
-                .resourceClass(ResourceClass.findByName(request.resourceClass())
-                        .orElseThrow(() -> new NotFoundException(
-                                "no such resource class: " + request.resourceClass())))
+                .resourceClass(requireClass(projectId, request.resourceClass()))
                 .project(project)
                 .build();
         template.persist();
         // Return the full spec to the creator without requiring job:template:read permission.
         return JobSpecTemplateView.of(template, true);
+    }
+
+    /**
+     * Applies the fields the caller supplied to one of this project's own templates.
+     *
+     * <p>Updating rather than replacing matters because the ID is what a task, a queued job and a
+     * re-run payload hold: delete-and-recreate would leave all three pointing at a template that no
+     * longer exists. A supplied {@code spec} replaces the stored one whole, as it does on the admin
+     * half — merging cannot remove an environment entry.
+     */
+    @PATCH
+    @Path("/template/{templateId}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Transactional
+    @RequirePermission(value = Perm.JOB_TEMPLATE_MANAGE, defaultRole = ProjectRole.OWNER)
+    public JobSpecTemplateView updateTemplate(
+            @ProjectId @PathParam("projectId") UUID projectId,
+            @PathParam("templateId") UUID templateId,
+            @NotNull(message = "a request body is required") @Valid UpdateTemplateRequest request) {
+        projectService.requireWritable(projectId);
+        var template = JobSpecTemplate.findVisibleFetched(projectId, templateId)
+                .orElseThrow(NotFoundException::new);
+        if (template.getProject() == null) {
+            throw new ClientErrorException(
+                    "a global template is not this project's to edit: " + templateId,
+                    Response.Status.CONFLICT);
+        }
+        if (request.name() != null) {
+            template.setName(request.name());
+        }
+        if (request.resourceClass() != null) {
+            template.setResourceClass(requireClass(projectId, request.resourceClass()));
+        }
+        if (request.spec() != null) {
+            var spec = request.spec().toSpec();
+            spec.requireVolumesIn(projectId);
+            template.setSpec(spec);
+        }
+        // The editor just wrote it, so the answer carries it whatever job:template:read says.
+        return JobSpecTemplateView.of(template, true);
+    }
+
+    /** The class named on a template, refused when it is not this project's to run in. */
+    private static ResourceClass requireClass(UUID projectId, String name) {
+        return ResourceClass.findByName(name)
+                .orElseThrow(() -> new NotFoundException("no such resource class: " + name))
+                .requireAvailableTo(projectId);
     }
 
     /**
@@ -147,31 +195,35 @@ public class JobResource {
      * Lists both running/completed jobs and queued pending jobs in reverse chronological order.
      *
      * @param taskId narrows the listing to one task's jobs; omitted lists the whole project's
+     * @param state  narrows it to one state of either table — see {@link JobStatus}
      */
     @GET
     @Transactional
     @RequirePermission(value = Perm.JOB_READ, defaultRole = ProjectRole.VIEWER)
-    public List<JobStatusView> listJobs(
+    public Page<JobStatusView> listJobs(
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("task") @Nullable UUID taskId,
+            @QueryParam("state") @Nullable JobStatus state,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, jobConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
         var depth = start + window;
-        var jobs = taskId == null
-                ? jobService.listVisible(projectId, depth)
-                : jobService.listVisibleInTask(projectId, taskId, depth);
-        var queued = taskId == null
-                ? PendingJob.listUnplacedByProject(projectId, depth)
-                : PendingJob.listUnplacedByTask(taskId, depth);
-        return Stream.<JobStatusView>concat(
-                        jobService.viewOf(projectId, jobs).stream(),
-                        pendingJobService.viewOf(projectId, queued).stream())
-                .sorted(Comparator.comparing(JobStatusView::createdAt).reversed())
-                .skip(start)
-                .limit(window)
-                .toList();
+        var jobs = jobService.listVisible(projectId, taskId, state, depth);
+        var queued = pendingJobService.listUnplaced(projectId, taskId, state, depth);
+        return new Page<>(
+                Stream.<JobStatusView>concat(
+                                jobService.viewOf(projectId, jobs).stream(),
+                                pendingJobService.viewOf(projectId, queued).stream())
+                        .sorted(Comparator.comparing(JobStatusView::createdAt).reversed())
+                        .skip(start)
+                        .limit(window)
+                        .toList(),
+                start,
+                window,
+                // The listing merges two tables, so its total is the sum of what each contributes.
+                jobService.countVisible(projectId, taskId, state)
+                        + pendingJobService.countUnplaced(projectId, taskId, state));
     }
 
     /**
@@ -263,13 +315,12 @@ public class JobResource {
     @Path("/{jobId}/log")
     @Transactional
     @RequirePermission(value = Perm.JOB_LOG_READ, defaultRole = ProjectRole.VIEWER)
-    public JobLogPage getJobLogs(
+    public Page<JobLogView> getJobLogs(
             @ProjectId @PathParam("projectId") UUID projectId,
             @PathParam("jobId") UUID jobId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, jobConfig.log().maxPageSize());
-        var start = Pages.clampOffset(offset, window);
-        return JobLogPage.of(jobService.listLogs(projectId, jobId, start, window), start, window);
+        return jobService.logsOf(projectId, jobId, Pages.clampOffset(offset, window), window);
     }
 }

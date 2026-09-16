@@ -21,6 +21,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static io.ib67.prts.testing.Fixtures.as;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -89,7 +90,7 @@ class TaskResourceE2ETest {
     void aViewerMayReadButNotOpen() {
         openTask("pr-42");
 
-        as(viewer).get(tasks()).then().statusCode(200).body("$", hasSize(1));
+        as(viewer).get(tasks()).then().statusCode(200).body("items", hasSize(1));
         as(viewer).contentType(ContentType.JSON)
                 .body(Map.of("name", "nope"))
                 .post(tasks()).then().statusCode(403);
@@ -304,8 +305,8 @@ class TaskResourceE2ETest {
         as(viewer).get(tasks() + "/" + second + "/volume").then().statusCode(200).body("$", hasSize(1));
         as(viewer).get("/api/project/" + project + "/volume").then()
                 .statusCode(200)
-                .body("$", hasSize(1))
-                .body("[0].id", equalTo(volume.toString()));
+                .body("items", hasSize(1))
+                .body("items[0].id", equalTo(volume.toString()));
     }
 
     @Test
@@ -318,7 +319,46 @@ class TaskResourceE2ETest {
         as(member).delete(tasks() + "/" + id + "/volume/" + volume).then().statusCode(204);
 
         as(viewer).get(tasks() + "/" + id + "/volume").then().statusCode(200).body("$", empty());
-        as(viewer).get("/api/project/" + project + "/volume").then().statusCode(200).body("$", hasSize(1));
+        as(viewer).get("/api/project/" + project + "/volume").then()
+                .statusCode(200).body("items", hasSize(1));
+    }
+
+    /**
+     * {@code task_volume} is many-to-many and the delete refuses while any mount remains, so "which
+     * tasks mount this" is the question an operator has while looking at a volume they want gone.
+     */
+    @Test
+    void aVolumeNamesTheTasksMountingIt() {
+        var volume = fixtures.createVolume(project, fixtures.createWorker("w1"), "cache");
+        var id = openTask("pr-42");
+        mount(id, volume, "/data");
+
+        as(viewer).get("/api/project/" + project + "/volume/" + volume).then()
+                .statusCode(200)
+                .body("volume.id", equalTo(volume.toString()))
+                .body("volume.name", equalTo("cache"))
+                .body("mounts", hasSize(1))
+                .body("mounts[0].taskId", equalTo(id.toString()))
+                .body("mounts[0].taskName", equalTo("pr-42"))
+                .body("mounts[0].mountPoint", equalTo("/data"));
+
+        as(viewer).get("/api/project/" + project + "/volume/" + UUID.randomUUID())
+                .then().statusCode(404);
+    }
+
+    @Test
+    void theTaskListingIsSearchableAndNarrowsByState() {
+        openTask("flaky login test");
+        var closing = openTask("release");
+        as(member).delete(tasks() + "/" + closing).then().statusCode(200);
+
+        as(viewer).queryParam("query", "FLAKY").get(tasks()).then()
+                .statusCode(200)
+                .body("items.name", contains("flaky login test"))
+                .body("total", equalTo(1));
+        as(viewer).queryParam("state", "CLOSED").get(tasks()).then()
+                .statusCode(200)
+                .body("items.name", contains("release"));
     }
 
     /** Verifies that mounting volumes located on different workers to the same task is rejected. */

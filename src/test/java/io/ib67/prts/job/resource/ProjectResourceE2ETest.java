@@ -1,6 +1,7 @@
 package io.ib67.prts.job.resource;
 
 import io.ib67.prts.Perm;
+import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.project.ProjectResource;
 import io.ib67.prts.testing.DatabaseCleaner;
@@ -24,6 +25,7 @@ import static org.hamcrest.Matchers.emptyString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -56,6 +58,86 @@ class ProjectResourceE2ETest {
     @Test
     void anUncredentialedRequestIsRejected() {
         given().get("/api/project").then().statusCode(401);
+    }
+
+    /**
+     * The same aggregation the admin dashboard draws, behind the project's own read gate — an
+     * ordinary member has no {@code admin:all} to reach {@code /admin/stats} with.
+     */
+    @Test
+    void aViewerReadsTheProjectsOwnStatistics() {
+        var small = fixtures.createResourceClass("small");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createTask(project, alice, "release", null);
+        fixtures.createVolume(project, fixtures.createWorker("w1"), "cache");
+
+        as(alice).get("/api/project/{p}/stats", project).then()
+                .statusCode(200)
+                .body("jobs.byState.SUCCESS", equalTo(1))
+                .body("jobs.byState.keySet()", containsInAnyOrder(
+                        "PENDING", "RUNNING", "FAILED", "SUCCESS", "CANCELLED"))
+                .body("jobs.dailyLast90d", hasSize(90))
+                .body("jobs.dailyLast90d[89].success", equalTo(1))
+                // The wide heatmap's series: a month of hours, the last of which is the current one.
+                .body("jobs.hourlyLast30d", hasSize(720))
+                .body("jobs.hourlyLast30d[719].success", equalTo(1))
+                .body("jobs.hourlyLast30d[0].success", equalTo(0))
+                .body("tasks.byState.OPEN", equalTo(1))
+                .body("storage.volumes", equalTo(1))
+                .body("storage.volumeBytes", equalTo(1024));
+    }
+
+    /**
+     * The per-project catalogue: the shared classes plus the ones an admin opened to this project.
+     * A form offering anything else would draw a picker the submit refuses.
+     */
+    @Test
+    void aViewerSeesTheClassesTheProjectMayActuallyUse() {
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        fixtures.createResourceClass("small");
+        var huge = fixtures.createResourceClass("huge", false);
+
+        as(alice).get("/api/project/{p}/resource-class", project).then()
+                .statusCode(200)
+                .body("items.name", contains("small"))
+                .body("items[0].shared", equalTo(true))
+                .body("total", equalTo(1));
+
+        fixtures.allowResourceClass(project, huge);
+        as(alice).get("/api/project/{p}/resource-class", project).then()
+                .statusCode(200)
+                .body("items.name", contains("huge", "small"))
+                .body("total", equalTo(2));
+
+        // The whole catalogue stays readable; only what the project may name is narrowed.
+        as(alice).get("/api/resource-class").then()
+                .statusCode(200)
+                .body("items.name", contains("huge", "small"));
+    }
+
+    @Test
+    void aStrangerCannotSeeAProjectsClasses() {
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/resource-class", project)
+                .then().statusCode(403);
+    }
+
+    @Test
+    void anotherProjectsWorkIsNotCountedHere() {
+        var other = fixtures.createProject("theirs");
+        var small = fixtures.createResourceClass("small");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        fixtures.createJob(other, alice, small, JobState.SUCCESS, UUID.randomUUID());
+
+        as(alice).get("/api/project/{p}/stats", project).then()
+                .statusCode(200)
+                .body("jobs.byState.SUCCESS", equalTo(0));
+    }
+
+    @Test
+    void aStrangerCannotReadTheStatistics() {
+        as(fixtures.createActor("mallory")).get("/api/project/{p}/stats", project)
+                .then().statusCode(403);
     }
 
     @Test

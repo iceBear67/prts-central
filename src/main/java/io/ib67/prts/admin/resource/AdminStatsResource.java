@@ -1,15 +1,17 @@
 package io.ib67.prts.admin.resource;
 
 import io.ib67.prts.Perm;
-import io.ib67.prts.admin.AdminStatsService;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.HourlyCount;
 import io.ib67.prts.dto.admin.AdminStatsView;
 import io.ib67.prts.pending.PendingJob;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.Project;
+import io.ib67.prts.job.task.entity.Task;
+import io.ib67.prts.stats.StatsService;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.user.SubAccount;
 import io.ib67.prts.user.User;
@@ -35,15 +37,16 @@ public class AdminStatsResource {
     @Inject
     ArtifactService artifactService;
     @Inject
-    AdminStatsService adminStatsService;
+    StatsService statsService;
 
     @GET
     @Transactional
     public AdminStatsView getStats() {
         var live = workerService.getActiveWorkers().values();
         var artifacts = artifactService.stored();
-        var volumes = WorkerVolume.allocated();
-        var hourly = adminStatsService.completionsLast24h();
+        var volumes = WorkerVolume.allocated(null);
+        var completions = statsService.completions(null);
+        var hourly = StatsService.hourlyLast(completions, StatsService.WINDOW_HOURS);
         return new AdminStatsView(
                 new AdminStatsView.Users(User.count(), SubAccount.count()),
                 new AdminStatsView.Projects(Project.count(), Project.count("archivedAt is not null")),
@@ -54,15 +57,20 @@ public class AdminStatsResource {
                         live.stream().filter(worker -> !worker.isDisabled()).count()),
                 // Summed from the series rather than counted separately, so the scalar and the chart
                 // can never disagree about the same window.
-                new AdminStatsView.Jobs(Job.countByState(), completed(hourly), hourly),
+                new AdminStatsView.Jobs(
+                        Job.countByState(null),
+                        completed(hourly),
+                        hourly,
+                        StatsService.hourlyLast(completions, StatsService.WINDOW_HOURS_LONG),
+                        StatsService.dailyLast(completions)),
                 new AdminStatsView.Queue(PendingJob.countByState()),
-                new AdminStatsView.Tasks(adminStatsService.tasksByState()),
+                new AdminStatsView.Tasks(Task.countByState(null)),
                 new AdminStatsView.Storage(
                         artifacts.count(), artifacts.bytes(), volumes.count(), volumes.bytes()),
-                adminStatsService.system());
+                statsService.system());
     }
 
-    private static long completed(List<AdminStatsView.Hourly> hourly) {
+    private static long completed(List<HourlyCount> hourly) {
         return hourly.stream()
                 .mapToLong(hour -> hour.success() + hour.failed() + hour.cancelled())
                 .sum();

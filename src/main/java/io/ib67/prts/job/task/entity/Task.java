@@ -31,9 +31,11 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Context grouping a set of jobs under a common project, with shared environment, labels, and volumes.
@@ -122,36 +124,60 @@ public class Task extends PanacheEntityBase {
         this.closedAt = next.isClosed() ? Instant.now() : null;
     }
 
-    /** Lists a project's tasks, most recent first. */
-    public static List<Task> listByProject(UUID projectId, int offset, int limit) {
-        return Task.<Task>find("from Task t join fetch t.project" + " where t.project.id = ?1 order by t.createdAt desc, t.id desc",
-                        projectId)
-                .range(offset, offset + limit - 1)
-                .list();
-    }
-
     public static Optional<Task> findInProject(UUID projectId, UUID taskId) {
         return Task.<Task>find("from Task t join fetch t.project" + " where t.id = ?1 and t.project.id = ?2", taskId, projectId)
                 .firstResultOptional();
     }
 
     /**
-     * Lists one page of tasks across every project, most recent first, matching {@code query} against
-     * the task name and narrowing to {@code state} when either is given.
+     * Lists one page of tasks, most recent first, narrowed by whichever of the owning project, a
+     * {@code query} matched against the task name, and the state is given.
      */
     public static List<Task> search(
-            @Nullable String query, @Nullable TaskState state, int offset, int limit) {
-        var filter = query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
-        var narrowed = state == null ? "" : " and t.state = :state";
+            @Nullable UUID projectId, @Nullable String query, @Nullable TaskState state,
+            int offset, int limit) {
         var parameters = new HashMap<String, Object>();
-        parameters.put("name", filter);
-        if (state != null) {
-            parameters.put("state", state);
-        }
-        return Task.<Task>find("from Task t join fetch t.project" + " where lower(t.name) like :name" + narrowed
+        var where = where(projectId, query, state, parameters);
+        return Task.<Task>find("from Task t join fetch t.project where " + where
                         + " order by t.createdAt desc, t.id desc", parameters)
                 .range(offset, offset + limit - 1)
                 .list();
+    }
+
+    public static long countSearch(
+            @Nullable UUID projectId, @Nullable String query, @Nullable TaskState state) {
+        var parameters = new HashMap<String, Object>();
+        return count("from Task t where " + where(projectId, query, state, parameters), parameters);
+    }
+
+    private static String where(
+            @Nullable UUID projectId, @Nullable String query, @Nullable TaskState state,
+            Map<String, Object> parameters) {
+        var where = new StringBuilder("lower(t.name) like :name");
+        parameters.put("name", query == null || query.isBlank()
+                ? "%" : "%" + query.strip().toLowerCase() + "%");
+        if (projectId != null) {
+            where.append(" and t.project.id = :project");
+            parameters.put("project", projectId);
+        }
+        if (state != null) {
+            where.append(" and t.state = :state");
+            parameters.put("state", state);
+        }
+        return where.toString();
+    }
+
+    /** Task counts grouped by state, across every project or within one. */
+    public static Map<TaskState, Long> countByState(@Nullable UUID projectId) {
+        var query = getEntityManager().createQuery(
+                "select t.state, count(t.id) from Task t"
+                        + (projectId == null ? "" : " where t.project.id = :project")
+                        + " group by t.state", Object[].class);
+        if (projectId != null) {
+            query.setParameter("project", projectId);
+        }
+        return query.getResultList().stream()
+                .collect(Collectors.toMap(row -> (TaskState) row[0], row -> (Long) row[1]));
     }
 
     /** Returns closing tasks awaiting teardown, ordered by creation time. */

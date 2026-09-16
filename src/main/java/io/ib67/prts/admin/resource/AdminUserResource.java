@@ -4,6 +4,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.Pages;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.ScopedGrants;
 import io.ib67.prts.dto.admin.UserDetailView;
 import io.ib67.prts.dto.admin.UserView;
@@ -31,7 +32,6 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
 import java.util.Comparator;
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -53,14 +53,19 @@ public class AdminUserResource {
 
     @GET
     @Transactional
-    public List<UserView> listUsers(
+    public Page<UserView> listUsers(
             @QueryParam("query") @Nullable String query,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        var users = User.search(query, Pages.clampOffset(offset, window), window);
+        var start = Pages.clampOffset(offset, window);
+        var users = User.search(query, start, window);
         var owners = SubAccount.owningProjectsOf(users.stream().map(User::getId).toList());
-        return users.stream().map(user -> UserView.of(user, owners.get(user.getId()))).toList();
+        return new Page<>(
+                users.stream().map(user -> UserView.of(user, owners.get(user.getId()))).toList(),
+                start,
+                window,
+                User.countSearch(query));
     }
 
     @GET

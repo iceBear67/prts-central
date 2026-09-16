@@ -75,6 +75,12 @@ public class TaskVolume extends PanacheEntityBase {
         return findByIdOptional(new Id(taskId, volumeId));
     }
 
+    /** Lists the mounts of a volume with the mounting task fetched, ordered by task name. */
+    public static List<TaskVolume> listByVolumeFetched(UUID volumeId) {
+        return find("from TaskVolume m join fetch m.task t where m.id.volumeId = ?1 "
+                + "order by t.name, t.id", volumeId).list();
+    }
+
     /** Returns the number of tasks mounting the specified volume. */
     public static long countByVolume(UUID volumeId) {
         return count("id.volumeId", volumeId);

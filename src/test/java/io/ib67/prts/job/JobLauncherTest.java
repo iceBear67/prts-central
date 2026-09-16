@@ -5,6 +5,7 @@ import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.job.JobSpecOverrideAuthorizer;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.Worker;
@@ -71,8 +72,13 @@ class JobLauncherTest {
     private final JobSpecTemplate template =
             JobSpecTemplate.builder().id(TEMPLATE).name("t").spec(spec).resourceClass(small).build();
 
+    /** Shared, as one created without saying otherwise is: every project may name it. */
     private static ResourceClass resourceClass(String name) {
         return ResourceClass.builder().name(name).build();
+    }
+
+    private static ResourceClass restricted(String name) {
+        return ResourceClass.builder().name(name).shared(false).build();
     }
 
     @BeforeEach
@@ -163,6 +169,51 @@ class JobLauncherTest {
 
             assertThrows(NotFoundException.class,
                     () -> launcher.authorize(PROJECT, request("huge"), authorizer));
+        }
+    }
+
+    /**
+     * A class open to named projects only is refused to the others — including through a template
+     * that names it, which is how a global template would otherwise hand it to everyone.
+     */
+    @Test
+    void aClassTheProjectWasNotGrantedIsRefused() {
+        var huge = restricted("huge");
+
+        try (var scope = new Scope(); var grants = mockStatic(ProjectResourceClass.class)) {
+            scope.classes.when(() -> ResourceClass.findByName("huge")).thenReturn(Optional.of(huge));
+            grants.when(() -> ProjectResourceClass.granted(PROJECT, "huge")).thenReturn(false);
+
+            assertThrows(ForbiddenException.class,
+                    () -> launcher.authorize(PROJECT, request("huge"), authorizer));
+        }
+    }
+
+    @Test
+    void aClassTheProjectWasGrantedIsAllowed() {
+        var huge = restricted("huge");
+
+        try (var scope = new Scope(); var grants = mockStatic(ProjectResourceClass.class)) {
+            scope.classes.when(() -> ResourceClass.findByName("huge")).thenReturn(Optional.of(huge));
+            grants.when(() -> ProjectResourceClass.granted(PROJECT, "huge")).thenReturn(true);
+
+            assertEquals("huge", launcher.authorize(PROJECT, request("huge"), authorizer).resourceClass());
+        }
+    }
+
+    /** The grant governs the class, not the route to it: keeping a template's default is still checked. */
+    @Test
+    void aTemplateDefaultingToARestrictedClassIsRefusedToo() {
+        var restrictedTemplate = JobSpecTemplate.builder()
+                .id(TEMPLATE).name("t").spec(spec).resourceClass(restricted("huge")).build();
+
+        try (var scope = new Scope(); var grants = mockStatic(ProjectResourceClass.class)) {
+            scope.templates.when(() -> JobSpecTemplate.findVisibleFetched(PROJECT, TEMPLATE))
+                    .thenReturn(Optional.of(restrictedTemplate));
+            grants.when(() -> ProjectResourceClass.granted(PROJECT, "huge")).thenReturn(false);
+
+            assertThrows(ForbiddenException.class,
+                    () -> launcher.authorize(PROJECT, request(null), authorizer));
         }
     }
 

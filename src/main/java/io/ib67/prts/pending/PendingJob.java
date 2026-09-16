@@ -3,6 +3,7 @@ package io.ib67.prts.pending;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.AttributeOverride;
 import jakarta.persistence.CheckConstraint;
 import jakarta.persistence.Column;
@@ -30,6 +31,7 @@ import org.hibernate.annotations.UuidGenerator;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -119,11 +121,41 @@ public class PendingJob extends PanacheEntityBase {
                 .list();
     }
 
-    /** Lists undispatched pending jobs for a project. */
-    public static List<PendingJob> listUnplacedByProject(UUID projectId, int limit) {
-        return PendingJob.<PendingJob>find("project.id = ?1 and jobId is null order by createdAt desc, id desc", projectId)
+    /**
+     * Lists one window of a project's undispatched queue entries, newest first, narrowed to a task
+     * and a state where either is given.
+     */
+    public static List<PendingJob> listUnplaced(
+            UUID projectId, @Nullable UUID taskId, @Nullable PendingJobState state, int limit) {
+        var parameters = new HashMap<String, Object>();
+        return PendingJob.<PendingJob>find(
+                        unplaced(projectId, taskId, state, parameters) + " order by createdAt desc, id desc",
+                        parameters)
                 .page(0, limit)
                 .list();
+    }
+
+    public static long countUnplaced(
+            UUID projectId, @Nullable UUID taskId, @Nullable PendingJobState state) {
+        var parameters = new HashMap<String, Object>();
+        return count(unplaced(projectId, taskId, state, parameters), parameters);
+    }
+
+    // An entry that became a job is listed as that job, so a placed one is never one of these rows.
+    private static String unplaced(
+            UUID projectId, @Nullable UUID taskId, @Nullable PendingJobState state,
+            Map<String, Object> parameters) {
+        var query = new StringBuilder("project.id = :project and jobId is null");
+        parameters.put("project", projectId);
+        if (taskId != null) {
+            query.append(" and request.taskId = :task");
+            parameters.put("task", taskId);
+        }
+        if (state != null) {
+            query.append(" and state = :state");
+            parameters.put("state", state);
+        }
+        return query.toString();
     }
 
     /** Counts pending jobs that are currently queued or dispatching for a project. */
@@ -152,14 +184,6 @@ public class PendingJob extends PanacheEntityBase {
                 .setParameter(2, List.of(PendingJobState.QUEUED, PendingJobState.DISPATCHING))
                 .getResultList().stream()
                 .collect(Collectors.toMap(row -> (UUID) row[0], row -> (Long) row[1]));
-    }
-
-    /** Lists undispatched pending jobs scoped to a task. */
-    public static List<PendingJob> listUnplacedByTask(UUID taskId, int limit) {
-        return PendingJob.<PendingJob>find(
-                        "request.taskId = ?1 and jobId is null order by createdAt desc, id desc", taskId)
-                .page(0, limit)
-                .list();
     }
 
     /** Cancels all active pending jobs for a project. */

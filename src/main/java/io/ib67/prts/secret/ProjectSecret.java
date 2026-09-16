@@ -85,6 +85,10 @@ public class ProjectSecret extends PanacheEntityBase {
                 .list();
     }
 
+    public static long countByProject(UUID projectId) {
+        return count("id.projectId", projectId);
+    }
+
     public static Optional<ProjectSecret> findIn(UUID projectId, String name) {
         return findByIdOptional(new Id(projectId, name));
     }

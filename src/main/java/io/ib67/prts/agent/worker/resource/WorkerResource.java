@@ -7,12 +7,16 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.Worker;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
+import io.ib67.prts.dto.WorkerRemovalView;
 import io.ib67.prts.dto.WorkerView;
 import io.ib67.prts.dto.WorkerVolumeView;
 import io.ib67.prts.dto.job.JobView;
 import io.ib67.prts.dto.request.RenameWorkerRequest;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobState;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -30,7 +34,7 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
-import java.util.List;
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -49,13 +53,16 @@ public class WorkerResource {
 
     @GET
     @Transactional
-    public List<WorkerView> listWorkers(
+    public Page<WorkerView> listWorkers(
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return Worker.listPage(Pages.clampOffset(offset, window), window).stream()
-                .map(this::view)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                Worker.listPage(start, window).stream().map(this::view).toList(),
+                start,
+                window,
+                Worker.count());
     }
 
     @GET
@@ -99,35 +106,65 @@ public class WorkerResource {
         workerService.disconnect(id);
     }
 
-    /** Deletes a worker registration. The worker must be disconnected with no active jobs or volumes. */
+    /**
+     * Deletes a worker registration. The worker must be disconnected either way, and without
+     * {@code force} must also hold no unfinished job and host no volume.
+     *
+     * <p>{@code force} is for a host that is never coming back: it drops the volume rows without the
+     * acknowledgment a release normally needs and fails the jobs the worker was holding. The response
+     * says how much was abandoned rather than reclaimed.
+     */
     @DELETE
     @Path("/{id}")
-    public void deleteWorker(@PathParam("id") UUID id) {
-        workerService.delete(id);
+    public WorkerRemovalView deleteWorker(
+            @PathParam("id") UUID id, @QueryParam("force") @DefaultValue("false") boolean force) {
+        return workerService.delete(id, force);
     }
 
-    /** Lists all active jobs currently assigned to the worker. */
+    /**
+     * Lists the jobs this worker has run, newest first — a timeline, not only what it holds now.
+     *
+     * @param state narrows to one state; omitted covers terminal states too
+     * @param since lower bound on the job's creation time
+     */
     @GET
     @Path("/{id}/job")
     @Transactional
-    public List<JobView> listWorkerJobs(@PathParam("id") UUID id) {
+    public Page<JobView> listWorkerJobs(
+            @PathParam("id") UUID id,
+            @QueryParam("state") @Nullable JobState state,
+            @QueryParam("since") @Nullable Instant since,
+            @QueryParam("offset") @DefaultValue("0") int offset,
+            @QueryParam("length") Integer length) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
-        return jobService.viewOf(Job.listOpenByWorker(id));
+        var filter = Job.Filter.builder().worker(id).state(state).since(since).build();
+        var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                jobService.viewOf(Job.listVisible(filter, start, window)),
+                start,
+                window,
+                Job.countVisible(filter));
     }
 
     /** Lists the volumes hosted on this worker across all projects. */
     @GET
     @Path("/{id}/volume")
     @Transactional
-    public List<WorkerVolumeView> listWorkerVolumes(
+    public Page<WorkerVolumeView> listWorkerVolumes(
             @PathParam("id") UUID id,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return WorkerVolume.listByWorker(id, Pages.clampOffset(offset, window), window).stream()
-                .map(WorkerVolumeView::of)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                WorkerVolume.search(id, null, null, null, start, window).stream()
+                        .map(WorkerVolumeView::of)
+                        .toList(),
+                start,
+                window,
+                WorkerVolume.countSearch(id, null, null, null));
     }
 
     private WorkerView view(Worker row) {

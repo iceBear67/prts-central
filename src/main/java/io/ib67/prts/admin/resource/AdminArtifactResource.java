@@ -4,6 +4,7 @@ import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.admin.AdminArtifactView;
 import io.ib67.prts.job.entity.Artifact;
 import jakarta.annotation.Nullable;
@@ -16,7 +17,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -35,14 +35,19 @@ public class AdminArtifactResource {
 
     @GET
     @Transactional
-    public List<AdminArtifactView> listArtifacts(
+    public Page<AdminArtifactView> listArtifacts(
             @QueryParam("project") @Nullable UUID projectId,
             @QueryParam("job") @Nullable UUID jobId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return Artifact.search(projectId, jobId, Pages.clampOffset(offset, window), window).stream()
-                .map(AdminArtifactView::of)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                Artifact.search(projectId, jobId, start, window).stream()
+                        .map(AdminArtifactView::of)
+                        .toList(),
+                start,
+                window,
+                Artifact.countSearch(projectId, jobId));
     }
 }

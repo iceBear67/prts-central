@@ -8,6 +8,7 @@ import org.eclipse.microprofile.openapi.OASFactory;
 import org.eclipse.microprofile.openapi.OASFilter;
 import org.eclipse.microprofile.openapi.models.OpenAPI;
 import org.eclipse.microprofile.openapi.models.Operation;
+import org.eclipse.microprofile.openapi.models.Components;
 import org.eclipse.microprofile.openapi.models.PathItem;
 import org.eclipse.microprofile.openapi.models.media.Content;
 import org.eclipse.microprofile.openapi.models.media.MediaType;
@@ -62,6 +63,8 @@ public class EndpointOASFilter implements OASFilter {
     private static final String EXTENSION = "x-required-permission";
 
     private static final String ERROR_SCHEMA = "ErrorView";
+    /** Jackson's tree node, published for {@code AgentEventView.frame}. */
+    private static final String JSON_NODE = "JsonNode";
     private static final String SCHEMA_REF = "#/components/schemas/";
     private static final String ERROR_REF = SCHEMA_REF + ERROR_SCHEMA;
     private static final String JSON = "application/json";
@@ -118,8 +121,69 @@ public class EndpointOASFilter implements OASFilter {
         if (components.getSchemas() != null) {
             components.getSchemas().forEach(this::describeProperties);
             describeShapes(openAPI, components.getSchemas());
+            describeBranches(components.getSchemas());
+            openJson(components);
         }
         components.addSchema(ERROR_SCHEMA, errorSchema());
+    }
+
+    /**
+     * Republishes {@code JsonNode} as an open object.
+     *
+     * <p>SmallRye reflects the Java type, so the generated schema is Jackson's accessor surface —
+     * {@code isArray}, {@code isTextual} and twenty more booleans — which describes none of the JSON
+     * the field actually carries. The payload is an agent protocol frame: a JSON-RPC object with no
+     * closed set of shapes to enumerate, so an open object is the whole of what can be promised.
+     */
+    private static void openJson(Components components) {
+        if (!components.getSchemas().containsKey(JSON_NODE)) {
+            return;
+        }
+        components.addSchema(JSON_NODE, OASFactory.createSchema()
+                .addType(Schema.SchemaType.OBJECT)
+                .additionalPropertiesSchema(OASFactory.createSchema())
+                .description("A JSON-RPC frame, verbatim as it crossed the agent boundary."));
+    }
+
+    /**
+     * States the discriminator on each branch of a union.
+     *
+     * <p>A {@code oneOf} names a property its branches never declared, and a generator believes it:
+     * {@code JobView} was published with a required {@code type} literal the schema itself did not
+     * carry. The branches answer it as a real property now
+     * ({@link io.ib67.prts.dto.job.JobStatusView#type()}), so the document publishes the constant
+     * each one sends rather than leaving the discriminator to imply it.
+     *
+     * <p>Runs after {@code describeShapes}: the property has no field behind it, so {@code required}
+     * is appended to the list that pass produced rather than derived alongside it.
+     */
+    private static void describeBranches(Map<String, Schema> schemas) {
+        schemas.values().forEach(schema -> {
+            var discriminator = schema.getDiscriminator();
+            if (discriminator == null || discriminator.getMapping() == null) {
+                return;
+            }
+            discriminator.getMapping().forEach((id, reference) -> {
+                var branch = schemas.get(refName(reference));
+                if (branch == null) {
+                    return;
+                }
+                branch.addProperty(discriminator.getPropertyName(), OASFactory.createSchema()
+                        .addType(Schema.SchemaType.STRING)
+                        .enumeration(List.of(id)));
+                require(branch, discriminator.getPropertyName());
+            });
+        });
+    }
+
+    private static void require(Schema schema, String property) {
+        var required = schema.getRequired();
+        if (required != null && required.contains(property)) {
+            return;
+        }
+        var stated = required == null ? new ArrayList<String>() : new ArrayList<>(required);
+        stated.add(property);
+        schema.setRequired(stated);
     }
 
     private void collectResource(ClassInfo type) {
@@ -353,9 +417,11 @@ public class EndpointOASFilter implements OASFilter {
      * compact constructor {@code requireNonNull}s. The declaration answers it: no {@code @Nullable}
      * means required, {@code @Nullable} means the value may be null.
      *
-     * <p>Schemas a request body reaches are left alone. Several are shared between a request and a
-     * response ({@code TaskScope}, {@code VolumeSpec}, {@code CreateJobRequest}), and there the
-     * constraints already say what a caller must send.
+     * <p>Nullability is stated on every schema, {@code required} only on those no request body reaches.
+     * A handful are shared between a request and a response ({@code TaskScope}, {@code VolumeSpec},
+     * {@code CreateJobRequest}): what a caller must <em>send</em> is the constraints' to say, but the
+     * wire sends an unset field back as {@code null} rather than omitting it, and only the declaration
+     * says which fields those are.
      */
     private void describeShapes(OpenAPI openAPI, Map<String, Schema> declared) {
         var shapes = new ResponseShapes(declared);
@@ -369,14 +435,11 @@ public class EndpointOASFilter implements OASFilter {
             });
         }
         var inbound = requestSchemas(openAPI);
-        shapes.resolved().forEach((name, type) -> {
-            if (!inbound.contains(name)) {
-                describeShape(declared.get(name), type);
-            }
-        });
+        shapes.resolved().forEach((name, type) ->
+                describeShape(declared.get(name), type, !inbound.contains(name)));
     }
 
-    private void describeShape(Schema schema, ClassInfo type) {
+    private void describeShape(Schema schema, ClassInfo type, boolean stateRequired) {
         if (schema == null || schema.getProperties() == null) {
             return;
         }
@@ -396,7 +459,7 @@ public class EndpointOASFilter implements OASFilter {
             keysOf(field).ifPresent(constants -> propertySchema.setPropertyNames(
                     OASFactory.createSchema().addType(Schema.SchemaType.STRING).enumeration(constants)));
         });
-        if (!required.isEmpty() && schema.getRequired() == null) {
+        if (stateRequired && !required.isEmpty() && schema.getRequired() == null) {
             schema.setRequired(required);
         }
     }
@@ -408,8 +471,14 @@ public class EndpointOASFilter implements OASFilter {
      * <p>Matching on the schema name would not do: SmallRye derives one from the simple class name and
      * disambiguates collisions with a counter, so {@code AdminStatsView.Jobs} and
      * {@code ProjectDetailView.Jobs} become {@code Jobs} and {@code Jobs1} with nothing saying which is
-     * which. A union ({@code allOf} / {@code oneOf}) is not descended into — its branches are other
-     * types, and pairing them with the declared one would resolve the wrong class.
+     * which.
+     *
+     * <p>Two shapes need help along the way. A {@code oneOf} union carries no Java type of its own, so
+     * its branches are paired with the interface's direct implementations, matched by simple name and
+     * skipped when that is ambiguous; without it a branch reachable only through the discriminator
+     * ({@code PendingJobView}) resolves to nothing. And a generic envelope ({@code Page<T>}) declares
+     * its payload as a type variable, so the arguments are carried down and substituted — otherwise
+     * every item type reachable only through a page would go unresolved.
      */
     private final class ResponseShapes {
         private final Map<String, Schema> declared;
@@ -429,12 +498,13 @@ public class EndpointOASFilter implements OASFilter {
                         && response.getContent().getMediaTypes() != null) {
                     response.getContent().getMediaTypes().values().stream()
                             .map(MediaType::getSchema)
-                            .forEach(schema -> pair(schema, endpoint.returnType()));
+                            .forEach(schema -> pair(schema, endpoint.returnType(), Map.of()));
                 }
             });
         }
 
-        private void pair(Schema schema, Type type) {
+        private void pair(Schema schema, Type declaredType, Map<String, Type> bindings) {
+            var type = substitute(declaredType, bindings);
             if (schema == null || type == null) {
                 return;
             }
@@ -445,27 +515,75 @@ public class EndpointOASFilter implements OASFilter {
                     resolved.putIfAbsent(reference, owner);
                 }
                 if (visited.add(reference + " " + type.name())) {
-                    pair(declared.get(reference), type);
+                    pair(declared.get(reference), type, bindings);
                 }
                 return;
             }
-            pair(schema.getItems(), argument(type, 0));
-            pair(schema.getAdditionalPropertiesSchema(), argument(type, 1));
+            pair(schema.getItems(), argument(type, 0), bindings);
+            pair(schema.getAdditionalPropertiesSchema(), argument(type, 1), bindings);
             var owner = classOf(type);
-            if (schema.getProperties() == null || owner == null) {
+            if (owner == null) {
                 return;
             }
+            branches(schema, owner);
+            if (schema.getProperties() == null) {
+                return;
+            }
+            var arguments = argumentsOf(owner, type);
             schema.getProperties().forEach((property, propertySchema) -> {
                 var field = owner.field(property);
                 if (field != null) {
-                    pair(propertySchema, field.type());
+                    pair(propertySchema, field.type(), arguments);
                 }
             });
+        }
+
+        private void branches(Schema schema, ClassInfo owner) {
+            if (schema.getOneOf() == null || !owner.isInterface()) {
+                return;
+            }
+            var implementations = index.getKnownDirectImplementations(owner.name());
+            for (var branch : schema.getOneOf()) {
+                var name = refName(branch);
+                if (name == null) {
+                    continue;
+                }
+                var matches = implementations.stream()
+                        .filter(candidate -> candidate.simpleName().equals(name))
+                        .toList();
+                if (matches.size() == 1) {
+                    pair(branch, Type.create(matches.getFirst().name(), Type.Kind.CLASS), Map.of());
+                }
+            }
         }
 
         private Map<String, ClassInfo> resolved() {
             return resolved;
         }
+    }
+
+    /** Resolves a type variable against the arguments its declaring type was used with. */
+    private static Type substitute(Type type, Map<String, Type> bindings) {
+        if (type == null) {
+            return null;
+        }
+        return type.kind() == Type.Kind.TYPE_VARIABLE
+                ? bindings.get(type.asTypeVariable().identifier())
+                : type;
+    }
+
+    /** Binds a generic class's type parameters to the arguments this use supplies. */
+    private static Map<String, Type> argumentsOf(ClassInfo owner, Type type) {
+        var parameters = owner.typeParameters();
+        if (parameters.isEmpty() || type.kind() != Type.Kind.PARAMETERIZED_TYPE) {
+            return Map.of();
+        }
+        var arguments = type.asParameterizedType().arguments();
+        var bound = new HashMap<String, Type>();
+        for (var index = 0; index < Math.min(parameters.size(), arguments.size()); index++) {
+            bound.put(parameters.get(index).identifier(), arguments.get(index));
+        }
+        return bound;
     }
 
     private ClassInfo classOf(Type type) {
@@ -509,9 +627,23 @@ public class EndpointOASFilter implements OASFilter {
         return Optional.of(key.enumConstants().stream().map(constant -> (Object) constant.name()).toList());
     }
 
-    // OpenAPI 3.1 states nullability in the type list. A bare $ref carries no type of its own, and
-    // there being absent from `required` is the whole statement.
+    /**
+     * States that a property may arrive as {@code null}, which is not the same claim as being absent.
+     *
+     * <p>OpenAPI 3.1 puts nullability in the type list, but a {@code $ref} carries no type of its own
+     * and sibling keywords beside one read as an intersection — so a nullable reference becomes a union
+     * of the reference and null instead. Leaving it out of {@code required} alone would say "may be
+     * omitted", and Jackson omits nothing: it writes the key with a null value.
+     */
     private static void allowNull(Schema schema) {
+        var reference = schema.getRef();
+        if (reference != null) {
+            schema.setRef(null);
+            schema.setAnyOf(List.of(
+                    OASFactory.createSchema().ref(reference),
+                    OASFactory.createSchema().addType(Schema.SchemaType.NULL)));
+            return;
+        }
         var types = schema.getType();
         if (types != null && !types.isEmpty() && !types.contains(Schema.SchemaType.NULL)) {
             schema.addType(Schema.SchemaType.NULL);
@@ -564,7 +696,10 @@ public class EndpointOASFilter implements OASFilter {
     }
 
     private static String refName(Schema schema) {
-        var ref = schema.getRef();
+        return refName(schema.getRef());
+    }
+
+    private static String refName(String ref) {
         return ref == null || !ref.startsWith(SCHEMA_REF) ? null : ref.substring(SCHEMA_REF.length());
     }
 

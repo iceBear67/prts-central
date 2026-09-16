@@ -17,6 +17,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -27,6 +28,7 @@ import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
@@ -95,7 +97,8 @@ class JobResourceE2ETest {
 
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
-                .body("$", empty());
+                .body("items", empty())
+                .body("total", equalTo(0));
     }
 
     /** Unplaced PENDING jobs without a worker are hidden from listings. */
@@ -108,25 +111,82 @@ class JobResourceE2ETest {
 
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
-                .body("$", hasSize(1))
-                .body("state", contains("SUCCESS"))
-                .body("type", contains("job"));
+                .body("items", hasSize(1))
+                .body("items.state", contains("SUCCESS"))
+                .body("items.type", contains("job"))
+                // The total counts what the listing would return, so the hidden row is out of both.
+                .body("total", equalTo(1));
     }
 
-    /** Pending job queue entries are listed alongside jobs. */
+    /** Pending job queue entries are listed alongside jobs, and counted in the same total. */
     @Test
     void aQueueEntryIsListedAlongsideJobs() {
         var alice = fixtures.createActor("alice");
         fixtures.join(alice, project, ProjectRole.VIEWER);
         fixtures.createQueuedJob(project, alice, template, "small");
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
 
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
-                .body("$", hasSize(1))
-                .body("type", contains("pending"))
-                .body("state", contains("QUEUED"))
+                .body("items", hasSize(2))
+                .body("items.type", containsInAnyOrder("pending", "job"))
                 // Viewers receive resource class metadata without the job request payload.
-                .body("resourceClass", contains("small"));
+                .body("items.resourceClass", contains("small", "small"))
+                .body("total", equalTo(2));
+    }
+
+    /**
+     * The listing merges two tables, so one {@code state} has to narrow both — and a state only one
+     * of them knows must select nothing from the other rather than leaving it unfiltered.
+     */
+    @Test
+    void theStateNarrowsBothHalvesOfTheListing() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createJob(project, alice, small, JobState.FAILED, UUID.randomUUID());
+        fixtures.createQueuedJob(project, alice, template, "small");
+
+        as(alice).queryParam("state", "SUCCESS").get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("items.type", contains("job"))
+                .body("items.state", contains("SUCCESS"))
+                .body("total", equalTo(1));
+        as(alice).queryParam("state", "QUEUED").get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("items.type", contains("pending"))
+                .body("total", equalTo(1));
+        as(alice).queryParam("state", "RUNNING").get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("items", empty())
+                .body("total", equalTo(0));
+    }
+
+    /** A task narrows both halves too, and one belonging to another project is not found. */
+    @Test
+    void theTaskNarrowsBothHalvesOfTheListing() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        var task = fixtures.createTask(project, alice, "release", null);
+        var nightly = fixtures.createTask(project, alice, "nightly", null);
+        var inTask = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID(), null, task);
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID(), null, nightly);
+        fixtures.createQueuedJob(project, alice, template, "small", task);
+        var elsewhere = fixtures.createTask(fixtures.createProject("theirs"), alice, "theirs", null);
+
+        as(alice).queryParam("task", task).get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("items", hasSize(2))
+                .body("items.type", containsInAnyOrder("job", "pending"))
+                .body("items.id", hasItem(inTask.toString()))
+                .body("total", equalTo(2));
+        as(alice).queryParam("task", task).queryParam("state", "SUCCESS")
+                .get("/api/project/{p}/job", project).then()
+                .statusCode(200)
+                .body("items.id", contains(inTask.toString()))
+                .body("total", equalTo(1));
+        as(alice).queryParam("task", elsewhere).get("/api/project/{p}/job", project).then()
+                .statusCode(404);
     }
 
     @Test
@@ -139,7 +199,7 @@ class JobResourceE2ETest {
 
         as(alice).get("/api/project/{p}/job", other).then()
                 .statusCode(200)
-                .body("$", empty());
+                .body("items", empty());
     }
 
     /** Verifies that jobs and queue entries from deleted users remain listable without username. */
@@ -155,9 +215,9 @@ class JobResourceE2ETest {
         fixtures.join(alice, project, ProjectRole.VIEWER);
         as(alice).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
-                .body("$", hasSize(2))
-                .body("requestedBy.id", everyItem(equalTo(gone.id().toString())))
-                .body("requestedBy.name", everyItem(nullValue()));
+                .body("items", hasSize(2))
+                .body("items.requestedBy.id", everyItem(equalTo(gone.id().toString())))
+                .body("items.requestedBy.name", everyItem(nullValue()));
     }
 
     /** Jobs belonging to other projects return 404. */
@@ -209,9 +269,9 @@ class JobResourceE2ETest {
 
         as(alice).get("/api/project/{p}/job/template", project).then()
                 .statusCode(200)
-                .body("name", contains("build"))
-                .body("[0].spec", nullValue())
-                .body("[0].resourceClass", nullValue());
+                .body("items.name", contains("build"))
+                .body("items[0].spec", nullValue())
+                .body("items[0].resourceClass", nullValue());
     }
 
     @Test
@@ -238,7 +298,8 @@ class JobResourceE2ETest {
 
         as(alice).get("/api/project/{p}/job/template", project).then()
                 .statusCode(200)
-                .body("name", containsInAnyOrder("build", "shared"));
+                .body("items.name", containsInAnyOrder("build", "shared"))
+                .body("total", equalTo(2));
     }
 
     @Test
@@ -554,6 +615,126 @@ class JobResourceE2ETest {
         as(alice).delete("/api/project/{p}/job/template/{t}", project, theirs).then().statusCode(404);
     }
 
+    /**
+     * Editing in place rather than delete-and-recreate: the ID is what a task and a re-run payload
+     * hold, so a new one would break every reference to the template being edited.
+     */
+    @Test
+    void anOwnerEditsATemplateInPlace() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        fixtures.createResourceClass("large");
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "  deploy  "))
+                .patch("/api/project/{p}/job/template/{t}", project, template).then()
+                .statusCode(200)
+                .body("id", equalTo(template.toString()))
+                .body("name", equalTo("deploy"))
+                .body("resourceClass", equalTo("small"))
+                .body("spec.image", equalTo("alpine"));
+
+        as(alice).contentType(ContentType.JSON).body(Map.of(
+                        "resourceClass", "large",
+                        "spec", Map.of("image", "ubuntu:24.04", "command", List.of("bash"))))
+                .patch("/api/project/{p}/job/template/{t}", project, template).then()
+                .statusCode(200)
+                .body("resourceClass", equalTo("large"))
+                .body("spec.image", equalTo("ubuntu:24.04"))
+                .body("spec.command", contains("bash"));
+    }
+
+    @Test
+    void anEmptyTemplateEditIsRejectedAndAStrangersIsNotFound() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var other = fixtures.createProject("theirs");
+        var theirs = fixtures.createTemplate("build", other, small);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of())
+                .patch("/api/project/{p}/job/template/{t}", project, template).then()
+                .statusCode(400)
+                .body("message", equalTo("name, resourceClass or spec is required"));
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "mine now"))
+                .patch("/api/project/{p}/job/template/{t}", project, theirs).then().statusCode(404);
+    }
+
+    /** Editing a template is the same write as defining one, and costs the same. */
+    @Test
+    void aMemberCannotEditATemplate() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.MEMBER);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "deploy"))
+                .patch("/api/project/{p}/job/template/{t}", project, template).then().statusCode(403);
+    }
+
+    /** A global template is the admin API's; a project may read it but not rewrite it for everyone. */
+    @Test
+    void aGlobalTemplateCannotBeEditedThroughAProject() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var global = fixtures.createTemplate("shared", null, small);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("name", "mine now"))
+                .patch("/api/project/{p}/job/template/{t}", project, global).then()
+                .statusCode(409)
+                .body("message", equalTo("a global template is not this project's to edit: " + global));
+    }
+
+    /**
+     * Otherwise the per-project listing is a suggestion: the class has to be refused where it is
+     * pinned to the project, on submission and on the templates that submissions start from.
+     */
+    @Test
+    void aClassTheProjectMayNotUseIsRefusedWhereverItIsNamed() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        // Naming a class other than the template's is gated on its own; the grant is the other half.
+        fixtures.grant(alice, Perm.JOB_RESOURCE_CLASS, project);
+        var huge = fixtures.createResourceClass("huge", false);
+
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "huge"))
+                .post("/api/project/{p}/job/template", project).then()
+                .statusCode(403)
+                .body("message", equalTo("resource class huge is not available to this project"));
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("resourceClass", "huge"))
+                .patch("/api/project/{p}/job/template/{t}", project, template).then()
+                .statusCode(403);
+
+        as(alice).contentType(ContentType.JSON)
+                .body(Map.of("templateId", template.toString(), "resourceClass", "huge"))
+                .post("/api/project/{p}/job", project).then()
+                .statusCode(403)
+                .body("message", equalTo("resource class huge is not available to this project"));
+
+        fixtures.allowResourceClass(project, huge);
+        as(alice).contentType(ContentType.JSON).body(templateBody("deploy", "huge"))
+                .post("/api/project/{p}/job/template", project).then().statusCode(201);
+    }
+
+    /**
+     * A global template carries its class to every project, so keeping its default is checked too —
+     * it would otherwise be the way around the grant.
+     */
+    @Test
+    void aGlobalTemplatesRestrictedClassDoesNotTravelWithIt() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.OWNER);
+        var huge = fixtures.createResourceClass("huge", false);
+        var global = fixtures.createTemplate("shared", null, huge);
+
+        as(alice).contentType(ContentType.JSON).body(Map.of("templateId", global.toString()))
+                .post("/api/project/{p}/job", project).then()
+                .statusCode(403)
+                .body("message", equalTo("resource class huge is not available to this project"));
+
+        fixtures.allowResourceClass(project, huge);
+        as(alice).contentType(ContentType.JSON).body(Map.of("templateId", global.toString()))
+                .post("/api/project/{p}/job", project).then().statusCode(201);
+    }
+
     @Test
     void anOwnerDeletesAnArtifact() {
         var alice = fixtures.createActor("alice");
@@ -619,6 +800,38 @@ class JobResourceE2ETest {
 
         as(admin).get("/api/project/{p}/job", project).then()
                 .statusCode(200)
-                .body("state", contains("SUCCESS"));
+                .body("items.state", contains("SUCCESS"));
+    }
+
+    /**
+     * {@code createdAt} is when the job was enqueued, so without {@code startedAt} a job that queued
+     * for an hour and ran for ten seconds is indistinguishable from one that ran for an hour.
+     */
+    @Test
+    void aPlacedJobSaysWhenItStartedAndWhoRanIt() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        var worker = fixtures.createWorker("builder-03");
+        var job = fixtures.createJob(project, alice, small, JobState.SUCCESS, worker);
+
+        as(alice).get("/api/project/{p}/job/{j}", project, job).then()
+                .statusCode(200)
+                .body("worker.id", equalTo(worker.toString()))
+                .body("worker.name", equalTo("builder-03"))
+                .body("startedAt", notNullValue())
+                .body("createdAt", notNullValue());
+    }
+
+    /** A queue entry has no host and no start; both are null rather than absent. */
+    @Test
+    void anUnplacedJobHasNeitherWorkerNorStart() {
+        var alice = fixtures.createActor("alice");
+        fixtures.join(alice, project, ProjectRole.VIEWER);
+        var job = fixtures.createJob(project, alice, small, JobState.CANCELLED, null);
+
+        as(alice).get("/api/project/{p}/job/{j}", project, job).then()
+                .statusCode(200)
+                .body("worker", nullValue())
+                .body("startedAt", nullValue());
     }
 }

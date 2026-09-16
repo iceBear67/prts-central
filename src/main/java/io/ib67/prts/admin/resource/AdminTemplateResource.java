@@ -7,10 +7,12 @@ import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.job.JobSpecTemplateView;
 import io.ib67.prts.dto.request.CreateTemplateRequest;
 import io.ib67.prts.dto.request.JobSpecRequest;
 import io.ib67.prts.dto.request.UpdateTemplateRequest;
+import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
@@ -31,7 +33,6 @@ import jakarta.ws.rs.core.MediaType;
 import org.jboss.resteasy.reactive.ResponseStatus;
 import org.jboss.resteasy.reactive.RestResponse;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -49,13 +50,19 @@ public class AdminTemplateResource {
 
     @GET
     @Transactional
-    public List<JobSpecTemplateView> listGlobalTemplates(
+    public Page<JobSpecTemplateView> listGlobalTemplates(
+            @QueryParam("query") @Nullable String query,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return JobSpecTemplate.listGlobalFetched(Pages.clampOffset(offset, window), window).stream()
-                .map(template -> JobSpecTemplateView.of(template, true))
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                JobSpecTemplate.searchGlobal(query, start, window).stream()
+                        .map(template -> JobSpecTemplateView.of(template, true))
+                        .toList(),
+                start,
+                window,
+                JobSpecTemplate.countGlobal(query));
     }
 
     @POST

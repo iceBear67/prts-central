@@ -5,11 +5,13 @@ import io.ib67.prts.dto.job.PendingJobView;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.job.JobAccess;
 import io.ib67.prts.job.JobConfig;
+import io.ib67.prts.job.JobStatus;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.user.User;
 import io.ib67.prts.user.UserContext;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.persistence.LockModeType;
@@ -69,6 +71,27 @@ public class PendingJobService {
             pending.persist();
             return pending;
         });
+    }
+
+    /**
+     * Lists one window of the project's undispatched queue entries, narrowed to a task and a status
+     * where either is given. The scope is validated by the job half of the same listing.
+     *
+     * <p>A status belonging only to a placed job ({@code RUNNING}, {@code SUCCESS}, …) selects no
+     * entry, which is not the same as selecting every one.
+     */
+    public List<PendingJob> listUnplaced(
+            UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status, int limit) {
+        var state = status == null ? null : status.queued();
+        return status != null && state == null
+                ? List.of()
+                : PendingJob.listUnplaced(projectId, taskId, state, limit);
+    }
+
+    /** What {@link #listUnplaced} would return unwindowed. */
+    public long countUnplaced(UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status) {
+        var state = status == null ? null : status.queued();
+        return status != null && state == null ? 0 : PendingJob.countUnplaced(projectId, taskId, state);
     }
 
     public Optional<PendingJob> findInProject(UUID projectId, UUID pendingId) {

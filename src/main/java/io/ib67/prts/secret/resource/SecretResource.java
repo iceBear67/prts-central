@@ -4,12 +4,14 @@ import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.auth.ProjectId;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.request.CreateSecretRequest;
 import io.ib67.prts.dto.SecretView;
 import io.ib67.prts.dto.request.UpdateSecretRequest;
 import io.ib67.prts.project.ProjectConfig;
 import io.ib67.prts.project.ProjectService;
 import io.ib67.prts.job.entity.ProjectRole;
+import io.ib67.prts.secret.ProjectSecret;
 import io.ib67.prts.secret.SecretConfig;
 import io.ib67.prts.secret.SecretService;
 import jakarta.annotation.Nullable;
@@ -53,14 +55,19 @@ public class SecretResource {
     @GET
     @Transactional
     @RequirePermission(value = Perm.PROJECT_SECRET_READ, defaultRole = ProjectRole.MEMBER)
-    public List<SecretView> listSecrets(
+    public Page<SecretView> listSecrets(
             @ProjectId @PathParam("projectId") UUID projectId,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
         var window = Pages.clampLength(length, projectConfig.list().maxPageSize());
-        return secretService.list(projectId, Pages.clampOffset(offset, window), window).stream()
-                .map(SecretView::of)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                secretService.list(projectId, start, window).stream()
+                        .map(SecretView::of)
+                        .toList(),
+                start,
+                window,
+                ProjectSecret.countByProject(projectId));
     }
 
     @POST

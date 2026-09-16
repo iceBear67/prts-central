@@ -6,6 +6,7 @@ import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.agent.worker.entity.VolumeState;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.WorkerVolumeView;
 import jakarta.annotation.Nullable;
 import jakarta.inject.Inject;
@@ -17,7 +18,6 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 
-import java.util.List;
 import java.util.UUID;
 
 /**
@@ -35,16 +35,21 @@ public class AdminVolumeResource {
 
     @GET
     @Transactional
-    public List<WorkerVolumeView> listVolumes(
+    public Page<WorkerVolumeView> listVolumes(
             @QueryParam("worker") @Nullable UUID workerId,
             @QueryParam("project") @Nullable UUID projectId,
             @QueryParam("state") @Nullable VolumeState state,
+            @QueryParam("query") @Nullable String query,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") @Nullable Integer length) {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
-        return WorkerVolume.search(
-                        workerId, projectId, state, Pages.clampOffset(offset, window), window).stream()
-                .map(WorkerVolumeView::of)
-                .toList();
+        var start = Pages.clampOffset(offset, window);
+        return new Page<>(
+                WorkerVolume.search(workerId, projectId, state, query, start, window).stream()
+                        .map(WorkerVolumeView::of)
+                        .toList(),
+                start,
+                window,
+                WorkerVolume.countSearch(workerId, projectId, state, query));
     }
 }

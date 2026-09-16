@@ -133,6 +133,39 @@ class AdminResourceE2ETest {
                 .body("jobs.completedLast24h", equalTo(1));
     }
 
+    /** The calendar heatmap needs a quarter of daily buckets; days cannot be derived from 24 hours. */
+    @Test
+    void theCompletionSeriesAlsoCoversAQuarterOfDays() {
+        var project = fixtures.createProject("mine", alice);
+        var small = fixtures.createResourceClass("small");
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+
+        as(admin).get("/api/admin/stats").then()
+                .statusCode(200)
+                .body("jobs.dailyLast90d", hasSize(90))
+                .body("jobs.dailyLast90d[89].success", equalTo(1))
+                .body("jobs.dailyLast90d[0].success", equalTo(0))
+                .body("jobs.dailyLast90d[0].day", notNullValue());
+    }
+
+    /**
+     * A day is too coarse a cell for a heatmap drawn across a dashboard, so the same completions are
+     * published an hour at a time over a month. The last 24 of them are {@code hourlyLast24h}.
+     */
+    @Test
+    void theHourlySeriesAlsoCoversAMonth() {
+        var project = fixtures.createProject("mine", alice);
+        var small = fixtures.createResourceClass("small");
+        fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+
+        as(admin).get("/api/admin/stats").then()
+                .statusCode(200)
+                .body("jobs.hourlyLast30d", hasSize(720))
+                .body("jobs.hourlyLast30d[719].success", equalTo(1))
+                .body("jobs.hourlyLast30d[0].success", equalTo(0))
+                .body("jobs.hourlyLast30d[0].hour", notNullValue());
+    }
+
     @Test
     void theProjectListingCountsMembersJobsAndQueue() {
         var project = fixtures.createProject("mine", alice);
@@ -143,11 +176,11 @@ class AdminResourceE2ETest {
 
         as(admin).get("/api/admin/project").then()
                 .statusCode(200)
-                .body("name", contains("mine"))
-                .body("[0].members", equalTo(1))
-                .body("[0].jobs", equalTo(1))
-                .body("[0].queued", equalTo(1))
-                .body("[0].archivedAt", nullValue());
+                .body("items.name", contains("mine"))
+                .body("items[0].members", equalTo(1))
+                .body("items[0].jobs", equalTo(1))
+                .body("items[0].queued", equalTo(1))
+                .body("items[0].archivedAt", nullValue());
     }
 
     @Test
@@ -157,15 +190,41 @@ class AdminResourceE2ETest {
 
         as(admin).queryParam("query", "ALP").get("/api/admin/project").then()
                 .statusCode(200)
-                .body("name", contains("alpha"));
+                .body("items.name", contains("alpha"))
+                .body("total", equalTo(1));
+    }
+
+    /**
+     * A page the server truncated and a page that is simply full are byte-identical without this, so
+     * the total and the clamped window are what let a client draw a pager rather than a "Load more".
+     */
+    @Test
+    void aListingPublishesItsWindowAndWhatLiesBehindIt() {
+        fixtures.createProject("alpha");
+        fixtures.createProject("beta");
+        fixtures.createProject("gamma");
+
+        as(admin).queryParam("offset", 1).queryParam("length", 1)
+                .get("/api/admin/project").then()
+                .statusCode(200)
+                .body("items", hasSize(1))
+                .body("offset", equalTo(1))
+                .body("length", equalTo(1))
+                .body("total", equalTo(3));
+
+        // An omitted length reports the configured maximum, which is published nowhere else.
+        as(admin).get("/api/admin/project").then()
+                .statusCode(200)
+                .body("length", equalTo(50))
+                .body("total", equalTo(3));
     }
 
     @Test
     void theUserListingFindsPeopleByNameOrEmail() {
         as(admin).queryParam("query", "alice").get("/api/admin/user").then()
                 .statusCode(200)
-                .body("name", contains("alice"))
-                .body("[0].subAccountOf", nullValue());
+                .body("items.name", contains("alice"))
+                .body("items[0].subAccountOf", nullValue());
     }
 
     @Test
@@ -323,16 +382,16 @@ class AdminResourceE2ETest {
 
         as(admin).get("/api/admin/template").then()
                 .statusCode(200)
-                .body("name", contains("shared"));
+                .body("items.name", contains("shared"));
 
         // Global templates are visible to projects.
         var project = fixtures.createProject("mine", alice);
         as(alice).get("/api/project/{p}/job/template", project).then()
                 .statusCode(200)
-                .body("name", hasItem("shared"));
+                .body("items.name", hasItem("shared"));
 
         as(admin).delete("/api/admin/template/{t}", created).then().statusCode(204);
-        as(admin).get("/api/admin/template").then().body("$", empty());
+        as(admin).get("/api/admin/template").then().body("items", empty());
     }
 
     @Test
@@ -367,7 +426,7 @@ class AdminResourceE2ETest {
         var small = fixtures.createResourceClass("small");
         var theirs = fixtures.createTemplate("build", project, small);
 
-        as(admin).get("/api/admin/template").then().body("$", empty());
+        as(admin).get("/api/admin/template").then().body("items", empty());
         as(admin).delete("/api/admin/template/{t}", theirs).then().statusCode(404);
     }
 
@@ -378,11 +437,14 @@ class AdminResourceE2ETest {
                 .post("/api/admin/resource-class").then()
                 .statusCode(201)
                 .body("name", equalTo("memory-small"))
-                .body("numCpus", equalTo(2));
+                .body("numCpus", equalTo(2))
+                // A class an admin said nothing about is the whole service's, as it was before
+                // per-project availability existed.
+                .body("shared", equalTo(true));
 
         as(admin).get("/api/admin/resource-class").then()
                 .statusCode(200)
-                .body("name", contains("memory-small"));
+                .body("items.name", contains("memory-small"));
 
         as(admin).contentType(ContentType.JSON).body(Map.of("numCpus", 8))
                 .patch("/api/admin/resource-class/memory-small").then()
@@ -391,7 +453,7 @@ class AdminResourceE2ETest {
                 .body("memCount", equalTo(512));
 
         as(admin).delete("/api/admin/resource-class/memory-small").then().statusCode(204);
-        as(admin).get("/api/admin/resource-class").then().body("$", empty());
+        as(admin).get("/api/admin/resource-class").then().body("items", empty());
     }
 
     /** A class has to exist before anything can name one, so this is how an install bootstraps. */
@@ -440,7 +502,97 @@ class AdminResourceE2ETest {
         as(admin).contentType(ContentType.JSON).body(Map.of())
                 .patch("/api/admin/resource-class/small").then()
                 .statusCode(400)
-                .body("message", equalTo("numCpus, memCount or diskSize is required"));
+                .body("message", equalTo("numCpus, memCount, diskSize or shared is required"));
+    }
+
+    /**
+     * The mapping an admin page writes: a class stops being everyone's, and the projects named under
+     * it keep it. The other direction of the same answer is {@code GET /project/{id}/resource-class}.
+     */
+    @Test
+    void anAdminOpensARestrictedClassToOneProjectAtATime() {
+        var mine = fixtures.createProject("mine", alice);
+        var theirs = fixtures.createProject("theirs", alice);
+        as(admin).contentType(ContentType.JSON).body(Map.of(
+                        "name", "huge", "numCpus", 64, "memCount", 1, "diskSize", 1, "shared", false))
+                .post("/api/admin/resource-class").then()
+                .statusCode(201)
+                .body("shared", equalTo(false));
+
+        as(admin).get("/api/admin/resource-class/huge/project").then()
+                .statusCode(200)
+                .body("items", empty())
+                .body("total", equalTo(0));
+
+        as(admin).put("/api/admin/resource-class/huge/project/{p}", mine).then().statusCode(204);
+        // Idempotent: an admin clicking twice writes one row, not a conflict.
+        as(admin).put("/api/admin/resource-class/huge/project/{p}", mine).then().statusCode(204);
+
+        as(admin).get("/api/admin/resource-class/huge/project").then()
+                .statusCode(200)
+                .body("items.name", contains("mine"))
+                .body("items[0].id", equalTo(mine.toString()))
+                .body("total", equalTo(1));
+
+        as(alice).get("/api/project/{p}/resource-class", mine).then()
+                .statusCode(200)
+                .body("items.name", contains("huge"));
+        as(alice).get("/api/project/{p}/resource-class", theirs).then()
+                .statusCode(200)
+                .body("items", empty());
+
+        as(admin).delete("/api/admin/resource-class/huge/project/{p}", mine).then().statusCode(204);
+        as(alice).get("/api/project/{p}/resource-class", mine).then()
+                .statusCode(200)
+                .body("items", empty());
+    }
+
+    /** Withdrawing a grant nobody holds is a 404, so a stale admin page does not report success. */
+    @Test
+    void withdrawingAGrantThatWasNeverMadeIsNotFound() {
+        var project = fixtures.createProject("mine", alice);
+        fixtures.createResourceClass("huge", false);
+
+        as(admin).delete("/api/admin/resource-class/huge/project/{p}", project).then()
+                .statusCode(404)
+                .body("message", equalTo(
+                        "resource class huge is not open to project " + project));
+        as(admin).put("/api/admin/resource-class/nope/project/{p}", project).then().statusCode(404);
+        as(admin).put("/api/admin/resource-class/huge/project/{p}", UUID.randomUUID()).then()
+                .statusCode(404);
+    }
+
+    /** Un-sharing a class keeps the list an admin built rather than emptying it. */
+    @Test
+    void theGrantsSurviveTheClassBeingSharedAndUnshared() {
+        var project = fixtures.createProject("mine", alice);
+        var huge = fixtures.createResourceClass("huge", false);
+        fixtures.allowResourceClass(project, huge);
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("shared", true))
+                .patch("/api/admin/resource-class/huge").then()
+                .statusCode(200)
+                .body("shared", equalTo(true));
+        as(admin).get("/api/admin/resource-class/huge/project").then()
+                .body("items.name", contains("mine"));
+
+        as(admin).contentType(ContentType.JSON).body(Map.of("shared", false))
+                .patch("/api/admin/resource-class/huge").then()
+                .statusCode(200)
+                .body("shared", equalTo(false));
+        as(alice).get("/api/project/{p}/resource-class", project).then()
+                .body("items.name", contains("huge"));
+    }
+
+    /** A grant is not a reference that blocks deletion; it goes with the class. */
+    @Test
+    void droppingAClassTakesItsGrantsWithIt() {
+        var project = fixtures.createProject("mine", alice);
+        var huge = fixtures.createResourceClass("huge", false);
+        fixtures.allowResourceClass(project, huge);
+
+        as(admin).delete("/api/admin/resource-class/huge").then().statusCode(204);
+        as(admin).get("/api/admin/resource-class").then().body("items", empty());
     }
 
     /** One request for the whole cluster's tasks; the per-project listing would be one per project. */
@@ -453,12 +605,14 @@ class AdminResourceE2ETest {
 
         as(admin).get("/api/admin/task").then()
                 .statusCode(200)
-                .body("name", containsInAnyOrder("release", "flaky login test"))
-                .body("projectName", containsInAnyOrder("aurora", "nebula"));
+                .body("items.name", containsInAnyOrder("release", "flaky login test"))
+                .body("items.projectName", containsInAnyOrder("aurora", "nebula"))
+                .body("total", equalTo(2));
 
         as(admin).queryParam("query", "FLAKY").get("/api/admin/task").then()
                 .statusCode(200)
-                .body("name", contains("flaky login test"));
+                .body("items.name", contains("flaky login test"))
+                .body("total", equalTo(1));
     }
 
     @Test
@@ -470,10 +624,10 @@ class AdminResourceE2ETest {
 
         as(admin).queryParam("state", "OPEN").get("/api/admin/task").then()
                 .statusCode(200)
-                .body("name", contains("open one"));
+                .body("items.name", contains("open one"));
         as(admin).queryParam("state", "CLOSED").get("/api/admin/task").then()
                 .statusCode(200)
-                .body("name", contains("closed one"));
+                .body("items.name", contains("closed one"));
     }
 
     @Test
@@ -487,15 +641,18 @@ class AdminResourceE2ETest {
 
         as(admin).get("/api/admin/volume").then()
                 .statusCode(200)
-                .body("name", containsInAnyOrder("gradle-cache", "release-staging"))
-                .body("projectName", containsInAnyOrder("aurora", "nebula"));
+                .body("items.name", containsInAnyOrder("gradle-cache", "release-staging"))
+                .body("items.projectName", containsInAnyOrder("aurora", "nebula"));
 
         as(admin).queryParam("worker", one).get("/api/admin/volume").then()
-                .body("name", contains("gradle-cache"));
+                .body("items.name", contains("gradle-cache"));
         as(admin).queryParam("project", nebula).get("/api/admin/volume").then()
-                .body("name", contains("release-staging"));
+                .body("items.name", contains("release-staging"));
         as(admin).queryParam("state", "READY").get("/api/admin/volume").then()
-                .body("name", contains("gradle-cache"));
+                .body("items.name", contains("gradle-cache"));
+        as(admin).queryParam("query", "CACHE").get("/api/admin/volume").then()
+                .body("items.name", contains("gradle-cache"))
+                .body("total", equalTo(1));
     }
 
     /** Artifacts are otherwise reachable only inside a JobView the client already fetched. */
@@ -511,16 +668,38 @@ class AdminResourceE2ETest {
 
         as(admin).get("/api/admin/artifact").then()
                 .statusCode(200)
-                .body("name", containsInAnyOrder("build.log", "junit-report.xml"))
-                .body("projectName", containsInAnyOrder("aurora", "nebula"))
-                .body("[0].createdAt", notNullValue())
-                .body("[0].size", equalTo(1));
+                .body("items.name", containsInAnyOrder("build.log", "junit-report.xml"))
+                .body("items.projectName", containsInAnyOrder("aurora", "nebula"))
+                .body("items[0].createdAt", notNullValue())
+                .body("items[0].size", equalTo(1));
 
         as(admin).queryParam("project", aurora).get("/api/admin/artifact").then()
-                .body("name", contains("build.log"))
-                .body("[0].jobId", equalTo(build.toString()));
+                .body("items.name", contains("build.log"))
+                .body("items[0].jobId", equalTo(build.toString()));
         as(admin).queryParam("job", test).get("/api/admin/artifact").then()
-                .body("name", contains("junit-report.xml"));
+                .body("items.name", contains("junit-report.xml"));
+    }
+
+    /**
+     * The per-row delete is gated on the row's own project, which refuses while archived — so a client
+     * evaluating the permission half alone would offer a button that can only answer 409.
+     */
+    @Test
+    void anArtifactRowNamesItsProjectsArchiveState() {
+        var project = fixtures.createProject("aurora", alice);
+        var small = fixtures.createResourceClass("small");
+        var build = fixtures.createJob(project, alice, small, JobState.SUCCESS, UUID.randomUUID());
+        fixtures.createArtifact(build, "build.log");
+
+        as(admin).get("/api/admin/artifact").then()
+                .statusCode(200)
+                .body("items[0].projectArchivedAt", nullValue());
+
+        fixtures.archive(project);
+
+        as(admin).get("/api/admin/artifact").then()
+                .statusCode(200)
+                .body("items[0].projectArchivedAt", notNullValue());
     }
 
     /**
@@ -608,5 +787,40 @@ class AdminResourceE2ETest {
                 .body("findAll { it.permission == '" + Perm.ADMIN_OF_ALL.permission() + "' }.scope",
                         contains("global"))
                 .body("findAll { it.banned == true }", hasSize(0));
+    }
+
+    /**
+     * A picker grouping the catalogue has nothing but the identifier to render otherwise, and a
+     * client-side description table rots silently when a permission is added.
+     */
+    @Test
+    void everyPermissionSaysWhatItIsFor() {
+        as(admin).get("/api/admin/permission").then()
+                .statusCode(200)
+                .body("findAll { it.category == null || it.description == null }", hasSize(0))
+                .body("findAll { it.permission == '" + Perm.JOB_SPEC_ENVIRONMENT.permission()
+                        + "' }.description", contains(Perm.JOB_SPEC_ENVIRONMENT.description()));
+    }
+
+    /**
+     * The catalogue's read half is not an admin endpoint: a member who can submit a job into a class
+     * can already observe its limits by running something, and the task scope editor needs a picker.
+     * Kept beside the admin listing because the contrast is the point.
+     */
+    @Test
+    void anyAuthenticatedCallerReadsTheResourceClassCatalogue() {
+        fixtures.createResourceClass("small");
+
+        as(alice).get("/api/resource-class").then()
+                .statusCode(200)
+                .body("items.name", contains("small"))
+                .body("items[0].numCpus", notNullValue())
+                .body("total", equalTo(1));
+
+        given().get("/api/resource-class").then().statusCode(401);
+        // Defining one stays where it was.
+        as(alice).contentType(ContentType.JSON).body(Map.of(
+                        "name", "large", "numCpus", 8, "memCount", 1, "diskSize", 1))
+                .post("/api/admin/resource-class").then().statusCode(403);
     }
 }

@@ -226,8 +226,36 @@ class PendingJobFinderE2ETest {
         return inTx(() -> PendingJob.listDue(now, NO_LIMIT).stream().map(PendingJob::getId).toList());
     }
 
+    /** A task and a state each narrow the listing, and the count follows the same predicate. */
+    @Test
+    void theTaskAndTheStateNarrowTheUnplacedList() {
+        var task = UUID.randomUUID();
+        var expired = fixtures.createQueuedJob(project, alice, template, "small", task);
+        setState(expired, PendingJobState.EXPIRED);
+        fixtures.createQueuedJob(project, alice, template, "small", task);
+        fixtures.createQueuedJob(project, alice, template, "small");
+
+        assertEquals(List.of(expired),
+                inTx(() -> PendingJob.listUnplaced(project, task, PendingJobState.EXPIRED, NO_LIMIT)
+                        .stream().map(PendingJob::getId).toList()));
+        assertEquals(1L, (long) inTx(() -> PendingJob.countUnplaced(project, task, PendingJobState.EXPIRED)));
+        assertEquals(2L, (long) inTx(() -> PendingJob.countUnplaced(project, task, null)));
+        assertEquals(2L, (long) inTx(() -> PendingJob.countUnplaced(project, null, PendingJobState.QUEUED)));
+    }
+
+    /** A task of another project contributes nothing, even though task IDs are not scoped by a key. */
+    @Test
+    void theUnplacedListOfATaskHoldsOnlyThisProject() {
+        var task = UUID.randomUUID();
+        var other = fixtures.createProject("theirs");
+        fixtures.createQueuedJob(other, alice, template, "small", task);
+
+        assertEquals(List.of(), inTx(() -> PendingJob.listUnplaced(project, task, null, NO_LIMIT)));
+        assertEquals(0L, (long) inTx(() -> PendingJob.countUnplaced(project, task, null)));
+    }
+
     private List<UUID> unplaced() {
-        return inTx(() -> PendingJob.listUnplacedByProject(project, NO_LIMIT).stream()
+        return inTx(() -> PendingJob.listUnplaced(project, null, null, NO_LIMIT).stream()
                 .map(PendingJob::getId).toList());
     }
 

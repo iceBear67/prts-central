@@ -3,7 +3,11 @@ package io.ib67.prts.job;
 import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.UserInfo;
+import io.ib67.prts.dto.WorkerInfo;
+import io.ib67.prts.dto.job.JobLogView;
 import io.ib67.prts.dto.job.JobView;
 import io.ib67.prts.dto.request.CreateJobRequest;
 import io.ib67.prts.job.entity.Artifact;
@@ -81,17 +85,44 @@ public class JobService {
         return job;
     }
 
-    /** Lists visible jobs in the project up to the given limit. */
-    public List<Job> listVisible(UUID projectId, int limit) {
-        projectService.require(projectId);
-        return Job.listVisibleByProject(projectId, limit);
+    /**
+     * Lists one window of the project's visible jobs, narrowed to a task and a status where either
+     * is given.
+     *
+     * <p>A status belonging only to the queue ({@code QUEUED}, {@code EXPIRED}, …) selects no job,
+     * which is not the same as selecting every one — the scope is still validated, so a listing
+     * filtered that way answers empty rather than unfiltered.
+     */
+    public List<Job> listVisible(
+            UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status, int limit) {
+        requireScope(projectId, taskId);
+        var filter = filter(projectId, taskId, status);
+        return filter == null ? List.of() : Job.listVisible(filter, 0, limit);
     }
 
-    /** Lists visible jobs a task scoped, up to the given limit. */
-    public List<Job> listVisibleInTask(UUID projectId, UUID taskId, int limit) {
-        Task.findInProject(projectId, taskId)
-                .orElseThrow(() -> new NotFoundException("no such task in project " + projectId + ": " + taskId));
-        return Job.listVisibleByTask(taskId, limit);
+    /** What {@link #listVisible} would return unwindowed. */
+    public long countVisible(UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status) {
+        var filter = filter(projectId, taskId, status);
+        return filter == null ? 0 : Job.countVisible(filter);
+    }
+
+    /** Null when the status names no job state at all, which selects nothing rather than everything. */
+    @Nullable
+    private static Job.Filter filter(
+            UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status) {
+        var state = status == null ? null : status.job();
+        if (status != null && state == null) {
+            return null;
+        }
+        return Job.Filter.builder().project(projectId).task(taskId).state(state).build();
+    }
+
+    private void requireScope(UUID projectId, @Nullable UUID taskId) {
+        projectService.require(projectId);
+        if (taskId != null) {
+            Task.findInProject(projectId, taskId).orElseThrow(() ->
+                    new NotFoundException("no such task in project " + projectId + ": " + taskId));
+        }
     }
 
     /** Builds a JobView for a single job, including the creation payload if the caller has job creation permissions. */
@@ -113,6 +144,12 @@ public class JobService {
 
     private List<JobView> viewOf(List<Job> jobs, boolean withRequest) {
         var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
+        // Every /worker endpoint is admin:all, so a project member could not resolve a bare ID itself.
+        var workers = Worker.mapByIds(jobs.stream()
+                .map(Job::getWorker)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList());
         var artifacts = Artifact.listByJobs(jobs.stream().map(Job::getId).toList()).stream()
                 .collect(Collectors.groupingBy(artifact -> artifact.getJob().getId()));
         return jobs.stream()
@@ -120,9 +157,12 @@ public class JobService {
                         job.getId(),
                         job.getProject().getId(),
                         job.getCreatedAt(),
+                        job.getStartedAt(),
                         job.getCompletedAt(),
                         job.getState(),
-                        job.getWorker(),
+                        job.getWorker() == null
+                                ? null
+                                : WorkerInfo.of(job.getWorker(), workers.get(job.getWorker())),
                         UserInfo.of(job.getRequestedBy(), users.get(job.getRequestedBy())),
                         job.getResourceClass().getName(),
                         JobView.SpecView.of(job.getSpec()),
@@ -307,9 +347,14 @@ public class JobService {
         });
     }
 
-    public List<JobLog> listLogs(UUID projectId, UUID jobId, int offset, int length) {
+    /** One window of a job's log, with the total behind it. */
+    public Page<JobLogView> logsOf(UUID projectId, UUID jobId, int offset, int length) {
         requireInProject(projectId, jobId);
-        return JobLog.listByJob(jobId, offset, length);
+        return new Page<>(
+                JobLog.listByJob(jobId, offset, length).stream().map(JobLogView::of).toList(),
+                offset,
+                length,
+                JobLog.countByJob(jobId));
     }
 
     @Transactional

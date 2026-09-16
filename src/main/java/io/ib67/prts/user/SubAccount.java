@@ -2,6 +2,7 @@ package io.ib67.prts.user;
 
 import io.ib67.prts.job.entity.Project;
 import io.quarkus.hibernate.orm.panache.PanacheEntityBase;
+import jakarta.annotation.Nullable;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -92,12 +93,26 @@ public class SubAccount extends PanacheEntityBase {
         return find("from SubAccount s join fetch s.user where s.project.id = ?1", projectId).list();
     }
 
-    /** Lists a paginated slice of sub-accounts for a project with user entities fetched, ordered by name. */
-    public static List<SubAccount> listByProjectFetched(UUID projectId, int offset, int length) {
+    /**
+     * Lists a paginated slice of a project's sub-accounts with user entities fetched, ordered by
+     * name, matching {@code query} against the account name.
+     */
+    public static List<SubAccount> searchByProject(
+            UUID projectId, @Nullable String query, int offset, int length) {
         return find("from SubAccount s join fetch s.user where s.project.id = ?1 "
-                + "order by s.user.name, s.userId", projectId)
+                + "and lower(s.user.name) like ?2 order by s.user.name, s.userId",
+                projectId, like(query))
                 .range(offset, offset + length - 1)
                 .list();
+    }
+
+    public static long countByProject(UUID projectId, @Nullable String query) {
+        return count("from SubAccount s join s.user u where s.project.id = ?1 "
+                + "and lower(u.name) like ?2", projectId, like(query));
+    }
+
+    private static String like(@Nullable String query) {
+        return query == null || query.isBlank() ? "%" : "%" + query.strip().toLowerCase() + "%";
     }
 
     public static boolean isSubAccount(UUID userId) {
