@@ -23,6 +23,9 @@ Tests are divided into three distinct execution tiers:
 
 ## Tier C Constraints & Fixtures
 
+- **A worker to run jobs on (`worker-mock`)**: a separate subproject holding a worker that speaks the
+  protocol without containers, so a Tier C test can place a real job and script what the worker does
+  with it. See [worker-mock/README.md](../worker-mock/README.md) and `MockWorkerE2ETest`.
 - **Database Cleanup (`DatabaseCleaner`)**: Because services commit transactions via `requiringNew()`, standard `@TestTransaction` rollback does not roll back test writes. Tests use `DatabaseCleaner.clean()` (`TRUNCATE ... CASCADE`) in `@BeforeEach`.
 - **Authentication in Tests (`Fixtures`)**:
   - Dev auto-login is disabled under `%test`.
@@ -39,6 +42,6 @@ Tests are divided into three distinct execution tiers:
 | --- | --- |
 | `worker.secret` / `secret.keys` | Provides dummy keys required by startup validators. |
 | `quarkus.oidc.enabled: false` | Disables OIDC provider requirements during testing. |
-| `schema-management.strategy: update` | Generates schema into the ephemeral Dev Services Postgres database. |
+| `schema-management.strategy: drop-and-create` | Generates schema into the ephemeral Dev Services Postgres database. |
 | `job.pending.interval: PT24H` | Freezes the background queue dispatcher so tests can trigger `tick()` manually. |
 

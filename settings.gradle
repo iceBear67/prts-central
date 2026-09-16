@@ -9,3 +9,7 @@ pluginManagement {
     }
 }
 rootProject.name = 'prts-central'
+
+// A standalone worker implementation used by the e2e tests. It speaks the protocol on the wire and
+// deliberately compiles against nothing from :prts-central, like the real workers do.
+include 'worker-mock'

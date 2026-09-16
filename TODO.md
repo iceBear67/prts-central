@@ -77,12 +77,57 @@ reference sites cooperate (`TaskView.scope`, `SpecView.volumes`, `JobView.create
 MP OpenAPI's `getAll`/`setAll` copy is shallow, so mutating a child in place would mutate the
 original's too. Four extra component schemas for the client, and names for them.
 
+## A job can finish before its placement is recorded
+
+`WorkerScheduler.schedule0` sends `createJob`, waits for the worker's acknowledgment, and only then
+calls `claimJob`, which stamps `Job.worker` and `startedAt` in a transaction of its own. Nothing orders
+that claim against the messages the worker sends next, so a worker that reports a terminal state inside
+the window wins the race: `claimJob` finds a completed job, returns `false`, quietly cancels on the
+worker, and the job is left finished with `worker = null` — nobody is recorded as having run it. The
+guard itself is deliberate (`isSchedulable` and this branch handle the job cancelled while
+dispatching); the problem is that a *fast* worker is indistinguishable from a cancelled one.
+
+Tolerable today because a real worker takes seconds to start a container, and the mock worker that
+surfaced it is the only participant quick enough to answer and finish within milliseconds.
+`MockWorkerE2ETest` asserts placement on a job it holds open rather than on one that has already
+finished, for this reason.
+
+Closing it means claiming before the acknowledgment is observable: `WorkerService.onJobCreated` would
+claim ahead of `completeCreate`, so the reply that unblocks the launcher goes out only once the
+placement is committed. That moves the claim — and the "cancelled while dispatching" compensation —
+onto the WebSocket thread, which is the part to think through.
+
+## An upload that lands in the last sweep of a job's life is dropped
+
+`ArtifactService.tryPromote` refuses an upload whose job has already ended (`lockAssignedOpen` throws
+once the job is terminal) and `discard`s the session, which deletes the object as well. The sweeper
+only looks every two seconds, so a worker that PUTs its artifact and reports `SUCCESS` immediately
+loses it whenever a tick falls between the two — silently, apart from one `LOG.info`.
+
+Tolerable because that window is milliseconds wide against a two-second tick, and because a test that
+holds the job open until the artifact appears never hits it — which is what `MockWorkerE2ETest` does,
+and what [worker-mock/README.md](worker-mock/README.md) warns a script author about.
+
+Closing it means deciding what a completed job's late upload becomes: record the artifact from the
+session rather than through the job row (weakening the open-and-assigned check to "assigned to this
+worker"), or keep the object until the presign expires and let the expiry sweep rule on it.
+
 ## Test gaps
 
 Remaining testing gaps and current constraints:
 
-- **Worker WebSocket protocol messages**: `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`, and `JobCreated` are not covered end-to-end, as well as full `JobLauncher.launch()` execution. `WorkerWebSocketE2ETest` tests `Register` and `UpdateResourceInfo` with a mock client; remaining messages should be tested against a real worker implementation.
-- **Artifact upload and storage**: Upload quotas, presigned URL flow, and S3 object deletion in `ProjectService.delete` against LocalStack (requires worker-side upload requests).
+- **Worker WebSocket protocol messages**: `Register` and `UpdateResourceInfo` are exercised by
+  `WorkerWebSocketE2ETest`, and `jobCreated`, `jobStateUpdate`, `updateJobLog`, `uploadArtifactRequest`
+  and `volumeAck` — plus full `JobLauncher.launch()` execution — by `MockWorkerE2ETest` over
+  [`worker-mock`](worker-mock/README.md). What is left is the agent's three messages
+  (`AgentAttached`, `AgentFrame`, `AgentDetached`) arriving from a worker:
+  `AgentWebSocketE2ETest` drives the ACP socket, but no test yet runs a job's agent to the end of a
+  conversation through a worker.
+- **Artifact upload and storage**: the presigned URL flow is exercised end to end by
+  `MockWorkerE2ETest.anArtifactTheMockUploadsIsRecorded` — the mock PUTs real bytes to LocalStack and
+  the artifact appears once the sweeper has seen the size match. It runs in CI only, so treat it as
+  coverage once CI is green, not before. Still open: upload quotas, and S3 object deletion in
+  `ProjectService.delete`.
 - **`ProjectService` concurrent deletion (`Rows.BUSY`)**: Triggering the race condition between `stopWork` and table locking in `deleteRows` requires precise multi-threaded transaction coordination.
 - **Worker WebSocket `@OnError` handling**: Error reply behavior through websockets-next needs further verification.
 - **ACP viewer socket OIDC authentication**: `AgentWebSocketE2ETest` tests handshake auth via PAT. Browser OIDC session cookie authentication is unexercised because `%test` disables OIDC.

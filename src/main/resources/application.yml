@@ -85,6 +85,12 @@ quarkus:
   # Fills an empty database with example projects, workers and job history at startup.
   dev:
     seed-examples: true
+    # A worker that connects back to dev mode and runs what it is given, so a job created from the
+    # UI actually finishes. A job picks its own script with the label prts.mock; this is what the
+    # ones without it get: demo | succeed | fail | hang | agent.
+    mock-worker:
+      enabled: true
+      script: demo
   # Secret for worker authentication in dev/test. Must be configured explicitly in production.
   worker:
     secret: "allo"

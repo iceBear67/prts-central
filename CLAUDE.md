@@ -12,7 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - brokers artifact uploads straight from worker to S3 via presigned URLs.
 
 Workers themselves live in another repository; this one only speaks the protocol in
-`io.ib67.prts.agent.worker.message`.
+`io.ib67.prts.agent.worker.message`. `worker-mock/` is a subproject holding a worker that speaks that
+protocol for tests, without running containers; it depends on nothing here, the way the real workers
+do.
 
 ## Documentation index
 
@@ -34,6 +36,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/project-deletion.md](agent-docs/project-deletion.md) | `ProjectService.delete` or anything it tears down |
 | [agent-docs/transactions.md](agent-docs/transactions.md) | adding a transaction boundary around an RPC |
 | [agent-docs/testing.md](agent-docs/testing.md) | writing a test, or changing anything that decides which tier one can live in |
+| [worker-mock/README.md](worker-mock/README.md) | writing or changing the mock worker, or a test that drives one |
 | [TODO.md](TODO.md) | known gaps left open on purpose, and what closing each would take |
 
 ### Package map
@@ -55,7 +58,7 @@ holds the services and value objects.
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
 | `stats` | `StatsService`: the completion series and this process's identity, shared by `/admin/stats` and `/project/{id}/stats` |
-| `dev` | `ExampleDataSeeder`, the `%dev`-only startup seeding — no production code may depend on it |
+| `dev` | `ExampleDataSeeder` and `MockWorkerRunner`, the `%dev`-only startup seeding and the mock worker dev mode runs for itself — no production code may depend on it |
 | `dto` | Outward-facing view records, grouped `dto.admin` / `dto.agent` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`Page`, `SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |

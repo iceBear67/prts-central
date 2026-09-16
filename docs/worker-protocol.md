@@ -8,6 +8,10 @@ The protocol is defined by two sealed interfaces:
 - `ServerboundMessage`: Inbound messages from workers (`Register`, `UpdateResourceInfo`, `JobCreated`, `JobStateUpdate`, `UpdateJobLog`, `UploadArtifactRequest`, `VolumeAck`, `AgentAttached`, `AgentFrame`, `AgentDetached`).
 - `ClientboundMessage`: Outbound messages to workers (`Response`, `CreateJob`, `CancelJob`, `InterruptJob`, `PresignedUpload`, `CreateVolume`, `DeleteVolume`, `AgentFrame`).
 
+A worker that implements this protocol for tests — no containers, scripted per job — lives in
+[worker-mock/README.md](../worker-mock/README.md). It models these messages itself rather than
+importing the interfaces above, so it is also the executable statement of the wire format.
+
 ### Serialization & Dispatch
 - **Polymorphism**: Serialized via Jackson using property `"type"`. New message types must be registered in `@JsonSubTypes` and handled in `WorkerWebSocket#acceptMessage`.
 - **Validation**: Handlers are `@Blocking`. Unauthenticated requests or messages failing validation/decoding return `Response(false, reason)` via `@OnError`.

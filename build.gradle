@@ -31,6 +31,12 @@ dependencies {
     implementation 'io.quarkus:quarkus-hibernate-validator'
     testImplementation 'io.quarkus:quarkus-junit'
     testImplementation 'io.rest-assured:rest-assured'
+    // A worker that speaks the protocol on the wire, so the e2e tests can drive a job to its end
+    // without a container runtime. MockWorkerRunner gives dev mode one too: compileOnly keeps the
+    // mock off the production runtime classpath, quarkusDev puts it back for `./gradlew quarkusDev`.
+    testImplementation project(':worker-mock')
+    compileOnly project(':worker-mock')
+    quarkusDev project(':worker-mock')
     // Provides Mockito support for Quarkus tests, including static mocking.
     testImplementation 'io.quarkus:quarkus-junit-mockito'
     implementation("io.quarkus:quarkus-websockets-next")

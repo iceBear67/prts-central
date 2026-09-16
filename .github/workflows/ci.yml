@@ -29,7 +29,9 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       # Run all tests, including container-based E2E tests using Quarkus Dev Services.
-      - run: ./gradlew e2eTest --console=plain --stacktrace
+      # `:worker-mock:test` is named explicitly: `e2eTest` is registered on the root project only, so
+      # an unqualified run would leave the mock worker's own suite unexecuted.
+      - run: ./gradlew e2eTest :worker-mock:test --console=plain --stacktrace
 
       - name: Upload test reports
         if: ${{ !cancelled() }}
@@ -39,4 +41,6 @@ jobs:
           path: |
             build/reports/tests/
             build/test-results/
+            worker-mock/build/reports/tests/
+            worker-mock/build/test-results/
           retention-days: 7
