@@ -3,7 +3,7 @@ package io.ib67.prts.job;
 import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.job.entity.JobLock;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.dto.Page;
 import io.ib67.prts.dto.UserInfo;
 import io.ib67.prts.dto.WorkerInfo;
@@ -145,7 +145,7 @@ public class JobService {
     private List<JobView> viewOf(List<Job> jobs, boolean withRequest) {
         var users = User.mapByIds(jobs.stream().map(Job::getRequestedBy).distinct().toList());
         // Every /worker endpoint is admin:all, so a project member could not resolve a bare ID itself.
-        var workers = Worker.mapByIds(jobs.stream()
+        var workers = WorkerEntity.mapByIds(jobs.stream()
                 .map(Job::getWorker)
                 .filter(Objects::nonNull)
                 .distinct()

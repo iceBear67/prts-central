@@ -11,7 +11,7 @@ Configured via `quarkus.http.auth.permission` in `application.yml`:
 | **Personal Access Token (PAT)** | `Authorization: Bearer prts_...` on `/api/*` | 1500 | Authenticates against hashed token in `user_access_token`. Builds standard identity with `User.class.getName()` attribute matching OIDC. Unrecognized token returns 401. |
 | **Dev Auto-Login** | Uncredentialed on `/api/*` (dev mode only) | 1200 | Gated by `@IfBuildProfile("dev")` and `quarkus.oidc.enabled: false`. Authenticates as seeded `ADMIN_OF_ALL` user created by `DevAdminSeeder`. |
 | **OIDC Auth Code** | Browser redirect / callback on `/api/*` | 1001 | Authorization-code flow against Gitea. `UserIdentityAugmenter` maps `(issuer, subject)` to local `User` record; provisions on first login via `UserService.provision`. Disabled in `%dev` and `%test`. |
-| **Worker Auth** | `X-Worker-Token` on `/ws/worker` | Dedicated | Validates header against `worker.secret`. Grants shared `"worker"` principal. |
+| **Worker Auth** | `X-Worker-Token` on `/ws/workerEntity` | Dedicated | Validates header against `workerEntity.secret`. Grants shared `"workerEntity"` principal. |
 
 `/ws/project/*` (the ACP viewer socket) requires authentication via OIDC session cookie or PAT.
 Authorization is enforced programmatically in `AgentWebSocket` via `JobAccess` rather than

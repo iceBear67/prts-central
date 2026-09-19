@@ -3,7 +3,7 @@ package io.ib67.prts.agent.worker.message;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.JsonNode;
-import io.ib67.prts.agent.worker.RegisteredWorker;
+import io.ib67.prts.agent.worker.Worker;
 import io.ib67.prts.job.entity.JobState;
 import jakarta.annotation.Nullable;
 
@@ -31,7 +31,11 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ServerboundMessage.AgentDetached.class, name = "agentDetached"),
 })
 public sealed interface ServerboundMessage {
-    record Register(UUID workerId, String name, @Nullable RegisteredWorker.Info info)
+    interface ActionResponse {
+        UUID requestId();
+    }
+
+    record Register(UUID workerId, String name, @Nullable Worker.Info info)
             implements ServerboundMessage {
         public Register {
             Objects.requireNonNull(workerId, "workerId");
@@ -46,7 +50,7 @@ public sealed interface ServerboundMessage {
         }
     }
 
-    record UpdateResourceInfo(RegisteredWorker.Info info) implements ServerboundMessage {
+    record UpdateResourceInfo(Worker.Info info) implements ServerboundMessage {
         public UpdateResourceInfo {
             Objects.requireNonNull(info, "info");
         }
@@ -55,7 +59,7 @@ public sealed interface ServerboundMessage {
     /**
      * Acknowledges receipt of a job creation request.
      */
-    record JobCreated(UUID requestId) implements ServerboundMessage {
+    record JobCreated(UUID requestId) implements ServerboundMessage, ActionResponse {
         public JobCreated {
             Objects.requireNonNull(requestId, "requestId");
         }
@@ -80,7 +84,7 @@ public sealed interface ServerboundMessage {
      *
      * @param message failure explanation if {@code ok} is false
      */
-    record VolumeAck(UUID requestId, boolean ok, @Nullable String message) implements ServerboundMessage {
+    record VolumeAck(UUID requestId, boolean ok, @Nullable String message) implements ServerboundMessage, ActionResponse {
         public VolumeAck {
             Objects.requireNonNull(requestId, "requestId");
         }

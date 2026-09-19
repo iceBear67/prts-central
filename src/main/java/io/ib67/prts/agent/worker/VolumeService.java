@@ -1,7 +1,7 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.worker.entity.VolumeState;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.task.entity.TaskVolume;
 import io.ib67.prts.project.ProjectService;
@@ -14,8 +14,10 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Allocates and releases project worker volumes.
@@ -23,6 +25,10 @@ import java.util.UUID;
 @ApplicationScoped
 public class VolumeService {
     private static final Logger LOG = Logger.getLogger(VolumeService.class);
+    // Volume operations may take longer than container startup. The bound matters because the wait
+    // sits between two committed transactions: without it a silent worker blocks the caller
+    // forever and the row never leaves PROVISIONING / RELEASING.
+    private static final Duration VOLUME_TIMEOUT = Duration.ofSeconds(60);
 
     @Inject
     ProjectService projectService;
@@ -36,9 +42,10 @@ public class VolumeService {
      * transitioning to {@link VolumeState#READY} on acknowledgment or removing the record on failure.
      */
     public WorkerVolume create(UUID projectId, String name, long sizeBytes) {
-        var workerId = workerService.selectVolumeHost();
+        var workerId = workerService.scheduler.selectVolumeHost()
+                .orElseThrow(() -> new IllegalStateException("No available worker for this project volume"));
         var volumeId = QuarkusTransaction.requiringNew().call(() -> {
-            var worker = Worker.<Worker>findByIdOptional(workerId)
+            var worker = WorkerEntity.<WorkerEntity>findByIdOptional(workerId)
                     .orElseThrow(() -> new NoSuchElementException("no such worker: " + workerId));
             var volume = WorkerVolume.builder()
                     .name(name)
@@ -50,12 +57,12 @@ public class VolumeService {
             volume.persist();
             return volume.getId();
         });
-        try {
-            workerService.createVolume(workerId, volumeId, projectId, name, sizeBytes);
-        } catch (RuntimeException e) {
-            discard(volumeId);
-            throw e;
-        }
+        workerService.getWorker(workerId).orElseThrow()
+                .getClient().createVolume(volumeId, projectId, name, sizeBytes)
+                .orTimeout(VOLUME_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                .whenComplete((ack, t) -> {
+                    if (t != null) discard(volumeId);
+                }).join();
         return QuarkusTransaction.requiringNew().call(() -> {
             var volume = WorkerVolume.<WorkerVolume>findById(volumeId);
             volume.setState(VolumeState.READY);
@@ -84,11 +91,16 @@ public class VolumeService {
             volume.setState(VolumeState.RELEASING);
             return volume.getWorker().getId();
         });
-        workerService.deleteVolume(workerId, volumeId);
+        workerService.getWorker(workerId).orElseThrow()
+                .getClient().deleteVolume(volumeId)
+                .orTimeout(VOLUME_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
+                .join();
         QuarkusTransaction.requiringNew().run(() -> WorkerVolume.deleteById(volumeId));
     }
 
-    /** Removes a volume row if creation failed or was rejected. */
+    /**
+     * Removes a volume row if creation failed or was rejected.
+     */
     private void discard(UUID volumeId) {
         try {
             QuarkusTransaction.requiringNew().run(() -> WorkerVolume.deleteById(volumeId));

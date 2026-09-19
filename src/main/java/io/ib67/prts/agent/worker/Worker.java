@@ -1,13 +1,12 @@
 package io.ib67.prts.agent.worker;
 
-import io.ib67.prts.agent.worker.entity.ResourceClass;
 import jakarta.annotation.Nullable;
 import lombok.*;
 
 @Getter
-public class RegisteredWorker {
+public class Worker {
     protected final String name;
-    protected final WorkerClient rpc;
+    protected final WorkerClient client;
     /** Null indicates unbounded resources and no pending jobs. */
     @Setter
     @Nullable
@@ -16,9 +15,9 @@ public class RegisteredWorker {
     @Setter
     protected volatile boolean disabled;
 
-    public RegisteredWorker(String name, WorkerClient rpc, @Nullable Info info) {
+    public Worker(String name, WorkerClient client, @Nullable Info info) {
         this.name = name;
-        this.rpc = rpc;
+        this.client = client;
         this.info = info;
     }
 

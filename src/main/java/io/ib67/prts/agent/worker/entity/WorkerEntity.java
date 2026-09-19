@@ -30,7 +30,7 @@ import java.util.stream.Collectors;
 @AllArgsConstructor
 @Builder
 @ToString
-public class Worker extends PanacheEntityBase {
+public class WorkerEntity extends PanacheEntityBase {
 
     @Id
     @Column(name = "id", nullable = false, updatable = false)
@@ -44,23 +44,23 @@ public class Worker extends PanacheEntityBase {
     private boolean disabled;
 
     /** Lists a page of registered workers ordered by name and ID. */
-    public static List<Worker> listPage(int offset, int length) {
-        return Worker.<Worker>find("order by name, id")
+    public static List<WorkerEntity> listPage(int offset, int length) {
+        return WorkerEntity.<WorkerEntity>find("order by name, id")
                 .range(offset, offset + length - 1)
                 .list();
     }
 
-    /** Finds workers by IDs, returning an ID-to-Worker map of existing registrations. */
-    public static Map<UUID, Worker> mapByIds(Collection<UUID> ids) {
+    /** Finds workers by IDs, returning an ID-to-WorkerEntity map of existing registrations. */
+    public static Map<UUID, WorkerEntity> mapByIds(Collection<UUID> ids) {
         if (ids.isEmpty()) {
             return Map.of();
         }
-        return Worker.<Worker>find("id in ?1", ids).stream()
-                .collect(Collectors.toMap(Worker::getId, worker -> worker));
+        return WorkerEntity.<WorkerEntity>find("id in ?1", ids).stream()
+                .collect(Collectors.toMap(WorkerEntity::getId, worker -> worker));
     }
 
-    public static Worker upsert(UUID id, String name) {
-        Worker existing = findById(id);
+    public static WorkerEntity upsert(UUID id, String name) {
+        WorkerEntity existing = findById(id);
         if (existing == null) {
             var created = builder().id(id).name(name).build();
             created.persistAndFlush();

@@ -23,16 +23,16 @@ Tests are divided into three distinct execution tiers:
 
 ## Tier C Constraints & Fixtures
 
-- **A worker to run jobs on (`worker-mock`)**: a separate subproject holding a worker that speaks the
-  protocol without containers, so a Tier C test can place a real job and script what the worker does
-  with it. See [worker-mock/README.md](../worker-mock/README.md) and `MockWorkerE2ETest`.
+- **A workerEntity to run jobs on (`workerEntity-mock`)**: a separate subproject holding a workerEntity that speaks the
+  protocol without containers, so a Tier C test can place a real job and script what the workerEntity does
+  with it. See [workerEntity-mock/README.md](../workerEntity-mock/README.md) and `MockWorkerEntityE2ETest`.
 - **Database Cleanup (`DatabaseCleaner`)**: Because services commit transactions via `requiringNew()`, standard `@TestTransaction` rollback does not roll back test writes. Tests use `DatabaseCleaner.clean()` (`TRUNCATE ... CASCADE`) in `@BeforeEach`.
 - **Authentication in Tests (`Fixtures`)**:
   - Dev auto-login is disabled under `%test`.
   - Standard tests authenticate using real Personal Access Tokens generated via `Fixtures#actor` and `Fixtures.as(actor)`.
 - **Project Ownership (`Fixtures#createProject`)**: `ProjectService.create` requires an owner. Tests should pass an explicit `Actor`; `createProject(name)` defaults to creating a throwaway user.
-- **Worker Cleanup**: Active worker registrations in `WorkerService.activeWorkers` reside in-memory; tests interacting with WebSockets must disconnect workers and clear sessions in `@AfterEach`.
-  - **An empty roster does not mean the disconnect is finished.** `WorkerService.unregisterWorker` removes the worker from `activeWorkers` *before* closing its ACP channel and calling `failJobsOf`, so waiting on `getActiveWorkers().isEmpty()` returns while those transactions are still committing — and the next test's `DatabaseCleaner.clean()` then deadlocks against them (`TRUNCATE` wants `AccessExclusiveLock`, the in-flight write holds `RowExclusiveLock`). Wait for the tail of the work as well, e.g. `Job.listOpenByWorker(workerId).isEmpty()`.
+- **Worker Cleanup**: Active workerEntity registrations in `WorkerService.activeWorkers` reside in-memory; tests interacting with WebSockets must disconnect workers and clear sessions in `@AfterEach`.
+  - **An empty roster does not mean the disconnect is finished.** `WorkerService.unregisterWorker` removes the workerEntity from `activeWorkers` *before* closing its ACP channel and calling `failJobsOf`, so waiting on `getActiveWorkers().isEmpty()` returns while those transactions are still committing — and the next test's `DatabaseCleaner.clean()` then deadlocks against them (`TRUNCATE` wants `AccessExclusiveLock`, the in-flight write holds `RowExclusiveLock`). Wait for the tail of the work as well, e.g. `Job.listOpenByWorker(workerId).isEmpty()`.
 - **`@OnOpen` runs after the handshake returns.** A `@Blocking` `@OnOpen` has not necessarily executed when the client's `buildAsync(...).join()` completes, so a test that next touches a *different* connection races it. Prove the connection is live with a round-trip on it first (`AgentWebSocketE2ETest.Viewer.attached()`).
 - **E2E Filtering**: Tier C test classes must follow the naming pattern `*E2ETest.java` to be excluded from standard `./gradlew test` runs.
 
@@ -40,7 +40,7 @@ Tests are divided into three distinct execution tiers:
 
 | Setting | Purpose |
 | --- | --- |
-| `worker.secret` / `secret.keys` | Provides dummy keys required by startup validators. |
+| `workerEntity.secret` / `secret.keys` | Provides dummy keys required by startup validators. |
 | `quarkus.oidc.enabled: false` | Disables OIDC provider requirements during testing. |
 | `schema-management.strategy: drop-and-create` | Generates schema into the ephemeral Dev Services Postgres database. |
 | `job.pending.interval: PT24H` | Freezes the background queue dispatcher so tests can trigger `tick()` manually. |

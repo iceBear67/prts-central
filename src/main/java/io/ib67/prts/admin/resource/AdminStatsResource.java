@@ -2,7 +2,7 @@ package io.ib67.prts.admin.resource;
 
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.HourlyCount;
@@ -51,8 +51,8 @@ public class AdminStatsResource {
                 new AdminStatsView.Users(User.count(), SubAccount.count()),
                 new AdminStatsView.Projects(Project.count(), Project.count("archivedAt is not null")),
                 new AdminStatsView.Workers(
-                        Worker.count(),
-                        Worker.count("disabled", true),
+                        WorkerEntity.count(),
+                        WorkerEntity.count("disabled", true),
                         live.size(),
                         live.stream().filter(worker -> !worker.isDisabled()).count()),
                 // Summed from the series rather than counted separately, so the scalar and the chart

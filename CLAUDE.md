@@ -8,11 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - authenticates humans over OIDC and workers over a shared-secret header,
 - stores projects, jobs, job specs, logs and artifact metadata in PostgreSQL,
-- keeps a live WebSocket session with each worker, schedules containerized jobs onto them, and
-- brokers artifact uploads straight from worker to S3 via presigned URLs.
+- keeps a live WebSocket session with each workerEntity, schedules containerized jobs onto them, and
+- brokers artifact uploads straight from workerEntity to S3 via presigned URLs.
 
 Workers themselves live in another repository; this one only speaks the protocol in
-`io.ib67.prts.agent.worker.message`. `worker-mock/` is a subproject holding a worker that speaks that
+`io.ib67.prts.agent.workerEntity.message`. `workerEntity-mock/` is a subproject holding a workerEntity that speaks that
 protocol for tests, without running containers; it depends on nothing here, the way the real workers
 do.
 
@@ -26,8 +26,8 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/build-and-run.md](agent-docs/build-and-run.md) | building, running, or touching the schema / local Postgres / S3 |
 | [agent-docs/job-lifecycle.md](agent-docs/job-lifecycle.md) | anything about creating, scheduling, cancelling or ending a job, or the pending queue |
 | [agent-docs/job-spec.md](agent-docs/job-spec.md) | changing `JobSpec`, secrets, templates, resource classes, or the override gating |
-| [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, worker volumes, or task teardown |
-| [agent-docs/worker-protocol.md](docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
+| [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, workerEntity volumes, or task teardown |
+| [agent-docs/workerEntity-protocol.md](docs/workerEntity-protocol.md) | adding a WebSocket message or touching workerEntity sessions / placement |
 | [agent-docs/agent-acp.md](agent-docs/agent-acp.md) | the ACP proxy: the method allowlist, id rewriting, agent sessions and their transcript |
 | [agent-docs/authorization.md](agent-docs/authorization.md) | auth mechanisms, `Perm`, `@RequirePermission`, roles, sub-accounts |
 | [agent-docs/http-surface.md](agent-docs/http-surface.md) | adding or changing an endpoint, a DTO, a mapper, or the OpenAPI filter |
@@ -36,7 +36,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/project-deletion.md](agent-docs/project-deletion.md) | `ProjectService.delete` or anything it tears down |
 | [agent-docs/transactions.md](agent-docs/transactions.md) | adding a transaction boundary around an RPC |
 | [agent-docs/testing.md](agent-docs/testing.md) | writing a test, or changing anything that decides which tier one can live in |
-| [worker-mock/README.md](worker-mock/README.md) | writing or changing the mock worker, or a test that drives one |
+| [workerEntity-mock/README.md](workerEntity-mock/README.md) | writing or changing the mock workerEntity, or a test that drives one |
 | [TODO.md](TODO.md) | known gaps left open on purpose, and what closing each would take |
 
 ### Package map
@@ -46,7 +46,7 @@ holds the services and value objects.
 
 | Package | Role |
 | --- | --- |
-| `agent.worker` | Live worker sessions, the WebSocket protocol (`.message`), scheduling, `VolumeService`; `.entity` = `Worker`, `ResourceClass`, `ProjectResourceClass`, `WorkerVolume`, `VolumeState` |
+| `agent.workerEntity` | Live workerEntity sessions, the WebSocket protocol (`.message`), scheduling, `VolumeService`; `.entity` = `WorkerEntity`, `ResourceClass`, `ProjectResourceClass`, `WorkerVolume`, `VolumeState` |
 | `agent.acp` | The ACP proxy between a job's agent and the browsers watching it: `AgentService` (routing, allowlist, id rewriting), `AgentTranscript` (the stored side), `AgentWebSocket`, `AcpFrame` / `AcpMethod`; `.entity` = `AgentSession`, `AgentEvent`, `AgentDirection` |
 | `agent.job` | `JobSpec` value object, override/permission gating; `.entity` = `JobSpecTemplate`, `JobLock` |
 | `job` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads, `stopOpen`), `JobResource`, `JobAccess`, `JobConfig`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` / `JobState` / `ProjectRole` plus the `JobRequest` value |
@@ -54,11 +54,11 @@ holds the services and value objects.
 | `project` | `ProjectService` and `ProjectResource` |
 | `pending` | The job queue: `PendingJob` entity, `PendingJobService`, `PendingJobDispatcher` |
 | `user` | `User`, project membership, permission grants + cached lookup, sub-accounts |
-| `auth` | OIDC identity augmentation, worker token mechanism, `@RequirePermission` interceptor |
+| `auth` | OIDC identity augmentation, workerEntity token mechanism, `@RequirePermission` interceptor |
 | `secret` | Project secrets sealed by `SecretCipher`; `secret.user`, personal access tokens |
 | `admin` | The `/api/admin` surface: cross-project listings, permission administration, global templates, dashboard counters |
 | `stats` | `StatsService`: the completion series and this process's identity, shared by `/admin/stats` and `/project/{id}/stats` |
-| `dev` | `ExampleDataSeeder` and `MockWorkerRunner`, the `%dev`-only startup seeding and the mock worker dev mode runs for itself — no production code may depend on it |
+| `dev` | `ExampleDataSeeder` and `MockWorkerRunner`, the `%dev`-only startup seeding and the mock workerEntity dev mode runs for itself — no production code may depend on it |
 | `dto` | Outward-facing view records, grouped `dto.admin` / `dto.agent` / `dto.job` / `dto.project` / `dto.task` / `dto.request`; the ones belonging to no group (`Page`, `SecretView`, `WorkerView`, `AccessTokenView`, ...) stay at the root |
 | `storage` | S3 presigning (`StorageService`) and `ArtifactService`, the upload quota and hand-off |
 | `openapi` | Build-time `OASFilter` republishing permissions, the real status codes and the shared error contract into the OpenAPI document |

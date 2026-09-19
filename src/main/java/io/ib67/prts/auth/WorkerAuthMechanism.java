@@ -15,7 +15,7 @@ import jakarta.inject.Inject;
 
 @ApplicationScoped
 public class WorkerAuthMechanism implements HttpAuthenticationMechanism {
-    static final String HEADER = "X-Worker-Token";
+    static final String HEADER = "X-WorkerEntity-Token";
 
     @Inject
     WorkerConfig workerConfig;

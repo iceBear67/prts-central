@@ -79,7 +79,7 @@ public class WorkerVolume extends PanacheEntityBase {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "worker_id", nullable = false)
     @ToString.Exclude
-    private Worker worker;
+    private WorkerEntity worker;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "project_id", nullable = false, updatable = false)

@@ -3,11 +3,7 @@ package io.ib67.prts.testing;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
-import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
-import io.ib67.prts.agent.worker.entity.ResourceClass;
-import io.ib67.prts.agent.worker.entity.VolumeState;
-import io.ib67.prts.agent.worker.entity.Worker;
-import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.agent.worker.entity.*;
 import io.ib67.prts.job.task.TaskScope;
 import io.ib67.prts.job.task.entity.Task;
 import io.ib67.prts.job.task.entity.TaskVolume;
@@ -252,7 +248,7 @@ public class Fixtures {
     @Transactional
     public UUID createWorker(String name) {
         var id = UUID.randomUUID();
-        Worker.upsert(id, name);
+        WorkerEntity.upsert(id, name);
         return id;
     }
 
@@ -266,7 +262,7 @@ public class Fixtures {
     public UUID createVolume(UUID projectId, UUID workerId, String name, VolumeState state) {
         var volume = WorkerVolume.builder()
                 .name(name)
-                .worker(Worker.<Worker>findById(workerId))
+                .worker(WorkerEntity.<WorkerEntity>findById(workerId))
                 .project(Project.<Project>findById(projectId))
                 .length(1024)
                 .used(0)

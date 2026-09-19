@@ -121,7 +121,7 @@ public record JobSpec(
                 throw new BadRequestException(
                         "volume " + row.getId() + " is not ready: " + row.getState());
             }
-            var worker = row.getWorker().getId();
+            var worker = row.getWorkerEntity().getId();
             if (host == null) {
                 host = worker;
             } else if (!host.equals(worker)) {

@@ -1,10 +1,8 @@
 package io.ib67.prts.agent.worker;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.dto.WorkerRemovalView;
 import io.ib67.prts.job.entity.Job;
@@ -12,7 +10,8 @@ import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.JobState;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.websockets.next.WebSocketConnection;
-import jakarta.annotation.Nullable;
+import io.vertx.core.eventbus.EventBus;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.ClientErrorException;
@@ -33,14 +32,17 @@ public class WorkerService {
     @Inject
     JobService jobService;
     @Inject
-    AgentService agentService;
+    EventBus eventBus;
 
-    private final Map<UUID, RegisteredWorker> activeWorkers = new ConcurrentHashMap<>();
-    private final WorkerScheduler scheduler = new WorkerScheduler(activeWorkers);
-    // Synchronizes registration and state toggling so worker state remains consistent.
-    private final Object roster = new Object();
+    private final Map<UUID, Worker> activeWorkers = new ConcurrentHashMap<>();
+    WorkerScheduler scheduler;
 
-    public Map<UUID, RegisteredWorker> getActiveWorkers() {
+    @PostConstruct
+    private void postConstruct() {
+        scheduler = new WorkerScheduler(activeWorkers, eventBus);
+    }
+
+    public Map<UUID, Worker> getActiveWorkers() {
         return Collections.unmodifiableMap(activeWorkers);
     }
 
@@ -48,42 +50,43 @@ public class WorkerService {
         return activeWorkers.values().stream().anyMatch(worker -> !worker.isDisabled());
     }
 
-    public Optional<RegisteredWorker> getWorker(UUID id) {
+    public Optional<Worker> getWorker(UUID id) {
         return Optional.ofNullable(activeWorkers.get(id));
     }
 
     /**
      * Registers an active worker session.
      *
-     * <p>A worker id is whatever the registration claims it is, so taking over a live one would hand the
+     * <p>A worker workerId is whatever the registration claims it is, so taking over a live one would hand the
      * claimant every job — and every project secret — routed to it. A session already closed but not yet
      * unregistered is replaced, so a reconnect after a drop still lands.
      *
      * @throws IllegalStateException if the worker already holds a live session
      */
-    void registerWorker(UUID id, RegisteredWorker registeredWorker) {
-        RegisteredWorker displaced;
-        synchronized (roster) {
+    void registerWorker(UUID id, Worker worker) {
+        Worker displaced;
+        synchronized (this) {
             var current = activeWorkers.get(id);
-            if (current != null && current.getRpc().isOpen()) {
+            if (current != null && current.getClient().isOpen()) {
                 LOG.warnf("refused a registration for worker %s: its session is still live", id);
                 throw new IllegalStateException("worker " + id + " already has a live session");
             }
-            registeredWorker.setDisabled(QuarkusTransaction.requiringNew()
-                    .call(() -> Worker.upsert(id, registeredWorker.getName()).isDisabled()));
-            displaced = activeWorkers.put(id, registeredWorker);
+            worker.setDisabled(QuarkusTransaction.requiringNew()
+                    .call(() -> WorkerEntity.upsert(id, worker.getName()).isDisabled()));
+            displaced = activeWorkers.put(id, worker);
+            eventBus.publish(WorkerEvent.ONLINE, worker);
         }
         if (displaced != null) {
             scheduler.onWorkerRemoved(id);
-            displaced.getRpc().failAll(new IllegalStateException("worker re-registered on a new connection"));
+            displaced.getClient().failAll(new IllegalStateException("worker re-registered on a new connection"));
         }
     }
 
     /**
      * Enables or disables a worker for job scheduling.
      */
-    public Worker setDisabled(UUID id, boolean disabled) {
-        synchronized (roster) {
+    public WorkerEntity setDisabled(UUID id, boolean disabled) {
+        synchronized (this) {
             var row = QuarkusTransaction.requiringNew().call(() -> {
                 var worker = requireRow(id);
                 worker.setDisabled(disabled);
@@ -101,9 +104,9 @@ public class WorkerService {
      * Renames a registered worker.
      *
      * <p>Note that if the worker reconnects with a different name in its registration,
-     * {@link Worker#upsert} will overwrite this value.
+     * {@link WorkerEntity#upsert} will overwrite this value.
      */
-    public Worker rename(UUID id, String name) {
+    public WorkerEntity rename(UUID id, String name) {
         return QuarkusTransaction.requiringNew().call(() -> {
             var worker = requireRow(id);
             worker.setName(name);
@@ -117,23 +120,12 @@ public class WorkerService {
     public void disconnect(UUID id) {
         var worker = activeWorkers.get(id);
         if (worker != null) {
-            worker.getRpc().close();
+            worker.getClient().close();
         }
     }
 
-    /**
-     * Deletes a worker's registration.
-     *
-     * <p>The worker must be disconnected either way: a live session means the host is not gone, and
-     * {@link #disconnect} says so explicitly. Without {@code force} it must additionally hold no
-     * unfinished job and host no volume, since releasing a volume needs the worker to acknowledge it.
-     *
-     * <p>{@code force} is the operator stating that the host is never coming back: the volume rows go
-     * without the RPC — storage is abandoned, not reclaimed — and the jobs it was holding fail, because
-     * nothing will ever report on them.
-     */
     public WorkerRemovalView delete(UUID id, boolean force) {
-        synchronized (roster) {
+        synchronized (this) {
             if (activeWorkers.containsKey(id)) {
                 throw new ClientErrorException(
                         "worker " + id + " is connected; disconnect it first", Response.Status.CONFLICT);
@@ -158,7 +150,7 @@ public class WorkerService {
                 return new WorkerRemovalView(0, 0);
             }
             QuarkusTransaction.requiringNew().run(() -> requireRow(id));
-            var failed = failJobsOf(id);
+            var failed = failAllJobs(id);
             return QuarkusTransaction.requiringNew().call(() -> {
                 var worker = requireRow(id);
                 // Volumes first: worker_volume carries a plain foreign key to the row being removed.
@@ -170,8 +162,8 @@ public class WorkerService {
         }
     }
 
-    private static Worker requireRow(UUID id) {
-        var worker = Worker.<Worker>findById(id);
+    private static WorkerEntity requireRow(UUID id) {
+        var worker = WorkerEntity.<WorkerEntity>findById(id);
         if (worker == null) {
             throw new NoSuchElementException("no such worker: " + id);
         }
@@ -181,17 +173,16 @@ public class WorkerService {
     /** Unregisters a worker if the closing connection matches its active session. */
     void unregisterWorker(UUID id, WebSocketConnection connection) {
         var worker = activeWorkers.get(id);
-        if (worker == null || !worker.getRpc().isFor(connection) || !activeWorkers.remove(id, worker)) {
+        if (worker == null || !worker.getClient().isFor(connection) || !activeWorkers.remove(id, worker)) {
             return;
         }
-        scheduler.onWorkerRemoved(id);
-        worker.getRpc().failAll(new IllegalStateException("worker disconnected"));
-        agentService.onWorkerGone(id);
-        failJobsOf(id);
+        eventBus.publish(WorkerEvent.OFFLINE, id);
+        worker.getClient().failAll(new IllegalStateException("worker disconnected"));
+        failAllJobs(id);
     }
 
     /** Fails everything the worker was still holding. Returns how many, best effort. */
-    private int failJobsOf(UUID workerId) {
+    private int failAllJobs(UUID workerId) {
         try {
             var open = QuarkusTransaction.requiringNew()
                     .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
@@ -205,132 +196,23 @@ public class WorkerService {
         }
     }
 
-    boolean updateInfo(UUID id, @Nullable RegisteredWorker.Info info) {
-        var worker = activeWorkers.get(id);
-        if (worker == null) {
-            return false;
-        }
-        worker.setInfo(info);
-        return true;
-    }
-
-    boolean onJobCreated(UUID workerId, UUID requestId) {
-        var worker = activeWorkers.get(workerId);
-        if (worker == null) {
-            return false;
-        }
-        scheduler.onCreateAcknowledged(workerId);
-        worker.getRpc().completeCreate(requestId);
-        return true;
-    }
-
-    boolean onVolumeAck(UUID workerId, UUID requestId, boolean ok, @Nullable String message) {
-        var worker = activeWorkers.get(workerId);
-        if (worker == null) {
-            return false;
-        }
-        worker.getRpc().completeVolume(requestId, ok, message);
-        return true;
-    }
-
-    /**
-     * Selects a worker to host a new volume.
-     *
-     * @throws ClientErrorException with HTTP 409 Conflict if no worker is available
-     */
-    public UUID selectVolumeHost() {
-        return scheduler.selectVolumeHost().orElseThrow(() -> new ClientErrorException(
-                "no worker is available to host a volume", Response.Status.CONFLICT));
-    }
-
-    /**
-     * Requests volume allocation on the specified worker, blocking until acknowledged.
-     *
-     * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
-     * @throws IllegalStateException if allocation fails or times out
-     */
-    public void createVolume(UUID workerId, UUID volumeId, UUID projectId, String name, long sizeBytes) {
-        requireConnected(workerId).getRpc().createVolume(volumeId, projectId, name, sizeBytes);
-    }
-
-    /**
-     * Requests volume deletion on the specified worker, blocking until acknowledged.
-     *
-     * @throws ClientErrorException with HTTP 409 Conflict if the worker is not connected
-     * @throws IllegalStateException if deletion fails or times out
-     */
-    public void deleteVolume(UUID workerId, UUID volumeId) {
-        requireConnected(workerId).getRpc().deleteVolume(volumeId);
-    }
-
-    private RegisteredWorker requireConnected(UUID workerId) {
-        var worker = activeWorkers.get(workerId);
-        if (worker == null) {
-            throw new ClientErrorException(
-                    "worker " + workerId + " is not connected", Response.Status.CONFLICT);
-        }
-        return worker;
-    }
-
     /**
      * Attempts to place a job on an eligible worker.
      *
+     * @param resourceClass the class {@code JobLauncher.resolve} already resolved and checked against
+     *                      the project. It is all scalars, so the detached instance is everything
+     *                      placement needs: re-reading the row would cost a transaction and check less.
      * @return true if successfully placed, false otherwise
      */
     public boolean schedule(UUID jobId, ResourceClass resourceClass, JobSpec spec) {
-        var required = requireResourceClass(resourceClass);
-        var refused = scheduler.schedule0(jobId, required, spec);
+        if (resourceClass == null || resourceClass.getName() == null) {
+            throw new IllegalArgumentException("resource class name is required");
+        }
+        var refused = scheduler.schedule0(jobId, resourceClass, spec);
         if (refused == null) {
             return true;
         }
         LOG.infof("job %s was not placed: %s", jobId, refused);
         return false;
-    }
-
-    /**
-     * Sends a job cancellation request to the worker hosting the job.
-     *
-     * @return true if sent, false if the worker is disconnected
-     */
-    public boolean cancelJob(UUID workerId, UUID jobId) {
-        var worker = activeWorkers.get(workerId);
-        if (worker == null) {
-            return false;
-        }
-        worker.getRpc().cancelJob(jobId);
-        return true;
-    }
-
-    /** Sends a JSON-RPC frame to a job's ACP agent. */
-    public void sendAgentFrame(UUID workerId, UUID jobId, JsonNode frame) {
-        requireConnected(workerId).getRpc().sendAgentFrame(jobId, frame);
-    }
-
-    /**
-     * Sends an interrupt request to terminate and discard a job immediately on the worker.
-     *
-     * @return true if sent, false if the worker is disconnected
-     */
-    public boolean interrupt(UUID workerId, UUID jobId, String reason) {
-        var worker = activeWorkers.get(workerId);
-        if (worker == null) {
-            return false;
-        }
-        worker.getRpc().interruptJob(jobId, reason);
-        return true;
-    }
-
-    private ResourceClass requireResourceClass(ResourceClass resourceClass) {
-        if (resourceClass == null || resourceClass.getName() == null) {
-            throw new IllegalArgumentException("resource class name is required");
-        }
-        var name = resourceClass.getName();
-        return QuarkusTransaction.requiringNew().call(() -> {
-            var found = ResourceClass.<ResourceClass>findById(name);
-            if (found == null) {
-                throw new NoSuchElementException("no such resource class: " + name);
-            }
-            return found;
-        });
     }
 }

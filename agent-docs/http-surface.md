@@ -10,7 +10,7 @@ Base path is `/api` (`quarkus.rest.path = /api`). All `/api/*` endpoints require
 | **Job Operations** | `MEMBER` | `job:create`, `job:cancel`, `job:agent:interact`, `project:secret:read`, `task:manage` | `POST .../job`<br/>`POST .../job/{id}/cancel`<br/>`GET .../secret` (names only)<br/>`POST/PATCH/DELETE .../task[/{id}]`<br/>`PUT/DELETE .../task/{id}/volume/{volumeId}` |
 | **Project Admin** | `OWNER` | `project:update`, `project:delete`, `project:archive`, `project:transfer`, `project:member:manage`, `project:subaccount:manage`, `project:secret:manage`, `project:volume:manage`, `job:template:manage`, `job:artifact:delete` | `PATCH /project/{projectId}`<br/>`DELETE /project/{projectId}`<br/>`POST .../archive\|unarchive`<br/>`POST .../transfer`<br/>`PUT/DELETE .../member/{userId}`<br/>`POST/PUT/DELETE .../subaccount/...`<br/>`GET .../permission`<br/>`POST/PATCH/DELETE .../secret/{name}`<br/>`POST .../job/template`, `PATCH/DELETE .../job/template/{id}`<br/>`DELETE .../job/artifact/{id}`<br/>`POST .../volume`, `DELETE .../volume/{volumeId}` |
 | **Project Creation** | None (global) | `project:create` | `POST /project` — the caller becomes its `OWNER`. Sub-accounts cannot (409): they hold no project role. |
-| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission\|task\|volume\|artifact`<br/>`/worker` and everything under it<br/>Bypasses all project permission checks |
+| **Global Admin** | None (`admin:all`) | `Perm.ADMIN_OF_ALL` | `GET /admin/stats\|project\|user\|template\|resource-class\|permission\|task\|volume\|artifact`<br/>`/workerEntity` and everything under it<br/>Bypasses all project permission checks |
 | **Authenticated** | None | — | `GET /user[/token]`, `PUT /user/token`<br/>`GET /project` (the caller's memberships)<br/>`GET /job` (the caller's jobs across projects)<br/>`GET /resource-class` (read-only catalogue) |
 
 ### Special Permission Rules
@@ -39,7 +39,7 @@ Because writability is checked explicitly rather than through an interceptor, an
 
 ### 1. Asynchronous Queueing (`POST /project/{projectId}/job`)
 - Does not create an active `Job` immediately. Enqueues an authorized `JobRequest` and returns `201 Created` with `PendingJobView`.
-- Polled or resolved once `PendingJobDispatcher` assigns a worker.
+- Polled or resolved once `PendingJobDispatcher` assigns a workerEntity.
 - Endpoints return the sealed interface `JobStatusView` (`type: "job"` or `"pending"`).
 - **Each branch writes `type` itself** (`JobView.type()`, `PendingJobView.type()`), which is why the
   `@JsonTypeInfo` on `JobStatusView` is `EXISTING_PROPERTY` rather than `PROPERTY`. Jackson takes a type
@@ -87,14 +87,14 @@ Live ACP interaction uses WebSocket `/ws/project/{projectId}/job/{jobId}/agent` 
 
 ## Volumes
 
-`POST /project/{projectId}/volume` blocks on the worker's acknowledgment and returns its refusal reason
+`POST /project/{projectId}/volume` blocks on the workerEntity's acknowledgment and returns its refusal reason
 verbatim when it has no room; `DELETE .../volume/{volumeId}` returns 409 while any task still mounts it.
 `GET .../volume/{volumeId}` answers with the volume and its `mounts` — `task_volume` is many-to-many, and
 which tasks hold it is exactly what that 409 would otherwise be the only way to learn.
 Mounting and unmounting are task operations (`PUT|DELETE .../task/{taskId}/volume/{volumeId}`) and cost
 only `task:manage` — allocating disk is the privileged part, not choosing a path.
 
-The scheduler picks the host; a caller never names a worker. `/worker/{id}/volume` remains the admin's
+The scheduler picks the host; a caller never names a workerEntity. `/workerEntity/{id}/volume` remains the admin's
 cross-project view.
 
 ## Cross-Project Reads
@@ -102,7 +102,7 @@ cross-project view.
 Two endpoints answer across every project the caller reaches, so a client does not have to fan out one
 request per project and merge:
 
-- `GET /api/job?project=&state=&worker=&since=&offset=&length=` — the caller's jobs, newest first.
+- `GET /api/job?project=&state=&workerEntity=&since=&offset=&length=` — the caller's jobs, newest first.
   Scope comes from `JobAccess.readableProjects()`: the projects they are a member of and those they hold
   a grant in, each put through the same `job:read`/`VIEWER` gate the per-project listing uses, so the
   endpoint carries no `@RequirePermission` of its own and a ban still applies. `admin:all` drops the
@@ -156,16 +156,16 @@ able to read the list to choose them from, and `banned` travels with each entry 
 roles and `admin:all` alike, so without it an owner would record a grant that silently has no effect. The
 answer does not vary by project; `{projectId}` is what the endpoint authorizes against.
 | `GET /admin/task?query=&state=&offset=&length=` | Every project's tasks in one listing. `query` matches the task name; `TaskView` names the owning project. Shares `Task.search` with the project-scoped listing, which passes a project id where this passes null. |
-| `GET /admin/volume?worker=&project=&state=&query=&offset=&length=` | Every worker's volumes in one listing. `/worker/{id}/volume` answers the same question one host at a time. |
+| `GET /admin/volume?workerEntity=&project=&state=&query=&offset=&length=` | Every workerEntity's volumes in one listing. `/workerEntity/{id}/volume` answers the same question one host at a time. |
 | `GET /admin/artifact?project=&job=&offset=&length=` | Stored artifacts across projects, newest first, as `AdminArtifactView` (which names the job and project a bare `ArtifactView` does not, and carries `projectArchivedAt` so a client can gate the per-row delete on the same state that endpoint checks). Downloads still go through `GET /project/{projectId}/job/artifact/{id}`, where the presigned URL and the project's own read permission live. |
 | `GET\|POST /admin/template`, `PATCH\|DELETE /admin/template/{id}` | The templates every project may use, `?query=` matching the name. Project templates are invisible here (404 on delete and on update). `PATCH` applies whichever of `name`, `resourceClass` and `spec` the body carries; a supplied `spec` **replaces** the stored one rather than merging, since merging cannot remove an environment entry. It updates in place because the ID is what a queued job and a re-run payload hold. |
-| `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | Manages the service-wide resource class catalogue (keyed by name), `?query=` matching the name. Workers report physical capacity but do not define classes. `numCpus`, `memCount` and `diskSize` are **unitless** minimums compared as they stand against what a worker reports (`WorkerScheduler.capacityFits`), so only the workers of a deployment know what the last two count in; `ResourceClassView.FIGURES` publishes that on the view and on both request bodies rather than leaving a client to read `65536` as MiB on a guess. `DELETE` returns 409 Conflict if referenced by existing jobs or templates. The read half is also published unauthenticated-by-role at `GET /api/resource-class`. |
+| `GET\|POST /admin/resource-class`, `PATCH\|DELETE /admin/resource-class/{name}` | Manages the service-wide resource class catalogue (keyed by name), `?query=` matching the name. Workers report physical capacity but do not define classes. `numCpus`, `memCount` and `diskSize` are **unitless** minimums compared as they stand against what a workerEntity reports (`WorkerScheduler.capacityFits`), so only the workers of a deployment know what the last two count in; `ResourceClassView.FIGURES` publishes that on the view and on both request bodies rather than leaving a client to read `65536` as MiB on a guess. `DELETE` returns 409 Conflict if referenced by existing jobs or templates. The read half is also published unauthenticated-by-role at `GET /api/resource-class`. |
 | `GET /admin/resource-class/{name}/project`, `PUT\|DELETE .../{projectId}` | Which projects may name a class that is not `shared`. `PUT` is idempotent and answers 204; `DELETE` is 404 when there was no grant, so a stale admin page does not report success. Grants are recorded and kept while a class is shared — un-sharing restores the list rather than emptying it. The other direction of the same answer is `GET /project/{projectId}/resource-class`, which an `admin:all` caller reaches for any project. See [job-spec.md](job-spec.md). |
-| `PATCH /worker/{id}` | Rename. Holds only until the worker registers again under a name of its own — `Worker.upsert` takes the name from the registration. |
-| `DELETE /worker/{id}?force=` | Drops the registration, answering `WorkerRemovalView` (`volumesDropped`, `jobsFailed`). 409 while connected either way — a live session means the host is not gone, and `POST .../disconnect` says so explicitly. Without `force`, also 409 while it holds unfinished jobs or hosts volumes (`worker_volume` carries a plain foreign key). `force=true` is the operator stating the host is never coming back: the volume rows go without the RPC a release normally needs (their task mounts follow through `task_volume`'s `ON DELETE CASCADE`) and the jobs it held fail, since nothing will report on them. Storage is abandoned, not reclaimed — which is what the counts say. |
-| `POST /worker/{id}/disconnect` | Closes the session; its unfinished jobs fail as on any disconnect. Deliberately separate from the delete. |
-| `GET /worker/{id}/job?state=&since=&offset=&length=` | The worker's job history, newest first, terminal states included — a per-host timeline needs the finished ones and the gaps between them. |
-| `GET /worker/{id}/volume` | The volumes it hosts across projects. |
+| `PATCH /workerEntity/{id}` | Rename. Holds only until the workerEntity registers again under a name of its own — `Worker.upsert` takes the name from the registration. |
+| `DELETE /workerEntity/{id}?force=` | Drops the registration, answering `WorkerRemovalView` (`volumesDropped`, `jobsFailed`). 409 while connected either way — a live session means the host is not gone, and `POST .../disconnect` says so explicitly. Without `force`, also 409 while it holds unfinished jobs or hosts volumes (`worker_volume` carries a plain foreign key). `force=true` is the operator stating the host is never coming back: the volume rows go without the RPC a release normally needs (their task mounts follow through `task_volume`'s `ON DELETE CASCADE`) and the jobs it held fail, since nothing will report on them. Storage is abandoned, not reclaimed — which is what the counts say. |
+| `POST /workerEntity/{id}/disconnect` | Closes the session; its unfinished jobs fail as on any disconnect. Deliberately separate from the delete. |
+| `GET /workerEntity/{id}/job?state=&since=&offset=&length=` | The workerEntity's job history, newest first, terminal states included — a per-host timeline needs the finished ones and the gaps between them. |
+| `GET /workerEntity/{id}/volume` | The volumes it hosts across projects. |
 
 Mutating endpoints under `/admin/user` do not wrap their operations in a resource-level transaction:
 the permission grant cache is invalidated when the service transaction commits, so re-reading the user
@@ -185,7 +185,7 @@ Every paged listing returns `Page<T>` (`io.ib67.prts.dto.Page`) rather than a ba
 
 `length` echoes the **clamped** window, which is the only place the configured maximum is published; `total` is what the listing would return unwindowed. Without both, a page the server truncated and a page that is simply full are byte-identical, and the only proof a listing has ended is one that comes back empty — which is why a client could draw no pager. A new paged endpoint therefore adds a count finder beside its `search`/`list` one (`Task.countSearch`, `WorkerVolume.countSearch`, `JobLog.countByJob`, …) rather than returning a list.
 
-Where the same predicate feeds both halves, it travels as one object rather than as a repeated argument list: `Job.listVisible(filter, offset, length)` and `Job.countVisible(filter)` take a `Job.Filter` built once by the caller (`GET /project/{projectId}/job` through `JobService`, `GET /api/job`, `GET /worker/{id}/job`). A listing and its total narrowed by two separate argument lists can drift; one filter cannot.
+Where the same predicate feeds both halves, it travels as one object rather than as a repeated argument list: `Job.listVisible(filter, offset, length)` and `Job.countVisible(filter)` take a `Job.Filter` built once by the caller (`GET /project/{projectId}/job` through `JobService`, `GET /api/job`, `GET /workerEntity/{id}/job`). A listing and its total narrowed by two separate argument lists can drift; one filter cannot.
 
 `GET /project/{projectId}/job` merges two tables, so its `total` is
 `JobService.countVisible(...) + PendingJobService.countUnplaced(...)` — each taking the same task and
@@ -210,7 +210,7 @@ A `projects` entry carries the `role` held and the `permissions` granted on top 
 ## DTO & Exception Architecture
 
 - **DTO Structure**: Located under `io.ib67.prts.dto` (`dto.admin`, `dto.agent`, `dto.job`, `dto.project`, `dto.task`, `dto.request`). A resource maps entities to DTOs itself where the entity carries everything the view shows; where the view needs a lookup or a permission check, the owning service's `viewOf` builds it (`JobService.viewOf`, `PendingJobService.viewOf`, `SubAccountService.viewOf`) and those views carry no static factory. Every other service method returns entities.
-- **User, worker and project references**: Views referencing external records (`JobView.requestedBy`, `TaskView.createdBy`, `SubAccountView.createdBy`, `JobView.worker`, the rows of `GET /admin/resource-class/{name}/project`) embed `UserInfo` / `WorkerInfo` / `ProjectInfo` (`{id, name}`) instead of a bare UUID — every `/worker` endpoint is `admin:all`, so a project member holding only the ID has nothing to resolve it against. Because a referenced user or worker may be deleted, `UserInfo.name` and `WorkerInfo.name` are null when the record no longer exists; `ProjectInfo` is reached through a foreign key, so its `name` is never null. Paginated listings must resolve them in bulk via collection methods (such as `jobService.viewOf(projectId, jobs)`, `User.mapByIds` or `Worker.mapByIds`) rather than querying each individually.
+- **User, workerEntity and project references**: Views referencing external records (`JobView.requestedBy`, `TaskView.createdBy`, `SubAccountView.createdBy`, `JobView.workerEntity`, the rows of `GET /admin/resource-class/{name}/project`) embed `UserInfo` / `WorkerInfo` / `ProjectInfo` (`{id, name}`) instead of a bare UUID — every `/workerEntity` endpoint is `admin:all`, so a project member holding only the ID has nothing to resolve it against. Because a referenced user or workerEntity may be deleted, `UserInfo.name` and `WorkerInfo.name` are null when the record no longer exists; `ProjectInfo` is reached through a foreign key, so its `name` is never null. Paginated listings must resolve them in bulk via collection methods (such as `jobService.viewOf(projectId, jobs)`, `User.mapByIds` or `Worker.mapByIds`) rather than querying each individually.
 - **Request Validation**: Inbound DTO records define Bean Validation constraints with explicit error messages. Resource methods accept them via `@NotNull(message = "a request body is required") @Valid`. The compact constructor only normalizes input (e.g. `strip()`). Rules not expressible as standard annotations (such as cross-field dependencies in `UpdateSecretRequest` and `UpdateProjectRequest`, excluding enum values in `SetMemberRoleRequest`, dynamic limits from `SecretConfig`, or permission lookups in `SetPermissionsRequest.resolved()`) are checked in code. Constraints are reflected in the OpenAPI schema (`required`, `pattern`, `minLength`, `minimum`).
 - **Exception Mapping**: All 4xx and 5xx responses return `{ "message": ... }`, with the exception of 401.
   - `NoSuchElementException`: Mapped to 404 by `NotFoundMapper` with the exception message.

@@ -58,7 +58,7 @@ name).
 ## Volume Isolation
 
 `JobSpec.requireVolumesIn(project)` validates that all requested volumes exist, belong to the project,
-are in `READY` state, share the same worker host, and specify valid mount paths. Cross-worker volume
+are in `READY` state, share the same workerEntity host, and specify valid mount paths. Cross-workerEntity volume
 mismatches are rejected at validation rather than during scheduling to prevent unschedulable jobs from queueing.
 
 `JobSpec.VolumeSpec.MOUNT_POINT` validates mount paths: absolute path of non-empty segments, no `.` or

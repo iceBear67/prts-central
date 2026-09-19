@@ -2,7 +2,7 @@ package io.ib67.prts.agent.job;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.worker.entity.VolumeState;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.entity.Project;
 import io.quarkus.security.ForbiddenException;
@@ -123,7 +123,7 @@ class JobSpecTest {
         var volume = new WorkerVolume();
         volume.setId(id);
         volume.setProject(Project.builder().id(projectId).name("p").build());
-        volume.setWorker(Worker.builder().id(workerId).name("w").build());
+        volume.setWorkerEntity(WorkerEntity.builder().id(workerId).name("w").build());
         volume.setState(state);
         volume.setLength(4096L);
         return volume;

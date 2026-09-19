@@ -211,7 +211,7 @@ public class TaskService {
      */
     private static void requireSameHost(UUID taskId, WorkerVolume volume) {
         var host = TaskVolume.workerOf(taskId);
-        if (host.isPresent() && !host.get().equals(volume.getWorker().getId())) {
+        if (host.isPresent() && !host.get().equals(volume.getWorkerEntity().getId())) {
             throw new ClientErrorException(
                     "task " + taskId + " already mounts volumes on worker " + host.get()
                             + "; a job cannot mount volumes from more than one worker",

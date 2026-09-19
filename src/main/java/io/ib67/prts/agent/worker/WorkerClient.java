@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.quarkus.arc.ClientProxy;
 import io.quarkus.websockets.next.WebSocketConnection;
+import io.smallrye.mutiny.Uni;
 import jakarta.annotation.Nullable;
 
 import java.time.Duration;
@@ -13,18 +15,13 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
 
 public final class WorkerClient {
     private static final Duration SEND_TIMEOUT = Duration.ofSeconds(5);
-    private static final long CREATE_TIMEOUT_SECONDS = 30;
-    // Volume operations may take longer than container startup.
-    private static final long VOLUME_TIMEOUT_SECONDS = 60;
 
     private final WebSocketConnection conn;
     // Pending acknowledgments keyed by request ID: job creation and volume operations share the table.
-    private final Map<UUID, CompletableFuture<Void>> outstanding = new ConcurrentHashMap<>();
+    private final Map<UUID, CompletableFuture<ServerboundMessage>> outstanding = new ConcurrentHashMap<>();
 
     // Unwraps the client proxy so messages can be sent outside the WebSocket request context.
     public WorkerClient(WebSocketConnection conn) {
@@ -38,7 +35,9 @@ public final class WorkerClient {
         return conn.id().equals(connection.id());
     }
 
-    /** Returns true if the underlying WebSocket connection is open. */
+    /**
+     * Returns true if the underlying WebSocket connection is open.
+     */
     boolean isOpen() {
         return conn.isOpen();
     }
@@ -46,114 +45,89 @@ public final class WorkerClient {
     /**
      * Sends a create job request to the worker and blocks until acknowledged.
      */
-    public void createJob(UUID jobId, JobSpec spec, ResourceClass resourceClass) {
+    public CompletableFuture<ServerboundMessage.JobCreated> createJob(UUID jobId, JobSpec spec, ResourceClass resourceClass) {
         var requestId = UUID.randomUUID();
         // Secrets are extracted explicitly because JobSpec.secret is excluded from serialization.
-        await(requestId,
-                new ClientboundMessage.CreateJob(requestId, jobId, spec, resourceClass, spec.secret()),
-                "create job on worker", CREATE_TIMEOUT_SECONDS);
+        return uniWithTrack(requestId, new ClientboundMessage.CreateJob(requestId, jobId, spec, resourceClass, spec.secret()))
+                .thenApply(it -> (ServerboundMessage.JobCreated) it);
     }
 
     /**
      * Asks the worker to allocate a volume and blocks until acknowledged.
+     *
+     * @return
      */
-    public void createVolume(UUID volumeId, UUID projectId, String name, long sizeBytes) {
+    public CompletableFuture<ServerboundMessage.VolumeAck> createVolume(UUID volumeId, UUID projectId, String name, long sizeBytes) {
         var requestId = UUID.randomUUID();
-        await(requestId,
-                new ClientboundMessage.CreateVolume(requestId, volumeId, projectId, name, sizeBytes),
-                "create volume on worker", VOLUME_TIMEOUT_SECONDS);
+        return uniWithTrack(requestId, new ClientboundMessage.CreateVolume(requestId, volumeId, projectId, name, sizeBytes))
+                .thenApply(it -> (ServerboundMessage.VolumeAck) it);
     }
 
     /**
      * Asks the worker to discard a volume and blocks until acknowledged.
+     *
+     * @return
      */
-    public void deleteVolume(UUID volumeId) {
+    public CompletableFuture<ServerboundMessage.VolumeAck> deleteVolume(UUID volumeId) {
         var requestId = UUID.randomUUID();
-        await(requestId, new ClientboundMessage.DeleteVolume(requestId, volumeId),
-                "delete volume on worker", VOLUME_TIMEOUT_SECONDS);
+        return uniWithTrack(requestId, new ClientboundMessage.DeleteVolume(requestId, volumeId))
+                .thenApply(it -> (ServerboundMessage.VolumeAck) it);
     }
 
     /**
      * Sends a cancellation request to the worker.
+     *
+     * @return
      */
-    public void cancelJob(UUID jobId) {
-        try {
-            conn.sendText(new ClientboundMessage.CancelJob(jobId)).await().atMost(SEND_TIMEOUT);
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("failed to cancel job on worker", e);
-        }
+    public Uni<Void> cancelJob(UUID jobId) {
+        return conn.sendText(new ClientboundMessage.CancelJob(jobId));
     }
 
-    /** Dispatches an unacknowledged ACP frame to the job's agent. */
-    public void sendAgentFrame(UUID jobId, JsonNode frame) {
-        try {
-            conn.sendText(new ClientboundMessage.AgentFrame(jobId, frame)).await().atMost(SEND_TIMEOUT);
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("failed to send an agent frame to the worker", e);
-        }
+    /**
+     * Dispatches an unacknowledged ACP frame to the job's agent.
+     *
+     * @return
+     */
+    public Uni<Void> sendAgentFrame(UUID jobId, JsonNode frame) {
+        return conn.sendText(new ClientboundMessage.AgentFrame(jobId, frame));
+    }
+
+    public void sendMessage(ClientboundMessage message) {
+        conn.sendText(message).subscribe().with(t -> {});
     }
 
     /**
      * Instructs the worker to terminate and discard the job immediately.
      */
-    public void interruptJob(UUID jobId, String reason) {
-        try {
-            conn.sendText(new ClientboundMessage.InterruptJob(jobId, reason))
-                    .await().atMost(SEND_TIMEOUT);
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("failed to interrupt job on worker", e);
+    public Uni<Void> interruptJob(UUID jobId, String reason) {
+        return conn.sendText(new ClientboundMessage.InterruptJob(jobId, reason));
+    }
+
+    public void failAll(Throwable reason) {
+        for (var futures : outstanding.values()) {
+            futures.completeExceptionally(reason);
         }
     }
 
-    /** Closes the WebSocket session. */
+    /**
+     * Closes the WebSocket session.
+     */
     void close() {
         conn.close().await().atMost(SEND_TIMEOUT);
     }
 
-    void completeCreate(UUID requestId) {
-        var future = outstanding.get(requestId);
-        if (future != null) {
-            future.complete(null);
-        }
-    }
-
-    /** Completes a pending volume request future. */
-    void completeVolume(UUID requestId, boolean ok, @Nullable String message) {
-        var future = outstanding.get(requestId);
-        if (future == null) {
-            return;
-        }
-        if (ok) {
-            future.complete(null);
-        } else {
-            future.completeExceptionally(new IllegalStateException(
-                    message == null || message.isBlank() ? "the worker refused" : message));
-        }
-    }
-
-    void failAll(Throwable cause) {
-        outstanding.values().forEach(future -> future.completeExceptionally(cause));
-        outstanding.clear();
+    CompletableFuture<ServerboundMessage> getRequest(UUID requestId) {
+        return outstanding.get(requestId);
     }
 
     /**
      * Sends a request and blocks until the worker acknowledges it.
      */
-    private void await(UUID requestId, ClientboundMessage message, String what, long timeoutSeconds) {
-        var future = new CompletableFuture<Void>();
+    private CompletableFuture<ServerboundMessage> uniWithTrack(UUID requestId, ClientboundMessage message) {
+        var future = new CompletableFuture<ServerboundMessage>();
         outstanding.put(requestId, future);
-        try {
-            conn.sendText(message).await().atMost(SEND_TIMEOUT);
-            future.get(timeoutSeconds, TimeUnit.SECONDS);
-        } catch (ExecutionException e) {
-            // Unpack worker rejection reason.
-            var cause = e.getCause() == null ? e : e.getCause();
-            throw new IllegalStateException("failed to " + what + ": " + cause.getMessage(), cause);
-        } catch (Exception e) {
-            future.completeExceptionally(e);
-            throw new IllegalStateException("failed to " + what, e);
-        } finally {
-            outstanding.remove(requestId);
-        }
+        conn.sendText(message).onFailure().invoke(future::completeExceptionally).subscribe().with(i -> {
+        });
+        return future;
     }
 }

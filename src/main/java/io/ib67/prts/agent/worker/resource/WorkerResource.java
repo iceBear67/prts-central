@@ -4,7 +4,7 @@ import io.ib67.prts.Pages;
 import io.ib67.prts.Perm;
 import io.ib67.prts.admin.AdminConfig;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.auth.RequirePermission;
 import io.ib67.prts.dto.Page;
@@ -59,17 +59,17 @@ public class WorkerResource {
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
         return new Page<>(
-                Worker.listPage(start, window).stream().map(this::view).toList(),
+                WorkerEntity.listPage(start, window).stream().map(this::view).toList(),
                 start,
                 window,
-                Worker.count());
+                WorkerEntity.count());
     }
 
     @GET
     @Path("/{id}")
     @Transactional
     public WorkerView getWorker(@PathParam("id") UUID id) {
-        return view(Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new));
+        return view(WorkerEntity.<WorkerEntity>findByIdOptional(id).orElseThrow(NotFoundException::new));
     }
 
     @POST
@@ -102,7 +102,7 @@ public class WorkerResource {
     @POST
     @Path("/{id}/disconnect")
     public void disconnectWorker(@PathParam("id") UUID id) {
-        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        WorkerEntity.<WorkerEntity>findByIdOptional(id).orElseThrow(NotFoundException::new);
         workerService.disconnect(id);
     }
 
@@ -136,7 +136,7 @@ public class WorkerResource {
             @QueryParam("since") @Nullable Instant since,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
-        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        WorkerEntity.<WorkerEntity>findByIdOptional(id).orElseThrow(NotFoundException::new);
         var filter = Job.Filter.builder().worker(id).state(state).since(since).build();
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
@@ -155,7 +155,7 @@ public class WorkerResource {
             @PathParam("id") UUID id,
             @QueryParam("offset") @DefaultValue("0") int offset,
             @QueryParam("length") Integer length) {
-        Worker.<Worker>findByIdOptional(id).orElseThrow(NotFoundException::new);
+        WorkerEntity.<WorkerEntity>findByIdOptional(id).orElseThrow(NotFoundException::new);
         var window = Pages.clampLength(length, adminConfig.list().maxPageSize());
         var start = Pages.clampOffset(offset, window);
         return new Page<>(
@@ -167,7 +167,7 @@ public class WorkerResource {
                 WorkerVolume.countSearch(id, null, null, null));
     }
 
-    private WorkerView view(Worker row) {
+    private WorkerView view(WorkerEntity row) {
         return WorkerView.of(row, workerService.getWorker(row.getId()).orElse(null));
     }
 }

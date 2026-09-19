@@ -6,6 +6,7 @@ import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.entity.Job;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.vertx.core.eventbus.EventBus;
 import jakarta.annotation.Nullable;
 import jakarta.persistence.LockModeType;
 import org.jboss.logging.Logger;
@@ -21,24 +22,25 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Handles worker selection and concurrency locks for job scheduling.
+ *
+ * <p>Every database touch here opens its own {@code requiringNew} transaction. Placement runs on the
+ * pending-job dispatcher thread, which carries neither a transaction nor a CDI request context, so
+ * nothing is inherited; and the placement RPC sits between the reads and the claim, so they cannot
+ * share one either.
  */
 final class WorkerScheduler {
     private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
 
-    private final Map<UUID, RegisteredWorker> workers;
-    private final Set<UUID> locked = ConcurrentHashMap.newKeySet();
-    private final Object lock = new Object();
+    private final Map<UUID, Worker> workers;
+    private final Set<UUID> lockedWorkers = ConcurrentHashMap.newKeySet();
 
-    WorkerScheduler(Map<UUID, RegisteredWorker> workers) {
+    WorkerScheduler(Map<UUID, Worker> workers, EventBus bus) {
         this.workers = workers;
+        bus.consumer(WorkerEvent.OFFLINE, m -> onWorkerRemoved((UUID) m.body()));
     }
 
     void onWorkerRemoved(UUID id) {
-        locked.remove(id);
-    }
-
-    void onCreateAcknowledged(UUID workerId) {
-        unlock(workerId);
+        lockedWorkers.remove(id);
     }
 
     /**
@@ -62,15 +64,15 @@ final class WorkerScheduler {
                 return "no available worker can run this job";
             }
             var pick = selected.get();
-            try {
-                pick.registeredWorker().getRpc().createJob(jobId, spec, required);
-            } catch (RuntimeException e) {
-                unlock(pick.id());
-                // Creation timed out or failed; cancel on the worker to avoid leaking an unmanaged container.
-                cancelQuietly(pick, jobId);
-                throw e;
-            }
-            if (!claimJob(jobId, pick.id())) {
+            var worker = pick.worker();
+            worker.getClient().createJob(jobId, spec, required)
+                    .whenComplete((job, throwable) -> {
+                        unlock(pick.workerId());
+                        if (throwable != null) {
+                            cancelQuietly(pick, jobId);
+                        }
+                    }).join();
+            if (!claimJob(jobId, pick.workerId())) {
                 // Job was cancelled while dispatching; cancel on the worker.
                 cancelQuietly(pick, jobId);
                 return null;
@@ -127,9 +129,10 @@ final class WorkerScheduler {
 
     private void cancelQuietly(Selection pick, UUID jobId) {
         try {
-            pick.registeredWorker().getRpc().cancelJob(jobId);
+            pick.worker().getClient().cancelJob(jobId).subscribe().with(result -> {
+            });
         } catch (RuntimeException e) {
-            LOG.errorf(e, "job %s was cancelled but worker %s could not be told", jobId, pick.id());
+            LOG.errorf(e, "job %s was cancelled but worker %s could not be told", jobId, pick.workerId());
         }
     }
 
@@ -138,15 +141,15 @@ final class WorkerScheduler {
         if (allowed.isEmpty()) {
             return Optional.empty();
         }
-        synchronized (lock) {
+        synchronized (this) {
             var selected = select(required, allowed);
-            selected.ifPresent(pick -> locked.add(pick.id()));
+            selected.ifPresent(pick -> lockedWorkers.add(pick.workerId()));
             return selected;
         }
     }
 
     void unlock(UUID workerId) {
-        locked.remove(workerId);
+        lockedWorkers.remove(workerId);
     }
 
     /**
@@ -171,15 +174,15 @@ final class WorkerScheduler {
         return workers.entrySet().stream()
                 .filter(entry -> isEligible(entry.getKey(), entry.getValue(), required, allowed))
                 .min(Comparator
-                        .comparingInt((Map.Entry<UUID, RegisteredWorker> entry) -> entry.getValue().pendingJobCount())
+                        .comparingInt((Map.Entry<UUID, Worker> entry) -> entry.getValue().pendingJobCount())
                         .thenComparing(Map.Entry::getKey))
                 .map(entry -> new Selection(entry.getKey(), entry.getValue()));
     }
 
-    private boolean isEligible(UUID id, RegisteredWorker worker, ResourceClass required, Set<UUID> allowed) {
+    private boolean isEligible(UUID id, Worker worker, ResourceClass required, Set<UUID> allowed) {
         return allowed.contains(id)
                 && !worker.isDisabled()
-                && !locked.contains(id)
+                && !lockedWorkers.contains(id)
                 && capacityFits(worker.getInfo(), required);
     }
 
@@ -216,7 +219,7 @@ final class WorkerScheduler {
         });
     }
 
-    private static boolean capacityFits(@Nullable RegisteredWorker.Info available, ResourceClass required) {
+    private static boolean capacityFits(@Nullable Worker.Info available, ResourceClass required) {
         if (available == null || available.getCapacity() == null) {
             return true;
         }
@@ -226,10 +229,10 @@ final class WorkerScheduler {
                 && capacity.getNumDisks() >= required.getDiskSize();
     }
 
-    record Selection(UUID id, RegisteredWorker registeredWorker) {
+    record Selection(UUID workerId, Worker worker) {
         Selection {
-            Objects.requireNonNull(id, "id");
-            Objects.requireNonNull(registeredWorker, "registeredWorker");
+            Objects.requireNonNull(workerId, "id");
+            Objects.requireNonNull(worker, "worker");
         }
     }
 }

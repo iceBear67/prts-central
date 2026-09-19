@@ -50,10 +50,10 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 @QuarkusTest
 @Tag("e2e")
-class WorkerWebSocketE2ETest {
+class WorkerEntityWebSocketE2ETest {
 
     private static final String SECRET = "test-worker-secret";
-    private static final String WORKER_TOKEN = "X-Worker-Token";
+    private static final String WORKER_TOKEN = "X-WorkerEntity-Token";
 
     private static final Duration REPLY = Duration.ofSeconds(10);
     private static final Duration SETTLE = Duration.ofSeconds(10);
@@ -145,7 +145,7 @@ class WorkerWebSocketE2ETest {
         assertEquals("", response.message());
         as(admin).get("/api/worker").then()
                 .statusCode(200)
-                .body("items.id", contains(workerId.toString()))
+                .body("items.workerId", contains(workerId.toString()))
                 .body("items[0].name", equalTo("w1"))
                 .body("items[0].connected", equalTo(true))
                 .body("items[0].disabled", equalTo(false));
@@ -177,8 +177,8 @@ class WorkerWebSocketE2ETest {
     }
 
     /**
-     * A worker id is self-asserted, so taking one over would hand the claimant every job — and every
-     * project secret — routed to it. The live session keeps the id.
+     * A worker workerId is self-asserted, so taking one over would hand the claimant every job — and every
+     * project secret — routed to it. The live session keeps the workerId.
      */
     @Test
     void aSecondRegistrationUnderALiveIdIsRefused() {
@@ -343,9 +343,9 @@ class WorkerWebSocketE2ETest {
         return inTx(() -> Job.<Job>findById(jobId).getState());
     }
 
-    private static RegisteredWorker.Info info(int pending) {
-        return RegisteredWorker.Info.builder()
-                .current(new RegisteredWorker.Info.Resources(2, 512, 1024))
+    private static Worker.Info info(int pending) {
+        return Worker.Info.builder()
+                .current(new Worker.Info.Resources(2, 512, 1024))
                 .pending(pending)
                 .build();
     }

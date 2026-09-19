@@ -5,31 +5,31 @@ closing it would take.
 
 ## Orphan `PENDING` job rows
 
-`JobLauncher.prepare` commits the `Job` row before the job is offered to a worker — it has to, since
-the `createJob` RPC blocks and must not run inside an open transaction, and a worker may report on the
+`JobLauncher.prepare` commits the `Job` row before the job is offered to a workerEntity — it has to, since
+the `createJob` RPC blocks and must not run inside an open transaction, and a workerEntity may report on the
 job the moment it accepts it. Between that commit and the `PendingJobDispatcher.discard` that undoes an
-unplaceable job, the row exists in `PENDING` with `worker = null`. Two ways it survives:
+unplaceable job, the row exists in `PENDING` with `workerEntity = null`. Two ways it survives:
 
 - the process dies in that window (the delete never runs), or
 - `discard` itself throws — the entry is marked `FAILED` and the row is left behind.
 
 Nothing collects it. Every cleanup path keys on something this row lacks: `WorkerService.failJobsOf`
-looks up `Job.listOpenByWorker`, `JobService.applyState` needs a worker to report, and `cancel` needs a
+looks up `Job.listOpenByWorker`, `JobService.applyState` needs a workerEntity to report, and `cancel` needs a
 caller who knows the id — which only `markDispatched` ever publishes. `PendingJob.resetDispatching`
 repairs the *queue entry* on startup, so the request is retried and a *second* job row is created; the
 first stays.
 
 Harmless today, and for the same reason it is uncollectable: it holds no `JobLock` (`WorkerScheduler`
 releases in its `finally` before reporting the job unplaceable), and it does not skew placement
-(`pendingJobCount` reads the worker's self-reported count).
+(`pendingJobCount` reads the workerEntity's self-reported count).
 
 It is also **hidden rather than collected**: `Job.listVisible` — behind `GET
 /project/{projectId}/job` and the `Job.countByProject` counts on `GET /project/{projectId}` — filters
-on `state <> PENDING or worker is not null`, so an orphan is not listed as a job nobody will ever
+on `state <> PENDING or workerEntity is not null`, so an orphan is not listed as a job nobody will ever
 touch. The row still exists, and `GET .../job/{jobId}` would still return it to anyone holding the id,
 which nothing publishes.
 
-Closing it means a startup sweep failing `PENDING` rows with `worker IS NULL` older than some
+Closing it means a startup sweep failing `PENDING` rows with `workerEntity IS NULL` older than some
 threshold. The threshold must exceed the 30s `createJob` timeout, or it will fail rows still
 legitimately in flight. It belongs in `project`, not `pending` — the row is a `Job`. The
 `VISIBLE_ROW` / `VISIBLE_ALIASED` predicate goes with it.
@@ -45,7 +45,7 @@ placement simultaneously without tracking consumption.
 
 Fixing this requires workers to report real usage (via `UpdateResourceInfo` or a dedicated message),
 which `VolumeService` would persist. Control-plane-side reservation is insufficient since actual disk
-usage is worker-determined.
+usage is workerEntity-determined.
 
 ## ACP: `$/cancel_request` not supported
 
@@ -79,17 +79,17 @@ original's too. Four extra component schemas for the client, and names for them.
 
 ## A job can finish before its placement is recorded
 
-`WorkerScheduler.schedule0` sends `createJob`, waits for the worker's acknowledgment, and only then
-calls `claimJob`, which stamps `Job.worker` and `startedAt` in a transaction of its own. Nothing orders
-that claim against the messages the worker sends next, so a worker that reports a terminal state inside
+`WorkerScheduler.schedule0` sends `createJob`, waits for the workerEntity's acknowledgment, and only then
+calls `claimJob`, which stamps `Job.workerEntity` and `startedAt` in a transaction of its own. Nothing orders
+that claim against the messages the workerEntity sends next, so a workerEntity that reports a terminal state inside
 the window wins the race: `claimJob` finds a completed job, returns `false`, quietly cancels on the
-worker, and the job is left finished with `worker = null` — nobody is recorded as having run it. The
+workerEntity, and the job is left finished with `workerEntity = null` — nobody is recorded as having run it. The
 guard itself is deliberate (`isSchedulable` and this branch handle the job cancelled while
-dispatching); the problem is that a *fast* worker is indistinguishable from a cancelled one.
+dispatching); the problem is that a *fast* workerEntity is indistinguishable from a cancelled one.
 
-Tolerable today because a real worker takes seconds to start a container, and the mock worker that
+Tolerable today because a real workerEntity takes seconds to start a container, and the mock workerEntity that
 surfaced it is the only participant quick enough to answer and finish within milliseconds.
-`MockWorkerE2ETest` asserts placement on a job it holds open rather than on one that has already
+`MockWorkerEntityE2ETest` asserts placement on a job it holds open rather than on one that has already
 finished, for this reason.
 
 Closing it means claiming before the acknowledgment is observable: `WorkerService.onJobCreated` would
@@ -101,28 +101,28 @@ onto the WebSocket thread, which is the part to think through.
 
 `ArtifactService.tryPromote` refuses an upload whose job has already ended (`lockAssignedOpen` throws
 once the job is terminal) and `discard`s the session, which deletes the object as well. The sweeper
-only looks every two seconds, so a worker that PUTs its artifact and reports `SUCCESS` immediately
+only looks every two seconds, so a workerEntity that PUTs its artifact and reports `SUCCESS` immediately
 loses it whenever a tick falls between the two — silently, apart from one `LOG.info`.
 
 Tolerable because that window is milliseconds wide against a two-second tick, and because a test that
-holds the job open until the artifact appears never hits it — which is what `MockWorkerE2ETest` does,
-and what [worker-mock/README.md](worker-mock/README.md) warns a script author about.
+holds the job open until the artifact appears never hits it — which is what `MockWorkerEntityE2ETest` does,
+and what [workerEntity-mock/README.md](workerEntity-mock/README.md) warns a script author about.
 
 Closing it means deciding what a completed job's late upload becomes: record the artifact from the
 session rather than through the job row (weakening the open-and-assigned check to "assigned to this
-worker"), or keep the object until the presign expires and let the expiry sweep rule on it.
+workerEntity"), or keep the object until the presign expires and let the expiry sweep rule on it.
 
 ## Test gaps
 
 Remaining testing gaps and current constraints:
 
 - **Worker WebSocket protocol messages**: `Register` and `UpdateResourceInfo` are exercised by
-  `WorkerWebSocketE2ETest`, and `jobCreated`, `jobStateUpdate`, `updateJobLog`, `uploadArtifactRequest`
-  and `volumeAck` — plus full `JobLauncher.launch()` execution — by `MockWorkerE2ETest` over
-  [`worker-mock`](worker-mock/README.md). What is left is the agent's three messages
-  (`AgentAttached`, `AgentFrame`, `AgentDetached`) arriving from a worker:
+  `WorkerEntityWebSocketE2ETest`, and `jobCreated`, `jobStateUpdate`, `updateJobLog`, `uploadArtifactRequest`
+  and `volumeAck` — plus full `JobLauncher.launch()` execution — by `MockWorkerEntityE2ETest` over
+  [`workerEntity-mock`](workerEntity-mock/README.md). What is left is the agent's three messages
+  (`AgentAttached`, `AgentFrame`, `AgentDetached`) arriving from a workerEntity:
   `AgentWebSocketE2ETest` drives the ACP socket, but no test yet runs a job's agent to the end of a
-  conversation through a worker.
+  conversation through a workerEntity.
 - **Artifact upload and storage**: the presigned URL flow is exercised end to end by
   `MockWorkerE2ETest.anArtifactTheMockUploadsIsRecorded` — the mock PUTs real bytes to LocalStack and
   the artifact appears once the sweeper has seen the size match. It runs in CI only, so treat it as
@@ -131,5 +131,5 @@ Remaining testing gaps and current constraints:
 - **`ProjectService` concurrent deletion (`Rows.BUSY`)**: Triggering the race condition between `stopWork` and table locking in `deleteRows` requires precise multi-threaded transaction coordination.
 - **Worker WebSocket `@OnError` handling**: Error reply behavior through websockets-next needs further verification.
 - **ACP viewer socket OIDC authentication**: `AgentWebSocketE2ETest` tests handshake auth via PAT. Browser OIDC session cookie authentication is unexercised because `%test` disables OIDC.
-- **Worker reconnection / re-registration**: Verifying that closing an old connection does not unregister a newly re-registered worker session.
+- **Worker reconnection / re-registration**: Verifying that closing an old connection does not unregister a newly re-registered workerEntity session.
 - **Concurrent `JobLock` acquisition on new lock names**: Concurrent first-time acquisition races rely on database unique constraint violation handling in `WorkerScheduler.acquireLock`, which requires multi-threaded concurrent transaction testing.

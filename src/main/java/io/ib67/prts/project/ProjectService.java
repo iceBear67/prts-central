@@ -35,7 +35,9 @@ public class ProjectService {
     private static final Logger LOG = Logger.getLogger(ProjectService.class);
     private static final String DELETE_REASON = "project deleted";
     private static final String ARCHIVE_REASON = "project archived";
-    /** Maximum retry attempts to stop running jobs during project deletion before giving up. */
+    /**
+     * Maximum retry attempts to stop running jobs during project deletion before giving up.
+     */
     private static final int MAX_STOP_ROUNDS = 3;
 
     @Inject
@@ -73,7 +75,9 @@ public class ProjectService {
         return project;
     }
 
-    /** Creates a new project and assigns the specified user as its owner. */
+    /**
+     * Creates a new project and assigns the specified user as its owner.
+     */
     @Transactional
     public Project create(String name, String description, UUID ownerId) {
         var project = Project.builder().name(name).description(description).build();
@@ -84,7 +88,9 @@ public class ProjectService {
         return project;
     }
 
-    /** Updates project metadata; non-null arguments replace existing values. */
+    /**
+     * Updates project metadata; non-null arguments replace existing values.
+     */
     @Transactional
     public Project update(UUID id, @Nullable String name, @Nullable String description) {
         var project = require(id);
@@ -150,7 +156,7 @@ public class ProjectService {
      */
     private void stopWork(UUID projectId, String reason) {
         try {
-            var cancelled = QuarkusTransaction.requiringNew().call(() -> PendingJob.cancelActive(projectId));
+            var cancelled = PendingJob.cancelActive(projectId);
             if (cancelled > 0) {
                 LOG.infof("cancelled %s queued jobs of project %s", cancelled, projectId);
             }
@@ -169,14 +175,15 @@ public class ProjectService {
         Map<UUID, UUID> hosts;
         try {
             hosts = QuarkusTransaction.requiringNew().call(() -> WorkerVolume.listByProject(projectId).stream()
-                    .collect(Collectors.toMap(WorkerVolume::getId, volume -> volume.getWorker().getId())));
+                    .collect(Collectors.toMap(WorkerVolume::getId, volume -> volume.getWorkerEntity().getId())));
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot list the volumes of project %s; they are left on their workers", projectId);
             return;
         }
         hosts.forEach((volumeId, workerId) -> {
             try {
-                workerService.deleteVolume(workerId, volumeId);
+                workerService.getWorker(workerId).orElseThrow().getClient()
+                        .deleteVolume(volumeId).join();
             } catch (RuntimeException e) {
                 LOG.errorf(e, "cannot discard volume %s on worker %s; it is left behind", volumeId, workerId);
             }
@@ -186,8 +193,7 @@ public class ProjectService {
     private void deleteObjects(UUID projectId) {
         List<String> keys;
         try {
-            keys = QuarkusTransaction.requiringNew()
-                    .call(() -> Artifact.listObjectKeysByProject(projectId));
+            keys = Artifact.listObjectKeysByProject(projectId);
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot list the artifacts of project %s; its objects are left behind", projectId);
             return;
@@ -223,7 +229,7 @@ public class ProjectService {
         return Rows.DELETED;
     }
 
-    private enum Rows { DELETED, ABSENT, BUSY }
+    private enum Rows {DELETED, ABSENT, BUSY}
 
     private static List<Job.Open> openJobs(UUID projectId) {
         return QuarkusTransaction.requiringNew().call(() -> Job.listOpenByProject(projectId).stream()

@@ -1,7 +1,7 @@
 package io.ib67.prts.dto;
 
-import io.ib67.prts.agent.worker.RegisteredWorker;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import jakarta.annotation.Nullable;
 
 import java.util.Objects;
@@ -18,14 +18,14 @@ public record WorkerView(
         String name,
         boolean disabled,
         boolean connected,
-        @Nullable RegisteredWorker.Info info
+        @Nullable Worker.Info info
 ) {
     public WorkerView {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(name, "name");
     }
 
-    public static WorkerView of(Worker row, @Nullable RegisteredWorker live) {
+    public static WorkerView of(WorkerEntity row, @Nullable Worker live) {
         return new WorkerView(row.getId(), row.getName(), row.isDisabled(), live != null,
                 live == null ? null : live.getInfo());
     }

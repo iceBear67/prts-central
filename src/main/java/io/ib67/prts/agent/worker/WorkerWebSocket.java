@@ -1,12 +1,12 @@
 package io.ib67.prts.agent.worker;
 
-import io.ib67.prts.agent.acp.AgentService;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.job.JobService;
 import io.quarkus.websockets.next.*;
 import io.smallrye.common.annotation.Blocking;
+import io.vertx.core.eventbus.EventBus;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
@@ -26,10 +26,12 @@ public class WorkerWebSocket {
     JobService jobService;
     @Inject
     ArtifactService artifactService;
+
     @Inject
-    AgentService agentService;
+    EventBus eventBus;
 
     // Disconnecting unregisters the worker and fails any orphaned running jobs.
+    // todo subject to refactor
     @OnClose
     @Blocking
     public void onClose() {
@@ -41,43 +43,33 @@ public class WorkerWebSocket {
     @OnTextMessage
     @Blocking
     public ClientboundMessage acceptMessage(ServerboundMessage message) {
-        if (!(message instanceof ServerboundMessage.Register)
-                && connection.userData().get(INTERNAL_WORKER_ID) == null) {
+        if (message instanceof ServerboundMessage.Register register) {
+            if (connection.userData().get(INTERNAL_WORKER_ID) == null) {
+                return null;
+            }
+            return handleWorkerRegister(register);
+        }
+        if (connection.userData().get(INTERNAL_WORKER_ID) == null) {
             return new ClientboundMessage.Response(false, "not registered");
         }
+        eventBus.publish(WorkerEvent.SERVERBOUND_EVENT, new WorkerEvent.C2S(workerId(), message));
         return switch (message) {
             case ServerboundMessage.Register r -> handleWorkerRegister(r);
             case ServerboundMessage.UpdateJobLog u -> handleUpdateJobLog(u);
             case ServerboundMessage.UpdateResourceInfo u -> handleUpdateResourceInfo(u);
-            case ServerboundMessage.JobCreated created -> handleJobCreated(created);
+            case ServerboundMessage.JobCreated created -> handleActionResponse(created);
+            case ServerboundMessage.VolumeAck ack -> handleActionResponse(ack);
             case ServerboundMessage.JobStateUpdate u -> handleJobStateUpdate(u);
             case ServerboundMessage.UploadArtifactRequest r -> handleUploadArtifactRequest(r);
-            case ServerboundMessage.VolumeAck ack -> handleVolumeAck(ack);
-            case ServerboundMessage.AgentAttached a -> handleAgentAttached(a);
-            case ServerboundMessage.AgentFrame f -> handleAgentFrame(f);
-            case ServerboundMessage.AgentDetached d -> handleAgentDetached(d);
+            default -> null;
         };
     }
 
-    // Handles decoding and handler errors, returning an error response to the worker.
     @OnError
     public ClientboundMessage onError(Throwable error) {
-        LOG.errorf(error, "cannot handle a message from worker %s",
-                connection.userData().get(INTERNAL_WORKER_ID));
-        var cause = rootCause(error);
-        var message = cause instanceof NullPointerException
-                ? "missing field: " + cause.getMessage()
-                : cause.getMessage();
-        return new ClientboundMessage.Response(
-                false, message == null ? cause.getClass().getSimpleName() : message);
-    }
-
-    private static Throwable rootCause(Throwable error) {
-        var cause = error;
-        while (cause.getCause() != null && cause.getCause() != cause) {
-            cause = cause.getCause();
-        }
-        return cause;
+        LOG.errorf(error, "cannot handle a message from worker %s: %v",
+                connection.userData().get(INTERNAL_WORKER_ID), error);
+        return new ClientboundMessage.Response(false, error.getMessage());
     }
 
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
@@ -85,7 +77,7 @@ public class WorkerWebSocket {
             return new ClientboundMessage.Response(false, "already registered on this connection");
         try {
             workerService.registerWorker(
-                    r.workerId(), new RegisteredWorker(r.name(), new WorkerClient(connection), r.info()));
+                    r.workerId(), new Worker(r.name(), new WorkerClient(connection), r.info()));
         } catch (IllegalStateException e) {
             // Registration rejected (e.g. duplicate active session); connection remains unregistered.
             return new ClientboundMessage.Response(false, e.getMessage());
@@ -105,17 +97,16 @@ public class WorkerWebSocket {
     }
 
     private ClientboundMessage handleUpdateResourceInfo(ServerboundMessage.UpdateResourceInfo u) {
-        var updated = workerService.updateInfo(workerId(), u.info());
-        return new ClientboundMessage.Response(updated, updated ? "" : "not registered");
+        workerService.getWorker(workerId()).ifPresent(worker -> worker.setInfo(u.info()));
+        return new ClientboundMessage.Response(true, "updated");
     }
 
-    private ClientboundMessage handleJobCreated(ServerboundMessage.JobCreated created) {
-        var accepted = workerService.onJobCreated(workerId(), created.requestId());
-        return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
-    }
-
-    private ClientboundMessage handleVolumeAck(ServerboundMessage.VolumeAck ack) {
-        var accepted = workerService.onVolumeAck(workerId(), ack.requestId(), ack.ok(), ack.message());
+    private <T extends ServerboundMessage & ServerboundMessage.ActionResponse>
+    ClientboundMessage handleActionResponse(T created) {
+        var accepted = workerService.getWorker(workerId())
+                .map(worker -> worker.client.getRequest(created.requestId()))
+                .map(it -> it.complete(created))
+                .orElse(false);
         return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
     }
 
@@ -133,28 +124,6 @@ public class WorkerWebSocket {
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot begin artifact upload for job %s", r.jobId());
             return new ClientboundMessage.Response(false, e.getMessage() == null ? "upload failed" : e.getMessage());
-        }
-    }
-
-    private ClientboundMessage handleAgentAttached(ServerboundMessage.AgentAttached a) {
-        return agentCall(a.jobId(),
-                () -> agentService.onAttached(workerId(), a.jobId(), a.initialize(), a.sessionId()));
-    }
-
-    private ClientboundMessage handleAgentFrame(ServerboundMessage.AgentFrame f) {
-        return agentCall(f.jobId(), () -> agentService.onFrame(workerId(), f.jobId(), f.frame()));
-    }
-
-    private ClientboundMessage handleAgentDetached(ServerboundMessage.AgentDetached d) {
-        return agentCall(d.jobId(), () -> agentService.onDetached(workerId(), d.jobId(), d.reason()));
-    }
-    private ClientboundMessage agentCall(UUID jobId, Runnable call) {
-        try {
-            call.run();
-            return new ClientboundMessage.Response(true, "");
-        } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
-            LOG.errorf("cannot handle an agent message for job %s: %s", jobId, e.getMessage());
-            return new ClientboundMessage.Response(false, e.getMessage());
         }
     }
 

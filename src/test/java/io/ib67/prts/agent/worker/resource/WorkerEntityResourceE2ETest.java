@@ -27,7 +27,7 @@ import static org.hamcrest.Matchers.nullValue;
  */
 @QuarkusTest
 @Tag("e2e")
-class WorkerResourceE2ETest {
+class WorkerEntityResourceE2ETest {
 
     @Inject
     Fixtures fixtures;

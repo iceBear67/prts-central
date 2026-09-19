@@ -85,7 +85,7 @@ public record AdminStatsView(
     }
 
     /**
-     * @param volumes     Worker volumes allocated across every project.
+     * @param volumes     WorkerEntity volumes allocated across every project.
      * @param volumeBytes Bytes those volumes reserve. Allocated, not consumed — see TODO.md.
      */
     public record Storage(long artifacts, long bytes, long volumes, long volumeBytes) {

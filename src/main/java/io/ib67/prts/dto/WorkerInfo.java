@@ -1,6 +1,6 @@
 package io.ib67.prts.dto;
 
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import jakarta.annotation.Nullable;
 
 import java.util.Objects;
@@ -19,7 +19,7 @@ public record WorkerInfo(UUID id, @Nullable String name) {
         Objects.requireNonNull(id, "id");
     }
 
-    public static WorkerInfo of(UUID id, @Nullable Worker worker) {
+    public static WorkerInfo of(UUID id, @Nullable WorkerEntity worker) {
         return new WorkerInfo(id, worker == null ? null : worker.getName());
     }
 }

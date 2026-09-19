@@ -8,7 +8,7 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.VolumeState;
-import io.ib67.prts.agent.worker.entity.Worker;
+import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.Project;
@@ -339,7 +339,7 @@ class JobLauncherTest {
         var mounted = new WorkerVolume();
         mounted.setId(VOLUME);
         mounted.setProject(project);
-        mounted.setWorker(Worker.builder().id(WORKER).name("w").build());
+        mounted.setWorkerEntity(WorkerEntity.builder().id(WORKER).name("w").build());
         mounted.setState(VolumeState.READY);
 
         try (var ignored = new Scope(); var volumes = mockStatic(WorkerVolume.class)) {

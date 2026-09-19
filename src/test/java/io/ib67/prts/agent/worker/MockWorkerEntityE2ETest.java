@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  */
 @QuarkusTest
 @Tag("e2e")
-class MockWorkerE2ETest {
+class MockWorkerEntityE2ETest {
 
     private static final String SECRET = "test-worker-secret";
     private static final Duration SETTLE = Duration.ofSeconds(10);
@@ -212,7 +212,7 @@ class MockWorkerE2ETest {
         var volume = volumeService.create(project, "shared", 1024);
 
         assertEquals(VolumeState.READY, volume.getState());
-        assertEquals(worker.workerId(), volume.getWorker().getId());
+        assertEquals(worker.workerId(), volume.getWorkerEntity().getId());
         assertEquals(volume.getId(), worker.volumes().get(0).volumeId());
 
         volumeService.delete(project, volume.getId());

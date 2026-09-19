@@ -5,7 +5,12 @@ import com.fasterxml.jackson.databind.node.LongNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.acp.entity.AgentDirection;
+import io.ib67.prts.agent.worker.Worker;
+import io.ib67.prts.agent.worker.WorkerEvent;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundMessage;
+import io.quarkus.vertx.ConsumeEvent;
 import io.quarkus.websockets.next.CloseReason;
 import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.annotation.Nullable;
@@ -13,6 +18,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -33,9 +39,13 @@ public class AgentService {
 
     private static final Logger LOG = Logger.getLogger(AgentService.class);
 
-    /** Application WebSocket close code: no active agent session. */
+    /**
+     * Application WebSocket close code: no active agent session.
+     */
     static final int NO_AGENT = 4404;
-    /** The caller may not watch this job's agent. */
+    /**
+     * The caller may not watch this job's agent.
+     */
     static final int FORBIDDEN = 4403;
     static final int TOO_MANY_VIEWERS = 4429;
 
@@ -50,18 +60,28 @@ public class AgentService {
     AcpConfig acpConfig;
 
     private final Map<UUID, AgentChannel> channels = new ConcurrentHashMap<>();
-    // Serializes attachment and teardown to prevent lifecycle races.
-    private final Object roster = new Object();
 
-    // ---------------------------------------------------------------- the agent's side
+    @ConsumeEvent(WorkerEvent.SERVERBOUND_EVENT)
+    void onWorkerEvent(WorkerEvent.C2S message) {
+        var worker = workerService.getWorker(message.worker()).map(Worker::getClient);
+        try {
+            switch (message.message()) {
+                case ServerboundMessage.AgentAttached a ->
+                        onAttached(message.worker(), a.jobId(), a.initialize(), a.sessionId());
+                case ServerboundMessage.AgentFrame f -> onFrame(message.worker(), f.jobId(), f.frame());
+                case ServerboundMessage.AgentDetached d -> onDetached(message.worker(), d.jobId(), d.reason());
+                default -> {
+                }
+            }
+            worker.ifPresent(it -> it.sendMessage(new ClientboundMessage.Response(true, "")));
+        } catch (Exception ex) {
+            //todo better logging
+            LOG.error("error occurred when handling event from %s", message.worker(), ex);
+            worker.ifPresent(it -> it.sendMessage(new ClientboundMessage.Response(false, ex.getMessage())));
+        }
+    }
 
-    /**
-     * Registers an attached agent channel and its root session. Replaces any existing channel for the job.
-     *
-     * @throws NoSuchElementException if the job does not exist
-     * @throws IllegalStateException  if the job is finished or not assigned to the worker
-     */
-    public void onAttached(UUID workerId, UUID jobId, JsonNode initialize, String acpSessionId) {
+    void onAttached(UUID workerId, UUID jobId, JsonNode initialize, String acpSessionId) {
         Objects.requireNonNull(workerId, "workerId");
         Objects.requireNonNull(initialize, "initialize");
         if (acpSessionId == null || acpSessionId.isBlank()) {
@@ -74,7 +94,7 @@ public class AgentService {
         channel.putSessions(transcript.sessionsOf(jobId));
 
         AgentChannel displaced;
-        synchronized (roster) {
+        synchronized (this) {
             displaced = channels.put(jobId, channel);
         }
         if (displaced != null) {
@@ -83,13 +103,7 @@ public class AgentService {
         LOG.infof("job %s: its agent attached on worker %s, session %s", jobId, workerId, acpSessionId);
     }
 
-    /**
-     * Handles one JSON-RPC frame the agent sent.
-     *
-     * @throws IllegalStateException    if the job has no channel, or not on this worker
-     * @throws IllegalArgumentException if the frame is not a JSON-RPC 2.0 envelope
-     */
-    public void onFrame(UUID workerId, UUID jobId, JsonNode node) {
+    void onFrame(UUID workerId, UUID jobId, JsonNode node) {
         var channel = requireChannel(workerId, jobId);
         var frame = AcpFrame.of(node);
         if (frame.isResponse()) {
@@ -99,14 +113,16 @@ public class AgentService {
         }
     }
 
-    /** Handles agent process termination while the job remains active. */
-    public void onDetached(UUID workerId, UUID jobId, @Nullable String reason) {
+    void onDetached(UUID workerId, UUID jobId, @Nullable String reason) {
         requireChannel(workerId, jobId);
         closeChannel(jobId, reason == null || reason.isBlank() ? "the agent detached" : reason);
     }
 
-    /** Tears down all agent channels associated with a disconnected worker. */
-    public void onWorkerGone(UUID workerId) {
+    /**
+     * Tears down all agent channels associated with a disconnected worker.
+     */
+    @ConsumeEvent(WorkerEvent.OFFLINE)
+    void onWorkerGone(UUID workerId) {
         channels.values().stream()
                 .filter(channel -> channel.workerId().equals(workerId))
                 .map(AgentChannel::jobId)
@@ -222,7 +238,10 @@ public class AgentService {
 
     private boolean forwardToAgent(AgentChannel channel, AcpFrame frame) {
         try {
-            workerService.sendAgentFrame(channel.workerId(), channel.jobId(), frame.json());
+            workerService.getWorker(channel.workerId()).map(Worker::getClient)
+                    .orElseThrow()
+                    .sendAgentFrame(channel.jobId(), frame.json())
+                    .await().atMost(Duration.ofSeconds(3)); //todo should we await?
             return true;
         } catch (RuntimeException e) {
             LOG.errorf(e, "job %s: cannot reach its agent on worker %s",
@@ -242,7 +261,7 @@ public class AgentService {
      */
     public void attach(
             UUID projectId, UUID jobId, WebSocketConnection connection, UUID userId, boolean mayInteract) {
-        synchronized (roster) {
+        synchronized (this) {
             var channel = channels.get(jobId);
             if (channel == null || channel.isClosed()) {
                 throw new NoSuchElementException("job " + jobId + " has no live agent session");
@@ -273,8 +292,10 @@ public class AgentService {
                 channel, AcpFrame.error(pending.originalId(), AcpFrame.INTERNAL_ERROR, NO_OPERATOR)));
     }
 
-    /** Handles one JSON-RPC frame a viewer sent. */
-    public void onClientFrame(UUID jobId, WebSocketConnection connection, JsonNode node) {
+    /**
+     * Handles one JSON-RPC frame a viewer sent.
+     */
+    void onClientFrame(UUID jobId, WebSocketConnection connection, JsonNode node) {
         var channel = channels.get(jobId);
         if (channel == null || channel.isClosed()) {
             AgentViewer.sendTo(connection, AcpFrame.error(
@@ -415,7 +436,7 @@ public class AgentService {
 
     private void closeChannel(UUID jobId, String reason) {
         AgentChannel channel;
-        synchronized (roster) {
+        synchronized (this) {
             channel = channels.remove(jobId);
         }
         if (channel == null) {

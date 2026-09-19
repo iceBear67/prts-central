@@ -4,11 +4,7 @@ import io.ib67.prts.Perm;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.job.JobSpecOverride;
 import io.ib67.prts.agent.job.entity.JobSpecTemplate;
-import io.ib67.prts.agent.worker.entity.ProjectResourceClass;
-import io.ib67.prts.agent.worker.entity.ResourceClass;
-import io.ib67.prts.agent.worker.entity.VolumeState;
-import io.ib67.prts.agent.worker.entity.Worker;
-import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.agent.worker.entity.*;
 import io.ib67.prts.auth.DevAdminSeeder;
 import io.ib67.prts.job.JobLauncher;
 import io.ib67.prts.job.entity.Artifact;
@@ -387,14 +383,14 @@ public class ExampleDataSeeder {
         return klass;
     }
 
-    private Worker worker(String name, boolean disabled) {
-        var worker = Worker.builder().id(UUID.randomUUID()).name(name).disabled(disabled).build();
+    private WorkerEntity worker(String name, boolean disabled) {
+        var worker = WorkerEntity.builder().id(UUID.randomUUID()).name(name).disabled(disabled).build();
         worker.persistAndFlush();
         return worker;
     }
 
     private WorkerVolume volume(
-            Project project, Worker worker, String name, long length, long used, VolumeState state) {
+            Project project, WorkerEntity worker, String name, long length, long used, VolumeState state) {
         var volume = WorkerVolume.builder()
                 .project(project)
                 .worker(worker)
@@ -546,8 +542,8 @@ public class ExampleDataSeeder {
             ResourceClass small,
             ResourceClass standard,
             ResourceClass large,
-            Worker alpha,
-            Worker beta,
+            WorkerEntity alpha,
+            WorkerEntity beta,
             JobSpecTemplate shell,
             Instant now
     ) {

@@ -17,7 +17,7 @@ sequenceDiagram
     A->>A: sizeBytes <= maxFileSize · reserveSlot <= maxPendingUploads
     rect rgb(235, 245, 255)
         Note over A: tx requiringNew (reserve)
-        A->>A: lockAssignedOpen(job, worker) PESSIMISTIC_WRITE
+        A->>A: lockAssignedOpen(job, workerEntity) PESSIMISTIC_WRITE
         A->>A: used(rows) + reserved(pending cache) + sizeBytes <= maxJobSize
         A->>A: pending.put(uploadId)
     end
@@ -37,7 +37,7 @@ sequenceDiagram
 ```
 
 `artifact.created_at` is stamped by `@CreationTimestamp` when the sweeper promotes the upload to a row. That
-is the only upload time the control plane observes — the worker's PUT to S3 happens out of band — and it is
+is the only upload time the control plane observes — the workerEntity's PUT to S3 happens out of band — and it is
 what `GET /admin/artifact` orders and reports.
 
 ## Deletion
@@ -59,7 +59,7 @@ This order prevents handing out presigned URLs for already deleted S3 objects if
 
 - **Quota Calculation**: `persisted artifact bytes + currently reserved pending bytes`.
 - **Concurrency Control**: Quota check and cache reservation run under `PESSIMISTIC_WRITE` on the `job` row (`reserve()`) inside `ArtifactService`.
-- **Worker Verification**: `lockAssignedOpen` verifies that the reporting worker matches `job.worker` and that the job is currently open (`PENDING` or `RUNNING`).
+- **Worker Verification**: `lockAssignedOpen` verifies that the reporting workerEntity matches `job.workerEntity` and that the job is currently open (`PENDING` or `RUNNING`).
 - **Cache & Sweeper**:
   - In-flight uploads are tracked in a Caffeine cache with TTL `presign-duration + 5m`.
   - A periodic sweeper checks pending objects via `HEAD` every 2 seconds. Matching sizes are persisted to `artifact` rows; mismatched sizes are deleted from S3.

@@ -53,13 +53,13 @@ quarkus:
           paths:
             - "/api/*"
           policy: "authenticated"
-        # Only the worker WebSocket uses the shared secret; API endpoints require standard authentication.
+        # Only the workerEntity WebSocket uses the shared secret; API endpoints require standard authentication.
         worker_ws:
           paths:
-            - "/ws/worker"
+            - "/ws/workerEntity"
           policy: "authenticated"
           auth-mechanism:
-            - "worker-token"
+            - "workerEntity-token"
         agent_ws:
           paths:
             - "/ws/project/*"
@@ -85,13 +85,13 @@ quarkus:
   # Fills an empty database with example projects, workers and job history at startup.
   dev:
     seed-examples: true
-    # A worker that connects back to dev mode and runs what it is given, so a job created from the
+    # A workerEntity that connects back to dev mode and runs what it is given, so a job created from the
     # UI actually finishes. A job picks its own script with the label prts.mock; this is what the
     # ones without it get: demo | succeed | fail | hang | agent.
     mock-worker:
       enabled: true
       script: demo
-  # Secret for worker authentication in dev/test. Must be configured explicitly in production.
+  # Secret for workerEntity authentication in dev/test. Must be configured explicitly in production.
   worker:
     secret: "allo"
   # Encryption keys for secrets in dev. Production keys must be configured via environment.
@@ -110,7 +110,7 @@ quarkus:
     oidc:
       enabled: false
   worker:
-    secret: "test-worker-secret"
+    secret: "test-workerEntity-secret"
   secret:
     active-key: v1
     keys:

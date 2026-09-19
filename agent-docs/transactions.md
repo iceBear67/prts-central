@@ -1,6 +1,6 @@
 # Transaction Management & Boundaries
 
-PRTS-Central avoids long-lived `@Transactional` boundaries because worker scheduling and S3 transfers involve blocking network I/O.
+PRTS-Central avoids long-lived `@Transactional` boundaries because workerEntity scheduling and S3 transfers involve blocking network I/O.
 
 ## Standard Multi-Step Pattern
 
@@ -23,7 +23,7 @@ PRTS-Central avoids long-lived `@Transactional` boundaries because worker schedu
 | `WorkerScheduler` operations | `requiringNew` (each) | Short transactions for `tryAcquire`, `claimJob`, and lock release. |
 | `WorkerClient` calls | None | Blocking network I/O. |
 | `JobService.discard` | `requiringNew` | Cleanup compensation for unplaceable jobs. |
-| `JobService.cancel` | `requiringNew` (`prepareCancel`), RPC, then `requiringNew` (logging) | Commits `CANCELLED` state before sending non-blocking worker notification. |
+| `JobService.cancel` | `requiringNew` (`prepareCancel`), RPC, then `requiringNew` (logging) | Commits `CANCELLED` state before sending non-blocking workerEntity notification. |
 | `JobService.applyState` | `@Transactional` | Transition, log and the requester's failure message commit together. |
 | `PendingJobService.enqueue` | `requiringNew` | Persists queue entry. |
 | `PendingJobService.claimDue` / `mark*` | `@Transactional` (each) | Discrete state updates between dispatch attempts. |

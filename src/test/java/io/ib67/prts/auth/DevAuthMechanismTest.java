@@ -70,7 +70,7 @@ class DevAuthMechanismTest {
         verifyNoInteractions(identityProviders);
     }
 
-    /** Worker tokens take precedence over dev auto-login. */
+    /** WorkerEntity tokens take precedence over dev auto-login. */
     @Test
     void aWorkerTokenIsLeftToTheRealChain() {
         when(request.getHeader(WorkerAuthMechanism.HEADER)).thenReturn("allo");

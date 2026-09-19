@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 @Tag("e2e")
 class AgentWebSocketE2ETest {
 
-    private static final String WORKER_TOKEN = "X-Worker-Token";
+    private static final String WORKER_TOKEN = "X-WorkerEntity-Token";
     private static final String SECRET = "test-worker-secret";
     private static final String ROOT = "sess-root";
 
