@@ -1,9 +1,11 @@
 package io.ib67.prts.agent.acp;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.LongNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.quarkus.websockets.next.CloseReason;
 import jakarta.annotation.Nullable;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -83,14 +85,6 @@ final class AgentChannel {
         return workerId;
     }
 
-    JsonNode initialize() {
-        return initialize;
-    }
-
-    String rootSessionId() {
-        return rootSessionId;
-    }
-
     UUID rootSession() {
         return rootSession;
     }
@@ -99,12 +93,47 @@ final class AgentChannel {
         return closed;
     }
 
-    void close() {
-        closed = true;
-    }
-
     long nextId() {
         return ids.incrementAndGet();
+    }
+
+    /**
+     * Drops every viewer and abandons every request the agent is waiting on, since the agent it was
+     * waiting on is gone too.
+     */
+    void discard(String reason) {
+        closed = true;
+        toClient.clear();
+        var closing = new CloseReason(CloseReason.NORMAL.getCode(), reason);
+        var dropped = List.copyOf(viewers.values());
+        viewers.clear();
+        dropped.forEach(viewer -> viewer.close(closing));
+    }
+
+    /**
+     * The worker's {@code initialize} snapshot, augmented with PRTS metadata under {@code _meta.prts}.
+     */
+    JsonNode initializeWithMeta() {
+        if (!initialize.isObject()) {
+            return initialize;
+        }
+        var result = (ObjectNode) initialize.deepCopy();
+        var existing = result.get("_meta");
+        var meta = existing != null && existing.isObject()
+                ? (ObjectNode) existing
+                : result.putObject("_meta");
+        var prts = meta.putObject("prts");
+        prts.put("jobId", jobId.toString());
+        prts.put("projectId", projectId.toString());
+        prts.put("rootSessionId", rootSessionId);
+        var listed = prts.putArray("sessions");
+        sessions.forEach((acpSessionId, row) -> {
+            var entry = listed.addObject();
+            entry.put("sessionId", acpSessionId);
+            entry.put("id", row.toString());
+            entry.put("root", acpSessionId.equals(rootSessionId));
+        });
+        return result;
     }
 
     // ---- sessions ----
@@ -128,10 +157,6 @@ final class AgentChannel {
         return sessions.size();
     }
 
-    Map<String, UUID> sessions() {
-        return Map.copyOf(sessions);
-    }
-
     // ---- viewers ----
 
     void addViewer(AgentViewer viewer) {
@@ -146,10 +171,6 @@ final class AgentChannel {
     @Nullable
     AgentViewer viewer(String connectionId) {
         return viewers.get(connectionId);
-    }
-
-    Collection<AgentViewer> viewers() {
-        return List.copyOf(viewers.values());
     }
 
     int viewerCount() {
@@ -172,8 +193,13 @@ final class AgentChannel {
         return toAgent.remove(id);
     }
 
-    void awaitClient(long id, ToClient pending) {
-        toClient.put(id, pending);
+    /**
+     * Broadcasts an agent request under a central-allocated ID, which the first viewer to answer claims.
+     */
+    void broadcastRequest(AcpFrame frame, UUID session) {
+        var id = nextId();
+        toClient.put(id, new ToClient(frame.id(), session));
+        broadcast(frame.withId(LongNode.valueOf(id)));
     }
 
     /** Claims an agent's pending request for the first answering viewer. */

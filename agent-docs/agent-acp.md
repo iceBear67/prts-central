@@ -7,10 +7,12 @@ flowchart LR
     B[Browser / ACP Client] <-->|/ws/project/../agent| C
     subgraph C[prts-central]
         AS[AgentService<br/>Routing & ID Translation]
+        AC[AgentChannels<br/>Live Channels]
         AT[AgentTranscript<br/>Persistence]
+        AS --> AC
         AS --> AT
     end
-    C <-->|/ws/workerEntity · agentFrame| W[Worker]
+    C <-->|/ws/worker · agentFrame| W[Worker]
     W <--> A[Job ACP Agent]
 ```
 

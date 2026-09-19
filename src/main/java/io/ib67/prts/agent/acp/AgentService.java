@@ -2,7 +2,6 @@ package io.ib67.prts.agent.acp;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.LongNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.acp.entity.AgentDirection;
 import io.ib67.prts.agent.worker.Worker;
@@ -11,7 +10,6 @@ import io.ib67.prts.agent.worker.WorkerService;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.quarkus.vertx.ConsumeEvent;
-import io.quarkus.websockets.next.CloseReason;
 import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.annotation.Nullable;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -19,17 +17,16 @@ import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
 import java.time.Duration;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Relays ACP JSON-RPC traffic between worker-hosted agents and connected viewers.
  *
  * <p>Enforces the {@link AcpMethod} allowlist, translates connection-scoped request IDs, and
- * persists frames via {@link AgentTranscript} sequentially before forwarding.
+ * persists frames via {@link AgentTranscript} sequentially before forwarding. The channels
+ * themselves live in {@link AgentChannels}.
  * Outbound frame dispatches occur outside transactions to avoid holding locks during network I/O.
  *
  * <p>See {@code agent-docs/agent-acp.md}.
@@ -55,11 +52,11 @@ public class AgentService {
     @Inject
     WorkerService workerService;
     @Inject
+    AgentChannels channels;
+    @Inject
     AgentTranscript transcript;
     @Inject
     AcpConfig acpConfig;
-
-    private final Map<UUID, AgentChannel> channels = new ConcurrentHashMap<>();
 
     @ConsumeEvent(WorkerEvent.SERVERBOUND_EVENT)
     void onWorkerEvent(WorkerEvent.C2S message) {
@@ -87,24 +84,11 @@ public class AgentService {
         if (acpSessionId == null || acpSessionId.isBlank()) {
             throw new IllegalArgumentException("sessionId is required");
         }
-        var attachment = transcript.openRoot(workerId, jobId, acpSessionId);
-        var channel = new AgentChannel(
-                jobId, attachment.projectId(), workerId, initialize, acpSessionId,
-                attachment.rootSession());
-        channel.putSessions(transcript.sessionsOf(jobId));
-
-        AgentChannel displaced;
-        synchronized (this) {
-            displaced = channels.put(jobId, channel);
-        }
-        if (displaced != null) {
-            discard(displaced, "the agent re-attached");
-        }
-        LOG.infof("job %s: its agent attached on worker %s, session %s", jobId, workerId, acpSessionId);
+        channels.open(workerId, jobId, initialize, acpSessionId);
     }
 
     void onFrame(UUID workerId, UUID jobId, JsonNode node) {
-        var channel = requireChannel(workerId, jobId);
+        var channel = channels.require(workerId, jobId);
         var frame = AcpFrame.of(node);
         if (frame.isResponse()) {
             fromAgentResponse(channel, frame);
@@ -114,8 +98,8 @@ public class AgentService {
     }
 
     void onDetached(UUID workerId, UUID jobId, @Nullable String reason) {
-        requireChannel(workerId, jobId);
-        closeChannel(jobId, reason == null || reason.isBlank() ? "the agent detached" : reason);
+        channels.require(workerId, jobId);
+        channels.close(jobId, reason == null || reason.isBlank() ? "the agent detached" : reason);
     }
 
     /**
@@ -123,29 +107,14 @@ public class AgentService {
      */
     @ConsumeEvent(WorkerEvent.OFFLINE)
     void onWorkerGone(UUID workerId) {
-        channels.values().stream()
-                .filter(channel -> channel.workerId().equals(workerId))
-                .map(AgentChannel::jobId)
-                .toList()
-                .forEach(jobId -> closeChannel(jobId, "the worker disconnected"));
+        channels.closeByWorker(workerId);
     }
 
     /**
      * Closes a job's channel upon entering a terminal state. Must be called post-commit.
      */
     public void onJobClosed(UUID jobId) {
-        closeChannel(jobId, "the job finished");
-    }
-
-    private AgentChannel requireChannel(UUID workerId, UUID jobId) {
-        var channel = channels.get(jobId);
-        if (channel == null) {
-            throw new IllegalStateException("no agent is attached for job " + jobId);
-        }
-        if (!channel.workerId().equals(workerId)) {
-            throw new IllegalStateException("job " + jobId + " is not on worker " + workerId);
-        }
-        return channel;
+        channels.close(jobId, "the job finished");
     }
 
     private void fromAgentResponse(AgentChannel channel, AcpFrame frame) {
@@ -190,9 +159,7 @@ public class AgentService {
             answerAgent(channel, AcpFrame.error(frame.id(), AcpFrame.INTERNAL_ERROR, NO_OPERATOR));
             return;
         }
-        var id = channel.nextId();
-        channel.awaitClient(id, new AgentChannel.ToClient(frame.id(), session));
-        channel.broadcast(frame.withId(LongNode.valueOf(id)));
+        channel.broadcastRequest(frame, session);
     }
 
     /**
@@ -261,20 +228,7 @@ public class AgentService {
      */
     public void attach(
             UUID projectId, UUID jobId, WebSocketConnection connection, UUID userId, boolean mayInteract) {
-        synchronized (this) {
-            var channel = channels.get(jobId);
-            if (channel == null || channel.isClosed()) {
-                throw new NoSuchElementException("job " + jobId + " has no live agent session");
-            }
-            if (!channel.projectId().equals(projectId)) {
-                throw new NoSuchElementException("no such job in project " + projectId + ": " + jobId);
-            }
-            if (channel.viewerCount() >= acpConfig.maxViewersPerJob()) {
-                throw new IllegalStateException(
-                        "job " + jobId + " is already watched by " + channel.viewerCount() + " viewers");
-            }
-            channel.addViewer(new AgentViewer(connection, userId, mayInteract));
-        }
+        channels.attach(projectId, jobId, new AgentViewer(connection, userId, mayInteract));
     }
 
     /**
@@ -342,7 +296,7 @@ public class AgentService {
     private void fromClientCall(AgentChannel channel, AgentViewer viewer, AcpFrame frame) {
         var method = AcpMethod.byMethod(frame.method()).orElse(null);
         if (method == null || !method.route().acceptsFromClient()) {
-            refuseClient(viewer, frame, AcpFrame.METHOD_NOT_FOUND,
+            viewer.refuse(frame, AcpFrame.METHOD_NOT_FOUND,
                     "prts-central does not carry " + frame.method());
             return;
         }
@@ -351,13 +305,13 @@ public class AgentService {
             return;
         }
         if (!viewer.mayInteract()) {
-            refuseClient(viewer, frame, AcpFrame.FORBIDDEN, missing());
+            viewer.refuse(frame, AcpFrame.FORBIDDEN, missing());
             return;
         }
         var acpSessionId = frame.sessionId();
         var session = channel.session(acpSessionId);
         if (session == null) {
-            refuseClient(viewer, frame, AcpFrame.INVALID_PARAMS, acpSessionId == null
+            viewer.refuse(frame, AcpFrame.INVALID_PARAMS, acpSessionId == null
                     ? "sessionId is required"
                     : "no such session in job " + channel.jobId() + ": " + acpSessionId);
             return;
@@ -387,81 +341,14 @@ public class AgentService {
             return;
         }
         switch (method) {
-            case INITIALIZE -> viewer.send(AcpFrame.result(frame.id(), initializeResult(channel)));
-            default -> refuseClient(viewer, frame, AcpFrame.METHOD_NOT_FOUND,
+            case INITIALIZE -> viewer.send(AcpFrame.result(frame.id(), channel.initializeWithMeta()));
+            default -> viewer.refuse(frame, AcpFrame.METHOD_NOT_FOUND,
                     "prts-central does not carry " + frame.method());
-        }
-    }
-
-    /**
-     * Augments the worker's cached {@code initialize} snapshot with PRTS metadata (job, project, session list).
-     */
-    private static JsonNode initializeResult(AgentChannel channel) {
-        var snapshot = channel.initialize();
-        if (!snapshot.isObject()) {
-            return snapshot;
-        }
-        var result = (ObjectNode) snapshot.deepCopy();
-        var existing = result.get("_meta");
-        var meta = existing != null && existing.isObject()
-                ? (ObjectNode) existing
-                : result.putObject("_meta");
-        var prts = meta.putObject("prts");
-        prts.put("jobId", channel.jobId().toString());
-        prts.put("projectId", channel.projectId().toString());
-        prts.put("rootSessionId", channel.rootSessionId());
-        var sessions = prts.putArray("sessions");
-        channel.sessions().forEach((acpSessionId, row) -> {
-            var entry = sessions.addObject();
-            entry.put("sessionId", acpSessionId);
-            entry.put("id", row.toString());
-            entry.put("root", acpSessionId.equals(channel.rootSessionId()));
-        });
-        return result;
-    }
-
-    private static void refuseClient(AgentViewer viewer, AcpFrame frame, int code, String reason) {
-        if (frame.isRequest()) {
-            viewer.send(AcpFrame.error(frame.id(), code, reason));
-        } else {
-            LOG.debugf("viewer %s: dropped a notification, %s", viewer.id(), reason);
         }
     }
 
     private static String missing() {
         return "missing permission: " + Perm.JOB_AGENT_INTERACT.permission();
-    }
-
-    // ---------------------------------------------------------------- teardown
-
-    private void closeChannel(UUID jobId, String reason) {
-        AgentChannel channel;
-        synchronized (this) {
-            channel = channels.remove(jobId);
-        }
-        if (channel == null) {
-            return;
-        }
-        discard(channel, reason);
-        try {
-            transcript.closeAll(jobId);
-        } catch (RuntimeException e) {
-            LOG.errorf(e, "cannot close the agent sessions of job %s", jobId);
-        }
-        LOG.infof("job %s: its agent channel closed, %s", jobId, reason);
-    }
-
-    /**
-     * Closes all viewer connections and cleans up live channel state.
-     */
-    private static void discard(AgentChannel channel, String reason) {
-        channel.close();
-        channel.drainClient();
-        var closing = new CloseReason(CloseReason.NORMAL.getCode(), reason);
-        channel.viewers().forEach(viewer -> {
-            channel.removeViewer(viewer.id());
-            viewer.close(closing);
-        });
     }
 
     @Nullable

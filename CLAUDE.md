@@ -47,7 +47,7 @@ holds the services and value objects.
 | Package | Role |
 | --- | --- |
 | `agent.workerEntity` | Live workerEntity sessions, the WebSocket protocol (`.message`), scheduling, `VolumeService`; `.entity` = `WorkerEntity`, `ResourceClass`, `ProjectResourceClass`, `WorkerVolume`, `VolumeState` |
-| `agent.acp` | The ACP proxy between a job's agent and the browsers watching it: `AgentService` (routing, allowlist, id rewriting), `AgentTranscript` (the stored side), `AgentWebSocket`, `AcpFrame` / `AcpMethod`; `.entity` = `AgentSession`, `AgentEvent`, `AgentDirection` |
+| `agent.acp` | The ACP proxy between a job's agent and the browsers watching it: `AgentService` (routing, allowlist, id rewriting), `AgentChannels` (the live channels and their lifecycle), `AgentTranscript` (the stored side), `AgentWebSocket`, `AcpFrame` / `AcpMethod`; `.entity` = `AgentSession`, `AgentEvent`, `AgentDirection` |
 | `agent.job` | `JobSpec` value object, override/permission gating; `.entity` = `JobSpecTemplate`, `JobLock` |
 | `job` | `JobLauncher` (authorize, launch), `JobService` (state, discard, reads, `stopOpen`), `JobResource`, `JobAccess`, `JobConfig`; `.entity` = `Project` / `Job` / `JobLog` / `Artifact` / `JobState` / `ProjectRole` plus the `JobRequest` value |
 | `job.task` | `Task` scopes: `TaskScope` value object, `TaskService`, `TaskTeardownDispatcher`; `.entity` = `Task`, `TaskState`, `TaskVolume` |

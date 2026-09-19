@@ -32,6 +32,17 @@ record AgentViewer(WebSocketConnection connection, UUID userId, boolean mayInter
     }
 
     /**
+     * Answers a frame this viewer may not send. A notification is dropped instead: it answers nothing.
+     */
+    void refuse(AcpFrame frame, int code, String reason) {
+        if (frame.isRequest()) {
+            send(AcpFrame.error(frame.id(), code, reason));
+        } else {
+            LOG.debugf("viewer %s: dropped a notification, %s", id(), reason);
+        }
+    }
+
+    /**
      * Asynchronously sends a frame to the viewer. Write failures are logged without blocking upstream relays.
      */
     static void sendTo(WebSocketConnection connection, AcpFrame frame) {
