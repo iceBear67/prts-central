@@ -175,7 +175,7 @@ public class ProjectService {
         Map<UUID, UUID> hosts;
         try {
             hosts = QuarkusTransaction.requiringNew().call(() -> WorkerVolume.listByProject(projectId).stream()
-                    .collect(Collectors.toMap(WorkerVolume::getId, volume -> volume.getWorkerEntity().getId())));
+                    .collect(Collectors.toMap(WorkerVolume::getId, volume -> volume.getWorker().getId())));
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot list the volumes of project %s; they are left on their workers", projectId);
             return;

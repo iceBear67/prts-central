@@ -339,7 +339,7 @@ class JobLauncherTest {
         var mounted = new WorkerVolume();
         mounted.setId(VOLUME);
         mounted.setProject(project);
-        mounted.setWorkerEntity(WorkerEntity.builder().id(WORKER).name("w").build());
+        mounted.setWorker(WorkerEntity.builder().id(WORKER).name("w").build());
         mounted.setState(VolumeState.READY);
 
         try (var ignored = new Scope(); var volumes = mockStatic(WorkerVolume.class)) {

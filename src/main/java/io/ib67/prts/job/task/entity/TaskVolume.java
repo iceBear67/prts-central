@@ -98,7 +98,7 @@ public class TaskVolume extends PanacheEntityBase {
         return TaskVolume.<TaskVolume>find(
                         "from TaskVolume m join fetch m.volume v join fetch v.worker where m.id.taskId = ?1", taskId)
                 .firstResultOptional()
-                .map(mount -> mount.getVolume().getWorkerEntity().getId());
+                .map(mount -> mount.getVolume().getWorker().getId());
     }
 
     @Embeddable

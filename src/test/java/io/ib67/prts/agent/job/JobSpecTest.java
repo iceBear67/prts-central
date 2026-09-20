@@ -123,7 +123,7 @@ class JobSpecTest {
         var volume = new WorkerVolume();
         volume.setId(id);
         volume.setProject(Project.builder().id(projectId).name("p").build());
-        volume.setWorkerEntity(WorkerEntity.builder().id(workerId).name("w").build());
+        volume.setWorker(WorkerEntity.builder().id(workerId).name("w").build());
         volume.setState(state);
         volume.setLength(4096L);
         return volume;

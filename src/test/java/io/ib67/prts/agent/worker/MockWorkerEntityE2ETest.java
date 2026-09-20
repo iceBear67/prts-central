@@ -212,7 +212,7 @@ class MockWorkerEntityE2ETest {
         var volume = volumeService.create(project, "shared", 1024);
 
         assertEquals(VolumeState.READY, volume.getState());
-        assertEquals(worker.workerId(), volume.getWorkerEntity().getId());
+        assertEquals(worker.workerId(), volume.getWorker().getId());
         assertEquals(volume.getId(), worker.volumes().get(0).volumeId());
 
         volumeService.delete(project, volume.getId());

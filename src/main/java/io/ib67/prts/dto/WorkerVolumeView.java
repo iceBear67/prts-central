@@ -41,7 +41,7 @@ public record WorkerVolumeView(
                 volume.getName(),
                 project.getId(),
                 project.getName(),
-                volume.getWorkerEntity().getId(),
+                volume.getWorker().getId(),
                 volume.getCreatedAt(),
                 volume.getLength(),
                 volume.getUsed(),

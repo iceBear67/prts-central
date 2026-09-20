@@ -33,6 +33,7 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -100,13 +101,17 @@ public class JobService {
         return filter == null ? List.of() : Job.listVisible(filter, 0, limit);
     }
 
-    /** What {@link #listVisible} would return unwindowed. */
+    /**
+     * What {@link #listVisible} would return unwindowed.
+     */
     public long countVisible(UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status) {
         var filter = filter(projectId, taskId, status);
         return filter == null ? 0 : Job.countVisible(filter);
     }
 
-    /** Null when the status names no job state at all, which selects nothing rather than everything. */
+    /**
+     * Null when the status names no job state at all, which selects nothing rather than everything.
+     */
     @Nullable
     private static Job.Filter filter(
             UUID projectId, @Nullable UUID taskId, @Nullable JobStatus status) {
@@ -125,12 +130,16 @@ public class JobService {
         }
     }
 
-    /** Builds a JobView for a single job, including the creation payload if the caller has job creation permissions. */
+    /**
+     * Builds a JobView for a single job, including the creation payload if the caller has job creation permissions.
+     */
     public JobView viewOf(UUID projectId, Job job) {
         return viewOf(List.of(job), jobAccess.mayCreate(projectId)).getFirst();
     }
 
-    /** Builds JobViews for a list of project jobs, resolving requesters and artifacts in bulk. */
+    /**
+     * Builds JobViews for a list of project jobs, resolving requesters and artifacts in bulk.
+     */
     public List<JobView> viewOf(UUID projectId, List<Job> jobs) {
         return viewOf(jobs, jobAccess.mayCreate(projectId));
     }
@@ -188,15 +197,15 @@ public class JobService {
         if (worker == null) {
             return cancelled.job();
         }
-        var notified = false;
         try {
-            notified = workerService.cancelJob(worker, jobId);
-        } catch (RuntimeException e) {
-            LOG.errorf(e, "job %s was cancelled but worker %s could not be told", jobId, worker);
+            workerService.getWorker(worker).orElseThrow().getClient()
+                    .cancelJob(jobId)
+                    .await().atMost(Duration.ofSeconds(5));
+            logCancelOutcome(jobId, "worker " + worker + " told to stop the job");
+        } catch (Exception ex) {
+            LOG.errorf(ex, "job %s was cancelled but worker %s could not be told", jobId, worker);
+            logCancelOutcome(jobId, "worker " + worker + " could not be reached");
         }
-        logCancelOutcome(jobId, notified
-                ? "worker " + worker + " told to stop the job"
-                : "worker " + worker + " could not be reached");
         return cancelled.job();
     }
 
@@ -316,10 +325,9 @@ public class JobService {
             }
             if (job.worker() != null) {
                 try {
-                    if (!workerService.interrupt(job.worker(), job.id(), reason)) {
-                        LOG.warnf("worker %s is not connected: job %s may still be running there",
-                                job.worker(), job.id());
-                    }
+                    workerService.getWorker(job.worker()).orElseThrow()
+                            .getClient().interruptJob(job.id(), reason)
+                            .await().atMost(Duration.ofSeconds(10));
                 } catch (RuntimeException e) {
                     LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
                 }
@@ -347,7 +355,9 @@ public class JobService {
         });
     }
 
-    /** One window of a job's log, with the total behind it. */
+    /**
+     * One window of a job's log, with the total behind it.
+     */
     public Page<JobLogView> logsOf(UUID projectId, UUID jobId, int offset, int length) {
         requireInProject(projectId, jobId);
         return new Page<>(

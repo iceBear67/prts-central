@@ -3,6 +3,8 @@ package io.ib67.prts.agent.acp;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.agent.acp.entity.AgentDirection;
+import io.ib67.prts.agent.worker.Worker;
+import io.ib67.prts.agent.worker.WorkerClient;
 import io.ib67.prts.agent.worker.WorkerService;
 import io.quarkus.websockets.next.CloseReason;
 import io.quarkus.websockets.next.WebSocketConnection;
@@ -14,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -51,20 +54,30 @@ class AgentServiceTest {
 
     private AgentService service;
     private AgentTranscript transcript;
-    private WorkerService workerService;
+    /** The link the proxy reaches the agent over: {@code getWorker(...).getClient()}. */
+    private WorkerClient workerClient;
 
     @BeforeEach
     void attachAnAgent() {
         transcript = mock(AgentTranscript.class);
-        workerService = mock(WorkerService.class);
+        workerClient = mock(WorkerClient.class);
+        when(workerClient.sendAgentFrame(any(), any())).thenReturn(Uni.createFrom().voidItem());
+        var workerService = mock(WorkerService.class);
+        when(workerService.getWorker(WORKER))
+                .thenReturn(Optional.of(new Worker("w", workerClient, null)));
         var config = mock(AcpConfig.class);
         when(config.maxSessionsPerJob()).thenReturn(2);
         when(config.maxViewersPerJob()).thenReturn(2);
+
+        var channels = new AgentChannels();
+        channels.transcript = transcript;
+        channels.acpConfig = config;
 
         service = new AgentService();
         service.transcript = transcript;
         service.workerService = workerService;
         service.acpConfig = config;
+        service.channels = channels;
 
         when(transcript.openRoot(WORKER, JOB, ROOT))
                 .thenReturn(new AgentTranscript.Attachment(PROJECT, ROOT_ROW));
@@ -124,7 +137,7 @@ class AgentServiceTest {
         send(viewer, prompt(7, "made-up"));
 
         assertEquals(AcpFrame.INVALID_PARAMS, viewer.last().get("error").get("code").asInt());
-        verify(workerService, never()).sendAgentFrame(any(), any(), any());
+        verify(workerClient, never()).sendAgentFrame(any(), any());
     }
 
     /** A viewer forging an update would write into the transcript as though the agent had said it. */
@@ -146,7 +159,7 @@ class AgentServiceTest {
         send(viewer, prompt(7, ROOT));
 
         assertEquals(AcpFrame.FORBIDDEN, viewer.last().get("error").get("code").asInt());
-        verify(workerService, never()).sendAgentFrame(any(), any(), any());
+        verify(workerClient, never()).sendAgentFrame(any(), any());
     }
 
     @Test
@@ -163,7 +176,7 @@ class AgentServiceTest {
         assertEquals(JOB.toString(), meta.get("jobId").asText());
         assertEquals(ROOT, meta.get("sessions").get(0).get("sessionId").asText());
         assertTrue(meta.get("sessions").get(0).get("root").asBoolean());
-        verify(workerService, never()).sendAgentFrame(any(), any(), any());
+        verify(workerClient, never()).sendAgentFrame(any(), any());
     }
 
     // ---- the agent asking a human ----
@@ -343,9 +356,9 @@ class AgentServiceTest {
 
         send(viewer, prompt(7, ROOT));
 
-        var order = inOrder(transcript, workerService);
+        var order = inOrder(transcript, workerClient);
         order.verify(transcript).record(eq(ROOT_ROW), any(), eq("session/prompt"), any(UUID.class), any());
-        order.verify(workerService).sendAgentFrame(eq(WORKER), eq(JOB), any());
+        order.verify(workerClient).sendAgentFrame(eq(JOB), any());
     }
 
     // ---- helpers ----
@@ -398,7 +411,7 @@ class AgentServiceTest {
 
     private List<JsonNode> allToAgent() {
         var frames = ArgumentCaptor.forClass(JsonNode.class);
-        verify(workerService, atLeastOnce()).sendAgentFrame(eq(WORKER), eq(JOB), frames.capture());
+        verify(workerClient, atLeastOnce()).sendAgentFrame(eq(JOB), frames.capture());
         return frames.getAllValues();
     }
 

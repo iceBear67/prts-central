@@ -34,7 +34,7 @@ public record TaskVolumeView(
                 volume.getId(),
                 volume.getName(),
                 mount.getMountPoint(),
-                volume.getWorkerEntity().getId(),
+                volume.getWorker().getId(),
                 volume.getLength(),
                 volume.getState());
     }
