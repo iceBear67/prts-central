@@ -1,6 +1,8 @@
 package io.ib67.prts.agent.worker;
 
+import io.ib67.prts.agent.worker.message.ClientboundEnvelope;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.storage.ArtifactService;
 import io.ib67.prts.job.JobService;
@@ -40,79 +42,97 @@ public class WorkerWebSocket {
         workerService.unregisterWorker(UUID.fromString(idStr), connection);
     }
 
+    /**
+     * Answers every message the worker asks, and nothing else.
+     *
+     * <p>Nothing here may wait for this worker's answer to something: the endpoint reads a
+     * connection's next message only once this returns, so such a wait can never be satisfied.
+     */
     @OnTextMessage
     @Blocking
-    public ClientboundMessage acceptMessage(ServerboundMessage message) {
-        if (message instanceof ServerboundMessage.Register register) {
-            if (connection.userData().get(INTERNAL_WORKER_ID) == null) {
-                return null;
+    public ClientboundEnvelope acceptMessage(ServerboundEnvelope envelope) {
+        if (envelope.replyTo() != null) {
+            if (connection.userData().get(INTERNAL_WORKER_ID) != null) {
+                workerService.getWorker(workerId()).ifPresent(worker -> worker.getClient().complete(envelope));
             }
+            return null;
+        }
+        try {
+            return envelope.reply(handle(envelope.message()));
+        } catch (RuntimeException e) {
+            LOG.errorf(e, "cannot handle %s from worker %s",
+                    envelope.message().getClass().getSimpleName(),
+                    connection.userData().get(INTERNAL_WORKER_ID));
+            return envelope.reply(new ClientboundMessage.Ack(false, String.valueOf(e.getMessage())));
+        }
+    }
+
+    // Reached only when the envelope itself could not be decoded, which leaves no id to answer.
+    @OnError
+    public ClientboundEnvelope onError(Throwable error) {
+        LOG.errorf(error, "cannot decode a message from worker %s",
+                connection.userData().get(INTERNAL_WORKER_ID));
+        return ClientboundEnvelope.of(new ClientboundMessage.Ack(false, String.valueOf(error.getMessage())));
+    }
+
+    private ClientboundMessage handle(ServerboundMessage message) {
+        if (message instanceof ServerboundMessage.Register register) {
             return handleWorkerRegister(register);
         }
         if (connection.userData().get(INTERNAL_WORKER_ID) == null) {
-            return new ClientboundMessage.Response(false, "not registered");
+            return new ClientboundMessage.Ack(false, "not registered");
         }
         eventBus.publish(WorkerEvent.SERVERBOUND_EVENT, new WorkerEvent.C2S(workerId(), message));
         return switch (message) {
             case ServerboundMessage.Register r -> handleWorkerRegister(r);
             case ServerboundMessage.UpdateJobLog u -> handleUpdateJobLog(u);
             case ServerboundMessage.UpdateResourceInfo u -> handleUpdateResourceInfo(u);
-            case ServerboundMessage.JobCreated created -> handleActionResponse(created);
-            case ServerboundMessage.VolumeAck ack -> handleActionResponse(ack);
             case ServerboundMessage.JobStateUpdate u -> handleJobStateUpdate(u);
             case ServerboundMessage.UploadArtifactRequest r -> handleUploadArtifactRequest(r);
-            default -> null;
+            // The agent messages are served by AgentService off the event bus above; this says they
+            // were received and dispatched.
+            case ServerboundMessage.AgentAttached ignored -> new ClientboundMessage.Ack(true, "");
+            case ServerboundMessage.AgentFrame ignored -> new ClientboundMessage.Ack(true, "");
+            case ServerboundMessage.AgentDetached ignored -> new ClientboundMessage.Ack(true, "");
+            case ServerboundMessage.Ack ignored ->
+                    new ClientboundMessage.Ack(false, "an acknowledgment must name what it answers");
+            case ServerboundMessage.Unknown ignored ->
+                    new ClientboundMessage.Ack(false, "unknown message type");
         };
-    }
-
-    @OnError
-    public ClientboundMessage onError(Throwable error) {
-        LOG.errorf(error, "cannot handle a message from worker %s: %v",
-                connection.userData().get(INTERNAL_WORKER_ID), error);
-        return new ClientboundMessage.Response(false, error.getMessage());
     }
 
     private ClientboundMessage handleWorkerRegister(ServerboundMessage.Register r) {
         if (connection.userData().get(INTERNAL_WORKER_ID) != null)
-            return new ClientboundMessage.Response(false, "already registered on this connection");
+            return new ClientboundMessage.Ack(false, "already registered on this connection");
         try {
             workerService.registerWorker(
                     r.workerId(), new Worker(r.name(), new WorkerClient(connection), r.info()));
         } catch (IllegalStateException e) {
             // Registration rejected (e.g. duplicate active session); connection remains unregistered.
-            return new ClientboundMessage.Response(false, e.getMessage());
+            return new ClientboundMessage.Ack(false, e.getMessage());
         }
         connection.userData().put(INTERNAL_WORKER_ID, r.workerId().toString());
-        return new ClientboundMessage.Response(true, "");
+        return new ClientboundMessage.Ack(true, "");
     }
 
     private ClientboundMessage handleUpdateJobLog(ServerboundMessage.UpdateJobLog u) {
         try {
             jobService.appendLog(u.jobId(), u.topic(), u.message(), u.error());
-            return new ClientboundMessage.Response(true, "");
+            return new ClientboundMessage.Ack(true, "");
         } catch (NoSuchElementException | IllegalStateException e) {
             LOG.errorf("cannot update job log for job %s: %s", u.jobId(), e.getMessage());
-            return new ClientboundMessage.Response(false, e.getMessage());
+            return new ClientboundMessage.Ack(false, e.getMessage());
         }
     }
 
     private ClientboundMessage handleUpdateResourceInfo(ServerboundMessage.UpdateResourceInfo u) {
         workerService.getWorker(workerId()).ifPresent(worker -> worker.setInfo(u.info()));
-        return new ClientboundMessage.Response(true, "updated");
-    }
-
-    private <T extends ServerboundMessage & ServerboundMessage.ActionResponse>
-    ClientboundMessage handleActionResponse(T created) {
-        var accepted = workerService.getWorker(workerId())
-                .map(worker -> worker.client.getRequest(created.requestId()))
-                .map(it -> it.complete(created))
-                .orElse(false);
-        return new ClientboundMessage.Response(accepted, accepted ? "" : "not registered");
+        return new ClientboundMessage.Ack(true, "updated");
     }
 
     private ClientboundMessage handleJobStateUpdate(ServerboundMessage.JobStateUpdate u) {
         jobService.applyState(u.jobId(), u.state());
-        return new ClientboundMessage.Response(true, "");
+        return new ClientboundMessage.Ack(true, "");
     }
 
     private ClientboundMessage handleUploadArtifactRequest(ServerboundMessage.UploadArtifactRequest r) {
@@ -120,10 +140,10 @@ public class WorkerWebSocket {
             return artifactService.begin(workerId(), r.jobId(), r.name(), r.sizeBytes());
         } catch (NoSuchElementException | IllegalStateException | IllegalArgumentException e) {
             LOG.errorf("cannot begin artifact upload for job %s: %s", r.jobId(), e.getMessage());
-            return new ClientboundMessage.Response(false, e.getMessage());
+            return new ClientboundMessage.Ack(false, e.getMessage());
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot begin artifact upload for job %s", r.jobId());
-            return new ClientboundMessage.Response(false, e.getMessage() == null ? "upload failed" : e.getMessage());
+            return new ClientboundMessage.Ack(false, e.getMessage() == null ? "upload failed" : e.getMessage());
         }
     }
 

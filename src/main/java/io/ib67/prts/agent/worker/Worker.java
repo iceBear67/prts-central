@@ -6,6 +6,8 @@ import lombok.*;
 @Getter
 public class Worker {
     protected final String name;
+    /** Package-private: everything outside reaches a worker through {@link WorkerService}. */
+    @Getter(AccessLevel.PACKAGE)
     protected final WorkerClient client;
     /** Null indicates unbounded resources and no pending jobs. */
     @Setter

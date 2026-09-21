@@ -1,9 +1,11 @@
 package io.ib67.prts.agent.worker;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerEntity;
 import io.ib67.prts.agent.worker.entity.WorkerVolume;
+import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.dto.WorkerRemovalView;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.JobService;
@@ -18,11 +20,13 @@ import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
 @ApplicationScoped
@@ -33,13 +37,76 @@ public class WorkerService {
     JobService jobService;
     @Inject
     EventBus eventBus;
+    @Inject
+    WorkerConfig workerConfig;
 
     private final Map<UUID, Worker> activeWorkers = new ConcurrentHashMap<>();
     WorkerScheduler scheduler;
 
     @PostConstruct
     private void postConstruct() {
-        scheduler = new WorkerScheduler(activeWorkers, eventBus);
+        scheduler = new WorkerScheduler(activeWorkers, eventBus, this);
+    }
+
+    /**
+     * Sends a job to a worker. The future completes once the worker accepts it.
+     */
+    public CompletableFuture<Void> createJob(UUID workerId, UUID jobId, JobSpec spec, ResourceClass resourceClass) {
+        // Secrets are extracted explicitly because JobSpec.secret is excluded from serialization.
+        return call(workerId, new ClientboundMessage.CreateJob(jobId, spec, resourceClass, spec.secret()),
+                workerConfig.timeout().createJob());
+    }
+
+    /**
+     * Asks a worker to stop a running job.
+     */
+    public CompletableFuture<Void> cancelJob(UUID workerId, UUID jobId) {
+        return call(workerId, new ClientboundMessage.CancelJob(jobId), workerConfig.timeout().cancelJob());
+    }
+
+    /**
+     * Instructs a worker to terminate and discard a job immediately.
+     */
+    public CompletableFuture<Void> interruptJob(UUID workerId, UUID jobId, String reason) {
+        return call(workerId, new ClientboundMessage.InterruptJob(jobId, reason),
+                workerConfig.timeout().interruptJob());
+    }
+
+    /**
+     * Asks a worker to allocate a volume.
+     */
+    public CompletableFuture<Void> createVolume(
+            UUID workerId, UUID volumeId, UUID projectId, String name, long sizeBytes) {
+        return call(workerId, new ClientboundMessage.CreateVolume(volumeId, projectId, name, sizeBytes),
+                workerConfig.timeout().volume());
+    }
+
+    /**
+     * Asks a worker to discard a volume and its data.
+     */
+    public CompletableFuture<Void> deleteVolume(UUID workerId, UUID volumeId) {
+        return call(workerId, new ClientboundMessage.DeleteVolume(volumeId), workerConfig.timeout().volume());
+    }
+
+    /**
+     * Dispatches one ACP frame to a job's agent.
+     */
+    public CompletableFuture<Void> sendAgentFrame(UUID workerId, UUID jobId, JsonNode frame) {
+        return call(workerId, new ClientboundMessage.AgentFrame(jobId, frame), workerConfig.timeout().agentFrame());
+    }
+
+    /**
+     * Sends one message to a worker. The future completes when the worker acknowledges it, and
+     * completes exceptionally if the worker refuses it or does not answer within {@code timeout}.
+     *
+     * @throws NoSuchElementException if the worker holds no live session
+     */
+    private CompletableFuture<Void> call(UUID workerId, ClientboundMessage message, Duration timeout) {
+        return getWorker(workerId)
+                .orElseThrow(() -> new NoSuchElementException("worker " + workerId + " is not connected"))
+                .getClient().call(message, timeout)
+                .thenAccept(answer -> {
+                });
     }
 
     public Map<UUID, Worker> getActiveWorkers() {
@@ -120,7 +187,7 @@ public class WorkerService {
     public void disconnect(UUID id) {
         var worker = activeWorkers.get(id);
         if (worker != null) {
-            worker.getClient().close();
+            worker.getClient().close(workerConfig.timeout().close());
         }
     }
 

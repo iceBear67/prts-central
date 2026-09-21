@@ -5,7 +5,7 @@
 Plaintext secrets are never stored in the database or serialized inside `job.spec` jsonb:
 - **Annotation**: `JobSpec#secret` is annotated with `@JsonIgnore` and excluded from all standard spec serializations.
 - **In-Memory Injection**: `JobLauncher.prepare` resolves project secrets and attaches them to a transient copy of `JobSpec` via `withSecret(...)`.
-- **Worker Delivery**: `WorkerClient.createJob` transfers secrets explicitly in `CreateJob.secrets`.
+- **Worker Delivery**: `WorkerService.createJob` transfers secrets explicitly in `CreateJob.secrets`.
 - **Log & View Safety**: `JobSpec#toString` prints secret counts rather than values; `JobView.SpecView` omits secrets.
 
 ## Templates & Resource Classes

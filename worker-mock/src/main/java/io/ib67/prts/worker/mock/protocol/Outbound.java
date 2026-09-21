@@ -19,18 +19,32 @@ import java.util.UUID;
         property = "type"
 )
 @JsonSubTypes({
+        @JsonSubTypes.Type(value = Outbound.Ack.class, name = "ack"),
         @JsonSubTypes.Type(value = Outbound.Register.class, name = "register"),
         @JsonSubTypes.Type(value = Outbound.UpdateResourceInfo.class, name = "updateResourceInfo"),
-        @JsonSubTypes.Type(value = Outbound.JobCreated.class, name = "jobCreated"),
         @JsonSubTypes.Type(value = Outbound.JobStateUpdate.class, name = "jobStateUpdate"),
         @JsonSubTypes.Type(value = Outbound.UpdateJobLog.class, name = "updateJobLog"),
         @JsonSubTypes.Type(value = Outbound.UploadArtifactRequest.class, name = "uploadArtifactRequest"),
-        @JsonSubTypes.Type(value = Outbound.VolumeAck.class, name = "volumeAck"),
         @JsonSubTypes.Type(value = Outbound.AgentAttached.class, name = "agentAttached"),
         @JsonSubTypes.Type(value = Outbound.AgentFrame.class, name = "agentFrame"),
         @JsonSubTypes.Type(value = Outbound.AgentDetached.class, name = "agentDetached"),
 })
 public sealed interface Outbound {
+
+    /**
+     * Answers one message the control plane sent, named by the envelope's {@code replyTo}.
+     *
+     * <p>This is what accepts a {@code createJob}, a {@code createVolume} or a {@code deleteVolume}.
+     * The control plane blocks on the acceptance of a job for up to 30 seconds and places nothing
+     * until it arrives.
+     *
+     * @param message why it was refused; ignored when {@code ok}
+     */
+    record Ack(boolean ok, String message) implements Outbound {
+        public Ack {
+            Objects.requireNonNull(message, "message");
+        }
+    }
 
     /**
      * Announces this worker under an id it asserts for itself.
@@ -48,17 +62,6 @@ public sealed interface Outbound {
     record UpdateResourceInfo(ResourceInfo info) implements Outbound {
         public UpdateResourceInfo {
             Objects.requireNonNull(info, "info");
-        }
-    }
-
-    /**
-     * Accepts a {@code createJob} request.
-     *
-     * <p>The control plane blocks for up to 30 seconds on this, and places nothing until it arrives.
-     */
-    record JobCreated(UUID requestId) implements Outbound {
-        public JobCreated {
-            Objects.requireNonNull(requestId, "requestId");
         }
     }
 
@@ -86,17 +89,6 @@ public sealed interface Outbound {
         public UploadArtifactRequest {
             Objects.requireNonNull(jobId, "jobId");
             Objects.requireNonNull(name, "name");
-        }
-    }
-
-    /**
-     * Acknowledges a {@code createVolume} or {@code deleteVolume} request.
-     *
-     * @param message why it was refused; ignored when {@code ok}
-     */
-    record VolumeAck(UUID requestId, boolean ok, String message) implements Outbound {
-        public VolumeAck {
-            Objects.requireNonNull(requestId, "requestId");
         }
     }
 

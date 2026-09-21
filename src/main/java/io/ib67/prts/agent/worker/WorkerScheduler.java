@@ -32,10 +32,12 @@ final class WorkerScheduler {
     private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
 
     private final Map<UUID, Worker> workers;
+    private final WorkerService service;
     private final Set<UUID> lockedWorkers = ConcurrentHashMap.newKeySet();
 
-    WorkerScheduler(Map<UUID, Worker> workers, EventBus bus) {
+    WorkerScheduler(Map<UUID, Worker> workers, EventBus bus, WorkerService service) {
         this.workers = workers;
+        this.service = service;
         bus.consumer(WorkerEvent.OFFLINE, m -> onWorkerRemoved((UUID) m.body()));
     }
 
@@ -64,9 +66,8 @@ final class WorkerScheduler {
                 return "no available worker can run this job";
             }
             var pick = selected.get();
-            var worker = pick.worker();
-            worker.getClient().createJob(jobId, spec, required)
-                    .whenComplete((job, throwable) -> {
+            service.createJob(pick.workerId(), jobId, spec, required)
+                    .whenComplete((accepted, throwable) -> {
                         unlock(pick.workerId());
                         if (throwable != null) {
                             cancelQuietly(pick, jobId);
@@ -129,7 +130,13 @@ final class WorkerScheduler {
 
     private void cancelQuietly(Selection pick, UUID jobId) {
         try {
-            pick.worker().getClient().cancelJob(jobId).subscribe().with(result -> {
+            // Not joined: a placement that timed out completes on the timeout scheduler, which must
+            // not be held for the length of another call.
+            service.cancelJob(pick.workerId(), jobId).whenComplete((told, failure) -> {
+                if (failure != null) {
+                    LOG.errorf(failure, "job %s was cancelled but worker %s could not be told",
+                            jobId, pick.workerId());
+                }
             });
         } catch (RuntimeException e) {
             LOG.errorf(e, "job %s was cancelled but worker %s could not be told", jobId, pick.workerId());

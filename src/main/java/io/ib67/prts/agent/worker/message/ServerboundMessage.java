@@ -16,23 +16,36 @@ import java.util.UUID;
 @JsonTypeInfo(
         use = JsonTypeInfo.Id.NAME,
         include = JsonTypeInfo.As.PROPERTY,
-        property = "type"
+        property = "type",
+        // A type this version has never heard of decodes to Unknown rather than failing the whole
+        // envelope, so the worker gets a refusal naming its message instead of waiting for a timeout.
+        defaultImpl = ServerboundMessage.Unknown.class
 )
 @JsonSubTypes({
+        @JsonSubTypes.Type(value = ServerboundMessage.Ack.class, name = "ack"),
         @JsonSubTypes.Type(value = ServerboundMessage.Register.class, name = "register"),
         @JsonSubTypes.Type(value = ServerboundMessage.UpdateJobLog.class, name = "updateJobLog"),
         @JsonSubTypes.Type(value = ServerboundMessage.UpdateResourceInfo.class, name = "updateResourceInfo"),
-        @JsonSubTypes.Type(value = ServerboundMessage.JobCreated.class, name = "jobCreated"),
         @JsonSubTypes.Type(value = ServerboundMessage.JobStateUpdate.class, name = "jobStateUpdate"),
         @JsonSubTypes.Type(value = ServerboundMessage.UploadArtifactRequest.class, name = "uploadArtifactRequest"),
-        @JsonSubTypes.Type(value = ServerboundMessage.VolumeAck.class, name = "volumeAck"),
         @JsonSubTypes.Type(value = ServerboundMessage.AgentAttached.class, name = "agentAttached"),
         @JsonSubTypes.Type(value = ServerboundMessage.AgentFrame.class, name = "agentFrame"),
         @JsonSubTypes.Type(value = ServerboundMessage.AgentDetached.class, name = "agentDetached"),
 })
 public sealed interface ServerboundMessage {
-    interface ActionResponse {
-        UUID requestId();
+    /**
+     * Answers one message the control plane sent, named by the envelope's {@code replyTo}.
+     *
+     * @param message failure explanation if {@code ok} is false
+     */
+    record Ack(boolean ok, String message) implements ServerboundMessage {
+        public Ack {
+            Objects.requireNonNull(message, "message");
+        }
+    }
+
+    /** A message type this version does not know. */
+    record Unknown() implements ServerboundMessage {
     }
 
     record Register(UUID workerId, String name, @Nullable Worker.Info info)
@@ -56,15 +69,6 @@ public sealed interface ServerboundMessage {
         }
     }
 
-    /**
-     * Acknowledges receipt of a job creation request.
-     */
-    record JobCreated(UUID requestId) implements ServerboundMessage, ActionResponse {
-        public JobCreated {
-            Objects.requireNonNull(requestId, "requestId");
-        }
-    }
-
     record JobStateUpdate(UUID jobId, JobState state) implements ServerboundMessage {
         public JobStateUpdate {
             Objects.requireNonNull(jobId, "jobId");
@@ -76,17 +80,6 @@ public sealed interface ServerboundMessage {
         public UploadArtifactRequest {
             Objects.requireNonNull(jobId, "jobId");
             Objects.requireNonNull(name, "name");
-        }
-    }
-
-    /**
-     * Acknowledgment for {@link ClientboundMessage.CreateVolume} or {@link ClientboundMessage.DeleteVolume}.
-     *
-     * @param message failure explanation if {@code ok} is false
-     */
-    record VolumeAck(UUID requestId, boolean ok, @Nullable String message) implements ServerboundMessage, ActionResponse {
-        public VolumeAck {
-            Objects.requireNonNull(requestId, "requestId");
         }
     }
 

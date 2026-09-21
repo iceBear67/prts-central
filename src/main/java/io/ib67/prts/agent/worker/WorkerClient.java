@@ -1,26 +1,29 @@
 package io.ib67.prts.agent.worker;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import io.ib67.prts.agent.job.JobSpec;
-import io.ib67.prts.agent.worker.entity.ResourceClass;
+import io.ib67.prts.agent.worker.message.ClientboundEnvelope;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.quarkus.arc.ClientProxy;
 import io.quarkus.websockets.next.WebSocketConnection;
-import io.smallrye.mutiny.Uni;
-import jakarta.annotation.Nullable;
+import org.jboss.logging.Logger;
 
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
+/**
+ * One worker's side of the wire. Everything it can be asked goes through {@link #call}; the named
+ * operations live on {@link WorkerService}.
+ */
 public final class WorkerClient {
-    private static final Duration SEND_TIMEOUT = Duration.ofSeconds(5);
+    private static final Logger LOG = Logger.getLogger(WorkerClient.class);
 
     private final WebSocketConnection conn;
-    // Pending acknowledgments keyed by request ID: job creation and volume operations share the table.
+    /** Answers still owed to us, keyed by the envelope id the worker must reply to. */
     private final Map<UUID, CompletableFuture<ServerboundMessage>> outstanding = new ConcurrentHashMap<>();
 
     // Unwraps the client proxy so messages can be sent outside the WebSocket request context.
@@ -43,64 +46,45 @@ public final class WorkerClient {
     }
 
     /**
-     * Sends a create job request to the worker and blocks until acknowledged.
-     */
-    public CompletableFuture<ServerboundMessage.JobCreated> createJob(UUID jobId, JobSpec spec, ResourceClass resourceClass) {
-        var requestId = UUID.randomUUID();
-        // Secrets are extracted explicitly because JobSpec.secret is excluded from serialization.
-        return uniWithTrack(requestId, new ClientboundMessage.CreateJob(requestId, jobId, spec, resourceClass, spec.secret()))
-                .thenApply(it -> (ServerboundMessage.JobCreated) it);
-    }
-
-    /**
-     * Asks the worker to allocate a volume and blocks until acknowledged.
+     * Sends one message and completes when the worker answers it.
      *
-     * @return
-     */
-    public CompletableFuture<ServerboundMessage.VolumeAck> createVolume(UUID volumeId, UUID projectId, String name, long sizeBytes) {
-        var requestId = UUID.randomUUID();
-        return uniWithTrack(requestId, new ClientboundMessage.CreateVolume(requestId, volumeId, projectId, name, sizeBytes))
-                .thenApply(it -> (ServerboundMessage.VolumeAck) it);
-    }
-
-    /**
-     * Asks the worker to discard a volume and blocks until acknowledged.
+     * <p>A refusal is a failure of the operation, so an {@code Ack(ok = false)} completes the future
+     * exceptionally carrying the worker's own explanation; so do a send that never left, and an
+     * answer that does not arrive within {@code timeout}.
      *
-     * @return
+     * <p>Never wait on the returned future from a {@code @OnTextMessage} handler of this same
+     * connection: the endpoint processes a connection's messages one at a time, so the answer being
+     * waited for cannot be read until the handler returns.
      */
-    public CompletableFuture<ServerboundMessage.VolumeAck> deleteVolume(UUID volumeId) {
-        var requestId = UUID.randomUUID();
-        return uniWithTrack(requestId, new ClientboundMessage.DeleteVolume(requestId, volumeId))
-                .thenApply(it -> (ServerboundMessage.VolumeAck) it);
+    public CompletableFuture<ServerboundMessage> call(ClientboundMessage message, Duration timeout) {
+        var envelope = ClientboundEnvelope.of(message);
+        var future = new CompletableFuture<ServerboundMessage>();
+        outstanding.put(envelope.id(), future);
+        conn.sendText(envelope).onFailure().invoke(future::completeExceptionally).subscribe().with(i -> {
+        });
+        future.orTimeout(timeout.toMillis(), TimeUnit.MILLISECONDS);
+        // Drops the entry however this ends: answered, refused, timed out, or never sent.
+        return future.whenComplete((answer, failure) -> outstanding.remove(envelope.id()));
     }
 
     /**
-     * Sends a cancellation request to the worker.
+     * Hands an answer to whoever is waiting for it.
      *
-     * @return
+     * <p>Nothing waits for the answer to a message that was sent without joining its future, which
+     * is why an unclaimed answer is only logged.
      */
-    public Uni<Void> cancelJob(UUID jobId) {
-        return conn.sendText(new ClientboundMessage.CancelJob(jobId));
-    }
-
-    /**
-     * Dispatches an unacknowledged ACP frame to the job's agent.
-     *
-     * @return
-     */
-    public Uni<Void> sendAgentFrame(UUID jobId, JsonNode frame) {
-        return conn.sendText(new ClientboundMessage.AgentFrame(jobId, frame));
-    }
-
-    public void sendMessage(ClientboundMessage message) {
-        conn.sendText(message).subscribe().with(t -> {});
-    }
-
-    /**
-     * Instructs the worker to terminate and discard the job immediately.
-     */
-    public Uni<Void> interruptJob(UUID jobId, String reason) {
-        return conn.sendText(new ClientboundMessage.InterruptJob(jobId, reason));
+    void complete(ServerboundEnvelope envelope) {
+        var waiting = outstanding.remove(envelope.replyTo());
+        if (waiting == null) {
+            LOG.debugf("worker answered %s, which nobody is waiting for", envelope.replyTo());
+            return;
+        }
+        if (envelope.message() instanceof ServerboundMessage.Ack(var ok, var reason) && !ok) {
+            waiting.completeExceptionally(new IllegalStateException(
+                    reason.isEmpty() ? "the worker refused the request" : reason));
+            return;
+        }
+        waiting.complete(envelope.message());
     }
 
     public void failAll(Throwable reason) {
@@ -112,22 +96,7 @@ public final class WorkerClient {
     /**
      * Closes the WebSocket session.
      */
-    void close() {
-        conn.close().await().atMost(SEND_TIMEOUT);
-    }
-
-    CompletableFuture<ServerboundMessage> getRequest(UUID requestId) {
-        return outstanding.get(requestId);
-    }
-
-    /**
-     * Sends a request and blocks until the worker acknowledges it.
-     */
-    private CompletableFuture<ServerboundMessage> uniWithTrack(UUID requestId, ClientboundMessage message) {
-        var future = new CompletableFuture<ServerboundMessage>();
-        outstanding.put(requestId, future);
-        conn.sendText(message).onFailure().invoke(future::completeExceptionally).subscribe().with(i -> {
-        });
-        return future;
+    void close(Duration timeout) {
+        conn.close().await().atMost(timeout);
     }
 }

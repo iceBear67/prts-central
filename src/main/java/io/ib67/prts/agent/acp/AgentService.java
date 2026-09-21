@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.LongNode;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.acp.entity.AgentDirection;
-import io.ib67.prts.agent.worker.Worker;
 import io.ib67.prts.agent.worker.WorkerEvent;
 import io.ib67.prts.agent.worker.WorkerService;
-import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.quarkus.vertx.ConsumeEvent;
 import io.quarkus.websockets.next.WebSocketConnection;
@@ -16,7 +14,6 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import org.jboss.logging.Logger;
 
-import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.UUID;
@@ -58,9 +55,9 @@ public class AgentService {
     @Inject
     AcpConfig acpConfig;
 
+    // WorkerWebSocket already answered the worker; a failure here reaches nobody but the log.
     @ConsumeEvent(WorkerEvent.SERVERBOUND_EVENT)
     void onWorkerEvent(WorkerEvent.C2S message) {
-        var worker = workerService.getWorker(message.worker()).map(Worker::getClient);
         try {
             switch (message.message()) {
                 case ServerboundMessage.AgentAttached a ->
@@ -70,11 +67,9 @@ public class AgentService {
                 default -> {
                 }
             }
-            worker.ifPresent(it -> it.sendMessage(new ClientboundMessage.Response(true, "")));
         } catch (Exception ex) {
             //todo better logging
             LOG.error("error occurred when handling event from %s", message.worker(), ex);
-            worker.ifPresent(it -> it.sendMessage(new ClientboundMessage.Response(false, ex.getMessage())));
         }
     }
 
@@ -203,12 +198,20 @@ public class AgentService {
         }
     }
 
+    /**
+     * Hands one frame to the job's worker.
+     *
+     * <p>The worker's acknowledgment is not waited for: this runs while a viewer or an agent frame
+     * is being served, and a round trip per frame would stall that path. The return value says the
+     * worker was connected and the frame went out.
+     */
     private boolean forwardToAgent(AgentChannel channel, AcpFrame frame) {
         try {
-            workerService.getWorker(channel.workerId()).map(Worker::getClient)
-                    .orElseThrow()
-                    .sendAgentFrame(channel.jobId(), frame.json())
-                    .await().atMost(Duration.ofSeconds(3)); //todo should we await?
+            workerService.sendAgentFrame(channel.workerId(), channel.jobId(), frame.json())
+                    .exceptionally(failure -> {
+                        LOG.debugf(failure, "job %s: the worker did not acknowledge a frame", channel.jobId());
+                        return null;
+                    });
             return true;
         } catch (RuntimeException e) {
             LOG.errorf(e, "job %s: cannot reach its agent on worker %s",

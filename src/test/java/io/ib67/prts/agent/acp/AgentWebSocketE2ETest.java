@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.ib67.prts.Perm;
 import io.ib67.prts.agent.acp.entity.AgentSession;
 import io.ib67.prts.agent.worker.WorkerService;
+import io.ib67.prts.agent.worker.message.ClientboundEnvelope;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.Job;
@@ -373,11 +375,11 @@ class AgentWebSocketE2ETest {
     }
 
     /**
-     * A mock worker. Acknowledgments and agent frames share the connection, so the two are split as
-     * they arrive rather than assuming the next message answers the last send.
+     * A mock worker. Acknowledgments and agent frames share the connection, and each is told apart
+     * by the envelope it arrives in: an acknowledgment names what it answers, a frame names nothing.
      */
     private final class WorkerSession {
-        private final BlockingQueue<ClientboundMessage.Response> responses = new LinkedBlockingQueue<>();
+        private final BlockingQueue<ClientboundMessage.Ack> acks = new LinkedBlockingQueue<>();
         private final BlockingQueue<ClientboundMessage.AgentFrame> frames = new LinkedBlockingQueue<>();
         private final WebSocket socket;
 
@@ -391,9 +393,14 @@ class AgentWebSocketE2ETest {
 
         private void accept(String text) {
             try {
-                switch (mapper.readValue(text, ClientboundMessage.class)) {
-                    case ClientboundMessage.Response response -> responses.add(response);
-                    case ClientboundMessage.AgentFrame frame -> frames.add(frame);
+                var envelope = mapper.readValue(text, ClientboundEnvelope.class);
+                switch (envelope.message()) {
+                    case ClientboundMessage.Ack ack -> acks.add(ack);
+                    case ClientboundMessage.AgentFrame frame -> {
+                        frames.add(frame);
+                        send(new ServerboundEnvelope(
+                                UUID.randomUUID(), envelope.id(), new ServerboundMessage.Ack(true, "")));
+                    }
                     default -> fail("the worker was sent something this test does not expect: " + text);
                 }
             } catch (Exception e) {
@@ -401,20 +408,24 @@ class AgentWebSocketE2ETest {
             }
         }
 
-        private ClientboundMessage.Response call(ServerboundMessage message) {
-            try {
-                socket.sendText(
-                        mapper.writerFor(ServerboundMessage.class).writeValueAsString(message), true)
-                        .join();
-            } catch (Exception e) {
-                throw new AssertionError(e);
-            }
-            return poll(responses, "no acknowledgment");
+        private ClientboundMessage.Ack call(ServerboundMessage message) {
+            send(new ServerboundEnvelope(UUID.randomUUID(), null, message));
+            return poll(acks, "no acknowledgment");
         }
 
         /** Sends a message whose acknowledgment the test does not care about. */
         private void push(ServerboundMessage message) {
             assertTrue(call(message).ok());
+        }
+
+        // Answers travel from the listener thread while the test sends from its own, and one socket
+        // takes one write at a time.
+        private synchronized void send(ServerboundEnvelope envelope) {
+            try {
+                socket.sendText(mapper.writeValueAsString(envelope), true).join();
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
         }
 
         private ClientboundMessage.AgentFrame takeAgentFrame() {

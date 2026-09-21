@@ -17,7 +17,7 @@ import java.util.UUID;
         property = "type"
 )
 @JsonSubTypes({
-        @JsonSubTypes.Type(value = ClientboundMessage.Response.class, name = "result"),
+        @JsonSubTypes.Type(value = ClientboundMessage.Ack.class, name = "ack"),
         @JsonSubTypes.Type(value = ClientboundMessage.CreateJob.class, name = "createJob"),
         @JsonSubTypes.Type(value = ClientboundMessage.CancelJob.class, name = "cancelJob"),
         @JsonSubTypes.Type(value = ClientboundMessage.InterruptJob.class, name = "interruptJob"),
@@ -27,8 +27,13 @@ import java.util.UUID;
         @JsonSubTypes.Type(value = ClientboundMessage.AgentFrame.class, name = "agentFrame"),
 })
 public sealed interface ClientboundMessage {
-    record Response(boolean ok, String message) implements ClientboundMessage {
-        public Response {
+    /**
+     * Answers one message the worker sent, named by the envelope's {@code replyTo}.
+     *
+     * @param message failure explanation if {@code ok} is false
+     */
+    record Ack(boolean ok, String message) implements ClientboundMessage {
+        public Ack {
             Objects.requireNonNull(message, "message");
         }
     }
@@ -40,14 +45,12 @@ public sealed interface ClientboundMessage {
      * @param secrets Decrypted secrets needed for the job.
      */
     record CreateJob(
-            UUID requestId,
             UUID jobId,
             JobSpec spec,
             ResourceClass resourceClass,
             Map<String, String> secrets
     ) implements ClientboundMessage {
         public CreateJob {
-            Objects.requireNonNull(requestId, "requestId");
             Objects.requireNonNull(jobId, "jobId");
             Objects.requireNonNull(spec, "spec");
             Objects.requireNonNull(resourceClass, "resourceClass");
@@ -70,20 +73,14 @@ public sealed interface ClientboundMessage {
         }
     }
 
-    /**
-     * Instructs a worker to allocate a storage volume.
-     *
-     * <p>Answered with {@link ServerboundMessage.VolumeAck} carrying the same {@code requestId}.
-     */
+    /** Instructs a worker to allocate a storage volume. */
     record CreateVolume(
-            UUID requestId,
             UUID volumeId,
             UUID projectId,
             String name,
             long sizeBytes
     ) implements ClientboundMessage {
         public CreateVolume {
-            Objects.requireNonNull(requestId, "requestId");
             Objects.requireNonNull(volumeId, "volumeId");
             Objects.requireNonNull(projectId, "projectId");
             Objects.requireNonNull(name, "name");
@@ -91,14 +88,13 @@ public sealed interface ClientboundMessage {
     }
 
     /** Instructs a worker to delete a volume and its data. */
-    record DeleteVolume(UUID requestId, UUID volumeId) implements ClientboundMessage {
+    record DeleteVolume(UUID volumeId) implements ClientboundMessage {
         public DeleteVolume {
-            Objects.requireNonNull(requestId, "requestId");
             Objects.requireNonNull(volumeId, "volumeId");
         }
     }
 
-    /** Unacknowledged JSON-RPC frame dispatched to a job's ACP agent. */
+    /** JSON-RPC frame dispatched to a job's ACP agent. */
     record AgentFrame(UUID jobId, JsonNode frame) implements ClientboundMessage {
         public AgentFrame {
             Objects.requireNonNull(jobId, "jobId");

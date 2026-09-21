@@ -32,12 +32,10 @@ public interface JobRun {
     JobState state();
 
     /**
-     * Accepts the job by answering the {@code createJob} request with {@code jobCreated}.
+     * Accepts the job by answering its {@code createJob} envelope with {@code ack}.
      *
      * <p>The control plane blocks on this for 30 seconds before it gives up on the worker, so every
      * {@link JobScript} answers it first through {@link JobScript#acknowledge()}.
-     *
-     * @throws IllegalStateException if the control plane refuses the acceptance
      */
     void acknowledge();
 

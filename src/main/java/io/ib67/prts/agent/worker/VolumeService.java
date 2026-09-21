@@ -14,10 +14,8 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
-import java.time.Duration;
 import java.util.NoSuchElementException;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Allocates and releases project worker volumes.
@@ -25,10 +23,6 @@ import java.util.concurrent.TimeUnit;
 @ApplicationScoped
 public class VolumeService {
     private static final Logger LOG = Logger.getLogger(VolumeService.class);
-    // Volume operations may take longer than container startup. The bound matters because the wait
-    // sits between two committed transactions: without it a silent worker blocks the caller
-    // forever and the row never leaves PROVISIONING / RELEASING.
-    private static final Duration VOLUME_TIMEOUT = Duration.ofSeconds(60);
 
     @Inject
     ProjectService projectService;
@@ -57,10 +51,8 @@ public class VolumeService {
             volume.persist();
             return volume.getId();
         });
-        workerService.getWorker(workerId).orElseThrow()
-                .getClient().createVolume(volumeId, projectId, name, sizeBytes)
-                .orTimeout(VOLUME_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                .whenComplete((ack, t) -> {
+        workerService.createVolume(workerId, volumeId, projectId, name, sizeBytes)
+                .whenComplete((allocated, t) -> {
                     if (t != null) discard(volumeId);
                 }).join();
         return QuarkusTransaction.requiringNew().call(() -> {
@@ -91,10 +83,7 @@ public class VolumeService {
             volume.setState(VolumeState.RELEASING);
             return volume.getWorker().getId();
         });
-        workerService.getWorker(workerId).orElseThrow()
-                .getClient().deleteVolume(volumeId)
-                .orTimeout(VOLUME_TIMEOUT.toSeconds(), TimeUnit.SECONDS)
-                .join();
+        workerService.deleteVolume(workerId, volumeId).join();
         QuarkusTransaction.requiringNew().run(() -> WorkerVolume.deleteById(volumeId));
     }
 

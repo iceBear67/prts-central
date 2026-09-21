@@ -92,10 +92,10 @@ surfaced it is the only participant quick enough to answer and finish within mil
 `MockWorkerEntityE2ETest` asserts placement on a job it holds open rather than on one that has already
 finished, for this reason.
 
-Closing it means claiming before the acknowledgment is observable: `WorkerService.onJobCreated` would
-claim ahead of `completeCreate`, so the reply that unblocks the launcher goes out only once the
-placement is committed. That moves the claim — and the "cancelled while dispatching" compensation —
-onto the WebSocket thread, which is the part to think through.
+Closing it means claiming before the acknowledgment is observable: `WorkerClient.complete` would claim
+ahead of completing the future, so what unblocks the launcher happens only once the placement is
+committed. That moves the claim — and the "cancelled while dispatching" compensation — onto the
+WebSocket thread, which is the part to think through.
 
 ## An upload that lands in the last sweep of a job's life is dropped
 
@@ -117,8 +117,8 @@ workerEntity"), or keep the object until the presign expires and let the expiry 
 Remaining testing gaps and current constraints:
 
 - **Worker WebSocket protocol messages**: `Register` and `UpdateResourceInfo` are exercised by
-  `WorkerEntityWebSocketE2ETest`, and `jobCreated`, `jobStateUpdate`, `updateJobLog`, `uploadArtifactRequest`
-  and `volumeAck` — plus full `JobLauncher.launch()` execution — by `MockWorkerEntityE2ETest` over
+  `WorkerEntityWebSocketE2ETest`, and `ack`, `jobStateUpdate`, `updateJobLog` and `uploadArtifactRequest`
+  — plus full `JobLauncher.launch()` execution — by `MockWorkerEntityE2ETest` over
   [`workerEntity-mock`](workerEntity-mock/README.md). What is left is the agent's three messages
   (`AgentAttached`, `AgentFrame`, `AgentDetached`) arriving from a workerEntity:
   `AgentWebSocketE2ETest` drives the ACP socket, but no test yet runs a job's agent to the end of a

@@ -5,7 +5,7 @@ PRTS-Central avoids long-lived `@Transactional` boundaries because workerEntity 
 ## Standard Multi-Step Pattern
 
 1. **Prepare & Persist**: Use `QuarkusTransaction.requiringNew()` to commit state before external I/O (`JobLauncher.prepare`, `JobService.prepareCancel`).
-2. **External I/O**: Execute blocking RPCs or network calls outside of any active transaction (`WorkerClient.createJob`, S3 operations).
+2. **External I/O**: Execute blocking RPCs or network calls outside of any active transaction (`WorkerService.createJob`, S3 operations).
 3. **Compensation**: On failure or timeout, open a new `requiringNew()` transaction to transition state (`applyState(FAILED)`, release `JobLock`, requeue).
 
 ### Entity Fetching & Locking Rules
@@ -21,9 +21,9 @@ PRTS-Central avoids long-lived `@Transactional` boundaries because workerEntity 
 | `JobLauncher.authorize` | `requiringNew` | Read-only validation; nothing persisted. |
 | `JobLauncher.prepare` | `requiringNew` | Persists `PENDING` job before scheduling begins. |
 | `WorkerScheduler` operations | `requiringNew` (each) | Short transactions for `tryAcquire`, `claimJob`, and lock release. |
-| `WorkerClient` calls | None | Blocking network I/O. |
+| `WorkerService` calls to a worker | None | Blocking network I/O. |
 | `JobService.discard` | `requiringNew` | Cleanup compensation for unplaceable jobs. |
-| `JobService.cancel` | `requiringNew` (`prepareCancel`), RPC, then `requiringNew` (logging) | Commits `CANCELLED` state before sending non-blocking workerEntity notification. |
+| `JobService.cancel` | `requiringNew` (`prepareCancel`), RPC, then `requiringNew` (logging) | Commits `CANCELLED` state before waiting for the workerEntity to acknowledge the cancellation. |
 | `JobService.applyState` | `@Transactional` | Transition, log and the requester's failure message commit together. |
 | `PendingJobService.enqueue` | `requiringNew` | Persists queue entry. |
 | `PendingJobService.claimDue` / `mark*` | `@Transactional` (each) | Discrete state updates between dispatch attempts. |

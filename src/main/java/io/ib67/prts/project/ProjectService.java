@@ -182,8 +182,7 @@ public class ProjectService {
         }
         hosts.forEach((volumeId, workerId) -> {
             try {
-                workerService.getWorker(workerId).orElseThrow().getClient()
-                        .deleteVolume(volumeId).join();
+                workerService.deleteVolume(workerId, volumeId).join();
             } catch (RuntimeException e) {
                 LOG.errorf(e, "cannot discard volume %s on worker %s; it is left behind", volumeId, workerId);
             }

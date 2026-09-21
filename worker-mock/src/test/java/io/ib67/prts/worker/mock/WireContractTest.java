@@ -7,6 +7,7 @@ import io.ib67.prts.worker.mock.protocol.Inbound;
 import io.ib67.prts.worker.mock.protocol.JobSpec;
 import io.ib67.prts.worker.mock.protocol.JobState;
 import io.ib67.prts.worker.mock.protocol.Outbound;
+import io.ib67.prts.worker.mock.protocol.OutboundEnvelope;
 import io.ib67.prts.worker.mock.protocol.ResourceInfo;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +20,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -30,21 +33,53 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * nothing but these assertions stands between a careless rename here and a worker that no longer
  * talks to anything. Every message the protocol defines is written out by hand and compared as JSON,
  * which is also what makes this file the place to look up what a message contains.
+ *
+ * <p>Every message travels inside an envelope. {@code id} names the message; {@code replyTo} names
+ * the message being answered, and is absent on anything sent on its own initiative.
  */
 class WireContractTest {
 
     private static final UUID WORKER = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final UUID JOB = UUID.fromString("22222222-2222-2222-2222-222222222222");
-    private static final UUID REQUEST = UUID.fromString("33333333-3333-3333-3333-333333333333");
+    private static final UUID ASKED = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID VOLUME = UUID.fromString("44444444-4444-4444-4444-444444444444");
     private static final UUID PROJECT = UUID.fromString("55555555-5555-5555-5555-555555555555");
+    private static final UUID ENVELOPE = UUID.fromString("77777777-7777-7777-7777-777777777777");
     private static final Instant EXPIRES = Instant.parse("2026-01-01T00:00:00Z");
+
+    // ---------------------------------------------------------------- the envelope
+
+    @Test
+    void aMessageSentOnThisWorkersOwnInitiativeAnswersNothing() {
+        assertSent(new Outbound.JobStateUpdate(JOB, JobState.RUNNING), """
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":null,
+                 "message":{"type":"jobStateUpdate",
+                            "jobId":"22222222-2222-2222-2222-222222222222",
+                            "state":"RUNNING"}}""");
+    }
+
+    @Test
+    void anAnswerNamesTheEnvelopeItAnswers() {
+        assertAnswer(new Outbound.Ack(true, ""), """
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "message":{"type":"ack","ok":true,"message":""}}""");
+    }
+
+    @Test
+    void aRefusalCarriesItsReason() {
+        assertAnswer(new Outbound.Ack(false, "no space left"), """
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "message":{"type":"ack","ok":false,"message":"no space left"}}""");
+    }
 
     // ---------------------------------------------------------------- what a worker sends
 
     @Test
     void registeringCarriesTheIdentityTheWorkerAssertsForItself() {
-        assertWire(Wire.write(new Outbound.Register(WORKER, "w1", ResourceInfo.of(8, 8192, 102400))), """
+        assertPayload(new Outbound.Register(WORKER, "w1", ResourceInfo.of(8, 8192, 102400)), """
                 {"type":"register",
                  "workerId":"11111111-1111-1111-1111-111111111111",
                  "name":"w1",
@@ -58,7 +93,7 @@ class WireContractTest {
         var info = new ResourceInfo(
                 new ResourceInfo.Resources(1, 2, 3), new ResourceInfo.Resources(4, 5, 6), 7);
 
-        assertWire(Wire.write(new Outbound.UpdateResourceInfo(info)), """
+        assertPayload(new Outbound.UpdateResourceInfo(info), """
                 {"type":"updateResourceInfo",
                  "info":{"current":{"numCpus":1,"numMemories":2,"numDisks":3},
                          "capacity":{"numCpus":4,"numMemories":5,"numDisks":6},
@@ -66,15 +101,8 @@ class WireContractTest {
     }
 
     @Test
-    void acceptingAJobCarriesTheRequestIdItAnswers() {
-        assertWire(Wire.write(new Outbound.JobCreated(REQUEST)),
-                """
-                        {"type":"jobCreated","requestId":"33333333-3333-3333-3333-333333333333"}""");
-    }
-
-    @Test
     void aStateReportCarriesTheJobsIdentityAndItsNewState() {
-        assertWire(Wire.write(new Outbound.JobStateUpdate(JOB, JobState.RUNNING)), """
+        assertPayload(new Outbound.JobStateUpdate(JOB, JobState.RUNNING), """
                 {"type":"jobStateUpdate",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "state":"RUNNING"}""");
@@ -82,7 +110,7 @@ class WireContractTest {
 
     @Test
     void aLogLineCarriesItsTopicAndWhetherItIsAnError() {
-        assertWire(Wire.write(new Outbound.UpdateJobLog(JOB, "stderr", "no space left", true)), """
+        assertPayload(new Outbound.UpdateJobLog(JOB, "stderr", "no space left", true), """
                 {"type":"updateJobLog",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "topic":"stderr",
@@ -92,29 +120,11 @@ class WireContractTest {
 
     @Test
     void anArtifactUploadAsksForSpaceWithTheSizeItIntendsToWrite() {
-        assertWire(Wire.write(new Outbound.UploadArtifactRequest(JOB, "report.txt", 12)), """
+        assertPayload(new Outbound.UploadArtifactRequest(JOB, "report.txt", 12), """
                 {"type":"uploadArtifactRequest",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "name":"report.txt",
                  "sizeBytes":12}""");
-    }
-
-    @Test
-    void aVolumeAcknowledgmentAnswersTheRequestAndSaysWhetherItWorked() {
-        assertWire(Wire.write(new Outbound.VolumeAck(REQUEST, false, "no space left")), """
-                {"type":"volumeAck",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
-                 "ok":false,
-                 "message":"no space left"}""");
-    }
-
-    @Test
-    void aVolumeRefusalThatCarriesNoReasonIsStillAcknowledged() {
-        assertWire(Wire.write(new Outbound.VolumeAck(REQUEST, true, "")), """
-                {"type":"volumeAck",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
-                 "ok":true,
-                 "message":""}""");
     }
 
     @Test
@@ -123,7 +133,7 @@ class WireContractTest {
         initialize.put("protocolVersion", 1);
         initialize.putObject("agentCapabilities").put("loadSession", false);
 
-        assertWire(Wire.write(new Outbound.AgentAttached(JOB, initialize, "session-1")), """
+        assertPayload(new Outbound.AgentAttached(JOB, initialize, "session-1"), """
                 {"type":"agentAttached",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "initialize":{"protocolVersion":1,"agentCapabilities":{"loadSession":false}},
@@ -137,7 +147,7 @@ class WireContractTest {
                 .put("id", 7)
                 .put("method", "session/cancel");
 
-        assertWire(Wire.write(new Outbound.AgentFrame(JOB, frame)), """
+        assertPayload(new Outbound.AgentFrame(JOB, frame), """
                 {"type":"agentFrame",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "frame":{"jsonrpc":"2.0","id":7,"method":"session/cancel"}}""");
@@ -145,7 +155,7 @@ class WireContractTest {
 
     @Test
     void anAgentDetachSaysWhyTheAgentWentAway() {
-        assertWire(Wire.write(new Outbound.AgentDetached(JOB, "the agent exited")), """
+        assertPayload(new Outbound.AgentDetached(JOB, "the agent exited"), """
                 {"type":"agentDetached",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "reason":"the agent exited"}""");
@@ -155,50 +165,66 @@ class WireContractTest {
     @Test
     void everyMessageAWorkerCanSendIsAccountedFor() {
         var covered = Stream.of(
+                        new Outbound.Ack(true, ""),
                         new Outbound.Register(WORKER, "w1", ResourceInfo.of(1, 1, 1)),
                         new Outbound.UpdateResourceInfo(ResourceInfo.of(1, 1, 1)),
-                        new Outbound.JobCreated(REQUEST),
                         new Outbound.JobStateUpdate(JOB, JobState.RUNNING),
                         new Outbound.UpdateJobLog(JOB, "stdout", "hi", false),
                         new Outbound.UploadArtifactRequest(JOB, "a.txt", 1),
-                        new Outbound.VolumeAck(REQUEST, true, ""),
                         new Outbound.AgentAttached(JOB, JsonNodeFactory.instance.objectNode(), "s"),
                         new Outbound.AgentFrame(JOB, JsonNodeFactory.instance.objectNode()),
                         new Outbound.AgentDetached(JOB, "gone"))
-                .map(message -> read(Wire.write(message)).path("type").asText())
+                .map(message -> payloadOf(message).path("type").asText())
                 .collect(Collectors.toSet());
 
-        assertEquals(Set.of("register", "updateResourceInfo", "jobCreated", "jobStateUpdate",
-                "updateJobLog", "uploadArtifactRequest", "volumeAck", "agentAttached", "agentFrame",
+        assertEquals(Set.of("ack", "register", "updateResourceInfo", "jobStateUpdate",
+                "updateJobLog", "uploadArtifactRequest", "agentAttached", "agentFrame",
                 "agentDetached"), covered);
     }
 
     // ---------------------------------------------------------------- what a worker is sent
 
     @Test
-    void aReplyIsTheResultMessageAndCarriesNoRequestId() {
-        var reply = assertInstanceOf(Inbound.Response.class,
-                Wire.read("""
-                        {"type":"result","ok":true,"message":""}"""));
+    void anAnswerFromTheControlPlaneNamesWhatItAnswers() {
+        var envelope = Wire.read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "message":{"type":"ack","ok":true,"message":""}}""");
 
-        assertTrue(reply.ok());
-        assertEquals("", reply.message());
+        assertTrue(envelope.isAnswer());
+        assertEquals(ASKED, envelope.replyTo());
+        assertTrue(assertInstanceOf(Inbound.Ack.class, envelope.message()).ok());
     }
 
     @Test
-    void aRefusalCarriesItsReason() {
-        var reply = assertInstanceOf(Inbound.Response.class,
-                Wire.read("""
-                        {"type":"result","ok":false,"message":"not registered"}"""));
+    void aRefusalFromTheControlPlaneCarriesItsReason() {
+        var reply = assertInstanceOf(Inbound.Ack.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "message":{"type":"ack","ok":false,"message":"not registered"}}"""));
 
+        assertFalse(reply.ok());
         assertEquals("not registered", reply.message());
     }
 
     @Test
+    void anUnsolicitedMessageCarriesNoReplyTo() {
+        var envelope = Wire.read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":null,
+                 "message":{"type":"cancelJob","jobId":"22222222-2222-2222-2222-222222222222"}}""");
+
+        assertFalse(envelope.isAnswer());
+        assertNull(envelope.replyTo());
+        assertEquals(ENVELOPE, envelope.id());
+    }
+
+    @Test
     void aJobArrivesWithItsSpecItsClassAndItsSecrets() {
-        var create = assertInstanceOf(Inbound.CreateJob.class, Wire.read("""
-                {"type":"createJob",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
+        var create = assertInstanceOf(Inbound.CreateJob.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{
+                 "type":"createJob",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "spec":{"image":"alpine:3.20",
                          "description":"say hello",
@@ -211,9 +237,8 @@ class WireContractTest {
                          "lock":"build"},
                  "resourceClass":{"name":"small","numCpus":1,"memCount":512,"diskSize":1024,
                                   "shared":true},
-                 "secrets":{"TOKEN":"s3cret"}}"""));
+                 "secrets":{"TOKEN":"s3cret"}}}"""));
 
-        assertEquals(REQUEST, create.requestId());
         assertEquals(JOB, create.jobId());
         assertEquals("alpine:3.20", create.spec().image());
         assertEquals(Map.of("GREETING", "hello"), create.spec().environment());
@@ -229,15 +254,16 @@ class WireContractTest {
     /** The spec is written without a description, labels, command or lock when none was given. */
     @Test
     void aBareSpecIsReadAsEmptyRatherThanAbsent() {
-        var create = assertInstanceOf(Inbound.CreateJob.class, Wire.read("""
-                {"type":"createJob",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
+        var create = assertInstanceOf(Inbound.CreateJob.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{
+                 "type":"createJob",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "spec":{"image":"alpine:3.20","description":"","environment":{},"labels":{},
                          "command":[],"volumes":{},"timeout":0,"lock":""},
                  "resourceClass":{"name":"small","numCpus":1,"memCount":512,"diskSize":1024,
                                   "shared":true},
-                 "secrets":{}}"""));
+                 "secrets":{}}}"""));
 
         assertTrue(create.spec().labels().isEmpty());
         assertTrue(create.spec().volumes().isEmpty());
@@ -247,26 +273,30 @@ class WireContractTest {
 
     @Test
     void aCancellationNamesTheJobToStop() {
-        var cancel = assertInstanceOf(Inbound.CancelJob.class, Wire.read("""
-                {"type":"cancelJob","jobId":"22222222-2222-2222-2222-222222222222"}"""));
+        var cancel = assertInstanceOf(Inbound.CancelJob.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{"type":"cancelJob","jobId":"22222222-2222-2222-2222-222222222222"}}"""));
 
         assertEquals(JOB, cancel.jobId());
     }
 
     @Test
     void anInterruptionCarriesItsReason() {
-        var interrupt = assertInstanceOf(Inbound.InterruptJob.class, Wire.read("""
-                {"type":"interruptJob",
-                 "jobId":"22222222-2222-2222-2222-222222222222",
-                 "reason":"the project was deleted"}"""));
+        var interrupt = assertInstanceOf(Inbound.InterruptJob.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{"type":"interruptJob",
+                            "jobId":"22222222-2222-2222-2222-222222222222",
+                            "reason":"the project was deleted"}}"""));
 
         assertEquals("the project was deleted", interrupt.reason());
     }
 
     @Test
     void anAcceptedUploadComesBackAsTheUrlToPutTheBytesTo() {
-        var upload = assertInstanceOf(Inbound.PresignedUpload.class, Wire.read("""
-                {"type":"presignedUpload",
+        var upload = assertInstanceOf(Inbound.PresignedUpload.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "message":{"type":"presignedUpload",
                  "uploadId":"66666666-6666-6666-6666-666666666666",
                  "jobId":"22222222-2222-2222-2222-222222222222",
                  "name":"report.txt",
@@ -274,7 +304,7 @@ class WireContractTest {
                  "url":"http://storage.example/jobs/2/report.txt",
                  "method":"PUT",
                  "expiresAt":"2026-01-01T00:00:00Z",
-                 "contentLength":12}"""));
+                 "contentLength":12}}"""));
 
         assertEquals("PUT", upload.method());
         assertEquals("http://storage.example/jobs/2/report.txt", upload.url());
@@ -283,16 +313,15 @@ class WireContractTest {
     }
 
     @Test
-    void aVolumeRequestNamesItsRequestIdSoTheAckCanBeMatched() {
-        var create = assertInstanceOf(Inbound.CreateVolume.class, Wire.read("""
-                {"type":"createVolume",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
+    void aVolumeRequestNamesTheVolumeToAllocate() {
+        var create = assertInstanceOf(Inbound.CreateVolume.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{"type":"createVolume",
                  "volumeId":"44444444-4444-4444-4444-444444444444",
                  "projectId":"55555555-5555-5555-5555-555555555555",
                  "name":"shared",
-                 "sizeBytes":1024}"""));
+                 "sizeBytes":1024}}"""));
 
-        assertEquals(REQUEST, create.requestId());
         assertEquals(VOLUME, create.volumeId());
         assertEquals(PROJECT, create.projectId());
         assertEquals("shared", create.name());
@@ -301,20 +330,21 @@ class WireContractTest {
 
     @Test
     void aVolumeReleaseNamesTheVolumeToDestroy() {
-        var delete = assertInstanceOf(Inbound.DeleteVolume.class, Wire.read("""
-                {"type":"deleteVolume",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
-                 "volumeId":"44444444-4444-4444-4444-444444444444"}"""));
+        var delete = assertInstanceOf(Inbound.DeleteVolume.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{"type":"deleteVolume",
+                            "volumeId":"44444444-4444-4444-4444-444444444444"}}"""));
 
         assertEquals(VOLUME, delete.volumeId());
     }
 
     @Test
     void aFrameForAnAgentArrivesAsItWasWritten() {
-        var frame = assertInstanceOf(Inbound.AgentFrame.class, Wire.read("""
-                {"type":"agentFrame",
+        var frame = assertInstanceOf(Inbound.AgentFrame.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "message":{"type":"agentFrame",
                  "jobId":"22222222-2222-2222-2222-222222222222",
-                 "frame":{"jsonrpc":"2.0","id":1,"method":"session/prompt"}}"""));
+                 "frame":{"jsonrpc":"2.0","id":1,"method":"session/prompt"}}}"""));
 
         assertEquals(JOB, frame.jobId());
         assertEquals("session/prompt", frame.frame().path("method").asText());
@@ -328,8 +358,11 @@ class WireContractTest {
      */
     @Test
     void aFieldThisMockDoesNotKnowAboutIsIgnored() {
-        var reply = assertInstanceOf(Inbound.Response.class, Wire.read("""
-                {"type":"result","ok":true,"message":"","traceId":"abc"}"""));
+        var reply = assertInstanceOf(Inbound.Ack.class, read("""
+                {"id":"77777777-7777-7777-7777-777777777777",
+                 "replyTo":"33333333-3333-3333-3333-333333333333",
+                 "traceId":"abc",
+                 "message":{"type":"ack","ok":true,"message":"","traceId":"abc"}}"""));
 
         assertTrue(reply.ok());
     }
@@ -338,18 +371,43 @@ class WireContractTest {
     void aMessageThisMockDoesNotKnowAboutIsRefusedByType() {
         var failure = assertThrows(IllegalArgumentException.class,
                 () -> Wire.read("""
-                        {"type":"somethingTheMockHasNeverHeardOf"}"""));
+                        {"id":"77777777-7777-7777-7777-777777777777",
+                         "message":{"type":"somethingTheMockHasNeverHeardOf"}}"""));
 
         assertTrue(failure.getMessage().contains("somethingTheMockHasNeverHeardOf"), failure.getMessage());
     }
 
     // ---------------------------------------------------------------- helpers
 
-    private static void assertWire(String actual, String expected) {
-        assertEquals(read(expected), read(actual), actual);
+    /** Writes a message this worker sends on its own initiative, envelope and all. */
+    private static void assertSent(Outbound message, String expected) {
+        assertWire(Wire.write(new OutboundEnvelope(ENVELOPE, null, message)), expected);
     }
 
-    private static JsonNode read(String json) {
+    /** Writes an answer to {@link #ASKED}, envelope and all. */
+    private static void assertAnswer(Outbound message, String expected) {
+        assertWire(Wire.write(new OutboundEnvelope(ENVELOPE, ASKED, message)), expected);
+    }
+
+    /** Writes only the payload, for the messages whose envelope is covered above. */
+    private static void assertPayload(Outbound message, String expected) {
+        assertEquals(tree(expected), payloadOf(message), () -> payloadOf(message).toString());
+    }
+
+    private static JsonNode payloadOf(Outbound message) {
+        return tree(Wire.write(OutboundEnvelope.of(message))).path("message");
+    }
+
+    private static void assertWire(String actual, String expected) {
+        assertEquals(tree(expected), tree(actual), actual);
+    }
+
+    /** Reads an envelope and hands back the message it carries. */
+    private static Inbound read(String json) {
+        return Wire.read(json).message();
+    }
+
+    private static JsonNode tree(String json) {
         try {
             return Wire.mapper().readTree(json);
         } catch (JsonProcessingException e) {

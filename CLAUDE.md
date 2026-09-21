@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance when working with code in this repository.
 
 ## What this is
 
@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - brokers artifact uploads straight from workerEntity to S3 via presigned URLs.
 
 Workers themselves live in another repository; this one only speaks the protocol in
-`io.ib67.prts.agent.workerEntity.message`. `workerEntity-mock/` is a subproject holding a workerEntity that speaks that
+`io.ib67.prts.agent.worker.message`. `worker-mock/` is a subproject holding a workerEntity that speaks that
 protocol for tests, without running containers; it depends on nothing here, the way the real workers
 do.
 
@@ -27,7 +27,7 @@ each one documents constraints that are not visible in the code it describes.
 | [agent-docs/job-lifecycle.md](agent-docs/job-lifecycle.md) | anything about creating, scheduling, cancelling or ending a job, or the pending queue |
 | [agent-docs/job-spec.md](agent-docs/job-spec.md) | changing `JobSpec`, secrets, templates, resource classes, or the override gating |
 | [agent-docs/task-scope.md](agent-docs/task-scope.md) | tasks, what they inject into a job, workerEntity volumes, or task teardown |
-| [agent-docs/workerEntity-protocol.md](docs/workerEntity-protocol.md) | adding a WebSocket message or touching workerEntity sessions / placement |
+| [docs/worker-protocol.md](docs/worker-protocol.md) | adding a WebSocket message or touching worker sessions / placement |
 | [agent-docs/agent-acp.md](agent-docs/agent-acp.md) | the ACP proxy: the method allowlist, id rewriting, agent sessions and their transcript |
 | [agent-docs/authorization.md](agent-docs/authorization.md) | auth mechanisms, `Perm`, `@RequirePermission`, roles, sub-accounts |
 | [agent-docs/http-surface.md](agent-docs/http-surface.md) | adding or changing an endpoint, a DTO, a mapper, or the OpenAPI filter |

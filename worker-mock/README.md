@@ -12,9 +12,9 @@ side of it: every message is written out by hand and compared as JSON. What the 
 accepts is settled by `MockWorkerEntityE2ETest`, which is the only place the two meet.
 
 ```
-workerEntity-mock/
-  src/main/java/io/ib67/prts/workerEntity/mock/
-    MockWorker.java        the workerEntity: connection, the reply queue, the job roster
+worker-mock/
+  src/main/java/io/ib67/prts/worker/mock/
+    MockWorker.java        the worker: connection, the outstanding answers, the job roster
     JobScript.java         what to do with a job, as composable steps
     JobRun.java            one job as a script sees it
     AgentBehaviour.java    how a job's agent answers the frames it is handed
@@ -51,25 +51,27 @@ test's `TRUNCATE` deadlocks against the transactions still failing those jobs �
 
 ### The reply rule
 
-The control plane answers every message a workerEntity sends with **exactly one message, in order**, and
-without a request id: a `result` for anything it accepted or refused, or a `presignedUpload` for an
-`uploadArtifactRequest` it accepted. Everything else a workerEntity receives — `createJob`, `cancelJob`,
-`interruptJob`, the two volume requests, `agentFrame` — arrives unsolicited.
+Every message travels inside an envelope: `{"id": ..., "replyTo": ..., "message": {...}}`. An
+envelope with no `replyTo` was sent on its own initiative and is answered **exactly once**, by an
+envelope whose `replyTo` is that `id`. An envelope that carries a `replyTo` is itself an answer and
+is never answered again. The rule holds in both directions.
 
-The mock relies on that rule. It keeps a FIFO queue of what it sent and what it expects back, and
-records the expectation and sends the message under one lock so the two orders cannot drift apart. A
-`result` completes whatever is at the head — a `result` arriving where an upload's presigned URL was
-expected *is* the control plane refusing the upload, which is how the protocol says it. Any other
-message completes the head only if it is what was expected; otherwise it is logged as an error and
-left outstanding, so a mismatch is visible rather than silently traded for a different message.
-`await` gives up after the reply timeout (10 seconds by default), naming what was never answered.
+An answer carries either an `ack` — `ok` plus the reason it was refused — or, for an
+`uploadArtifactRequest` the control plane accepted, a `presignedUpload`. An `ack` where the upload's
+presigned URL was expected *is* the control plane refusing the upload, which is how the protocol
+says it.
+
+The mock keeps what it sent keyed by envelope id and matches each answer to the id it names, so two
+requests in flight at once cannot be confused for one another. An answer naming an id nothing is
+waiting on is counted in `unclaimedReplies()`. `await` gives up after the reply timeout (10 seconds
+by default), naming what was never answered.
 
 ### Threading
 
 - Inbound messages are dispatched on **one thread, in arrival order**. A handler therefore sees
   messages in the order the control plane sent them.
-- The dispatcher **never waits for a reply**. Requests that arrive unsolicited and need an answer
-  (`createVolume`, `deleteVolume`) send it without waiting for its acknowledgment.
+- The dispatcher **never waits for a reply**. Everything that arrives unsolicited is answered on
+  arrival, except `createJob`, whose answer is the script's to send.
 - Each job's script runs on **a thread of its own**, so a script may block — waiting for a
   cancellation, or for the test to release it.
 - An `AgentBehaviour` runs **on the dispatcher thread**, as do the `onJob` resolver that picks a
@@ -80,9 +82,9 @@ left outstanding, so a mismatch is visible rather than silently traded for a dif
 
 `createJob` starts the script chosen by `onJob(...)` — one script for every job, or a resolver
 `Function<JobRun, JobScript>` for a workerEntity given several. Before the script runs, unless it declines,
-the mock sends `jobCreated` for the request and **waits for the control plane to accept it**: the
-control plane blocks for up to 30 seconds on that acknowledgment and places nothing until it arrives.
-A refusal (`result.ok = false`) throws out of the script, and the job is not run.
+the mock answers the `createJob` envelope with `ack`: the control plane blocks for up to 30 seconds
+on that acknowledgment and places nothing until it arrives. A script that declines never answers,
+which is how a workerEntity that will not take the job is written.
 
 A script reports through `JobRun`, and nothing is implicit — a script that reports nothing leaves the
 job exactly as the control plane sees it: `PENDING`, assigned to this workerEntity, never finishing.
@@ -138,7 +140,7 @@ that writes a different number of bytes uploads into nothing.
 
 ### Volumes
 
-`createVolume` and `deleteVolume` are acknowledged with `volumeAck`. `VolumeHandler` decides: the
+`createVolume` and `deleteVolume` are answered with `ack`. `VolumeHandler` decides: the
 default accepts everything, `VolumeHandler.refusing(reason)` refuses everything the way a host out of
 disk would. A refused allocation is deleted by the control plane, so it is not left `PROVISIONING`.
 What the mock accepted is visible from `workerEntity.volumes()` and `workerEntity.deletedVolumes()`.

@@ -43,7 +43,6 @@ class MockWorkerTest {
 
     private static final Duration WAIT = Duration.ofSeconds(5);
     private static final UUID WORKER = UUID.fromString("11111111-1111-1111-1111-111111111111");
-    private static final UUID REQUEST = UUID.fromString("33333333-3333-3333-3333-333333333333");
     private static final UUID JOB = UUID.fromString("22222222-2222-2222-2222-222222222222");
     private static final UUID VOLUME = UUID.fromString("44444444-4444-4444-4444-444444444444");
 
@@ -117,10 +116,10 @@ class MockWorkerTest {
                 .andThen(JobScript.log("building the thing"))
                 .andThen(JobRun::succeeded)));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> states().contains(JobState.SUCCESS), "the job never finished");
-        assertEquals(List.of("register", "jobCreated", "jobStateUpdate", "updateJobLog",
+        assertEquals(List.of("register", "ack", "jobStateUpdate", "updateJobLog",
                 "jobStateUpdate"), types());
         assertEquals(JobState.RUNNING, states().get(0));
         var log = controlPlane.firstSent("updateJobLog");
@@ -136,7 +135,7 @@ class MockWorkerTest {
             throw new IllegalStateException("the script came apart");
         })));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> states().contains(JobState.FAILED), "the failure was never reported");
         assertEquals(List.of(JobState.RUNNING, JobState.FAILED), states());
@@ -146,7 +145,7 @@ class MockWorkerTest {
     void aScriptThatReportsNothingLeavesTheJobWhereItWas() {
         start(worker().onJob(JobScript.silent()));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> !awaitJobQuietly().isEmpty(), "the job never arrived");
         assertEquals(List.of("register"), types());
@@ -157,7 +156,7 @@ class MockWorkerTest {
     void aJobIsHandedTheSpecTheClassAndTheSecretsItCameWith() {
         start(worker().onJob(JobRun::succeeded));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> !awaitJobQuietly().isEmpty(), "the job never arrived");
         var job = awaitJobQuietly().get(0);
@@ -176,8 +175,8 @@ class MockWorkerTest {
         }));
         var second = UUID.randomUUID();
 
-        deliver(createJob(REQUEST, JOB));
-        deliver(createJob(UUID.randomUUID(), second));
+        deliver(createJob(JOB));
+        deliver(createJob(second));
 
         await(() -> states().size() == 2, "both jobs were never given a script");
         assertEquals(List.of(JOB, second), offered);
@@ -194,7 +193,7 @@ class MockWorkerTest {
             job.awaitCancellation();
             released.countDown();
         }));
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
         await(() -> states().contains(JobState.RUNNING), "the job never started");
 
         deliver("""
@@ -214,7 +213,7 @@ class MockWorkerTest {
             job.awaitCancellation();
             released.countDown();
         }));
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
         await(() -> states().contains(JobState.RUNNING), "the job never started");
 
         deliver("""
@@ -249,8 +248,8 @@ class MockWorkerTest {
 
         deliver(createVolume());
 
-        await(() -> types().contains("volumeAck"), "the volume was never acknowledged");
-        assertEquals(true, controlPlane.firstSent("volumeAck").path("ok").asBoolean());
+        await(() -> types().contains("ack"), "the volume was never acknowledged");
+        assertTrue(controlPlane.firstSent("ack").path("ok").asBoolean());
         assertEquals(VOLUME, worker.volumes().get(0).volumeId());
     }
 
@@ -260,8 +259,8 @@ class MockWorkerTest {
 
         deliver(createVolume());
 
-        await(() -> types().contains("volumeAck"), "the volume was never acknowledged");
-        var ack = controlPlane.firstSent("volumeAck");
+        await(() -> types().contains("ack"), "the volume was never acknowledged");
+        var ack = controlPlane.firstSent("ack");
         assertFalse(ack.path("ok").asBoolean());
         assertEquals("no space left on the host", ack.path("message").asText());
         assertTrue(worker.volumes().isEmpty());
@@ -273,10 +272,9 @@ class MockWorkerTest {
 
         deliver("""
                 {"type":"deleteVolume",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
                  "volumeId":"44444444-4444-4444-4444-444444444444"}""");
 
-        await(() -> types().contains("volumeAck"), "the release was never acknowledged");
+        await(() -> types().contains("ack"), "the release was never acknowledged");
         assertEquals(List.of(VOLUME), worker.deletedVolumes());
     }
 
@@ -291,7 +289,7 @@ class MockWorkerTest {
                     .andThen(JobScript.upload("report.txt", "hello from the mock"))
                     .andThen(JobRun::succeeded)));
 
-            deliver(createJob(REQUEST, JOB));
+            deliver(createJob(JOB));
 
             await(() -> !storage.stored().isEmpty(), "nothing was uploaded");
             var upload = storage.stored().get(0);
@@ -316,7 +314,7 @@ class MockWorkerTest {
             }
         })));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> refusal.isDone(), "the refusal never surfaced");
         assertTrue(refusal.join().contains("over the project quota"), refusal.join());
@@ -335,7 +333,7 @@ class MockWorkerTest {
                     attached.countDown();
                 }));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> attached.getCount() == 0, "the agent was never attached");
         var attach = controlPlane.firstSent("agentAttached");
@@ -354,7 +352,7 @@ class MockWorkerTest {
                     attached.countDown();
                     job.awaitCancellation();
                 }));
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
         assertTrue(attached.await(WAIT.toSeconds(), TimeUnit.SECONDS), "the agent was never attached");
 
         deliver("""
@@ -384,7 +382,7 @@ class MockWorkerTest {
                     attached.countDown();
                     job.awaitCancellation();
                 }));
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
         await(() -> attached.getCount() == 0, "the agent was never attached");
 
         deliver("""
@@ -413,7 +411,7 @@ class MockWorkerTest {
                     attached.countDown();
                     job.awaitCancellation();
                 }));
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
         await(() -> attached.getCount() == 0, "the agent was never attached");
 
         deliver("""
@@ -438,7 +436,7 @@ class MockWorkerTest {
             job.attachAgent();
         }));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> states().contains(JobState.FAILED), "the failure was never reported");
     }
@@ -456,7 +454,7 @@ class MockWorkerTest {
                     job.awaitCancellation();
                 }));
 
-        deliver(createJob(REQUEST, JOB));
+        deliver(createJob(JOB));
 
         await(() -> detached.getCount() == 0, "the agent never detached");
         var detach = controlPlane.firstSent("agentDetached");
@@ -469,14 +467,29 @@ class MockWorkerTest {
     @Test
     void anInboundMessageIsRecordedUntilSomethingTakesIt() {
         var worker = start(worker());
-        assertTrue(worker.nextInbound(Inbound.Response.class, WAIT).ok(), "the registration's answer");
+        assertTrue(worker.nextInbound(Inbound.Ack.class, WAIT).ok(), "the registration's answer");
 
         worker.reportPending(2);
 
-        assertTrue(worker.nextInbound(Inbound.Response.class, WAIT).ok(), "the report's answer");
+        assertTrue(worker.nextInbound(Inbound.Ack.class, WAIT).ok(), "the report's answer");
         assertTrue(worker.inbox().isEmpty());
         assertThrows(NoSuchElementException.class,
-                () -> worker.nextInbound(Inbound.Response.class, Duration.ofMillis(50)));
+                () -> worker.nextInbound(Inbound.Ack.class, Duration.ofMillis(50)));
+    }
+
+    /**
+     * Every message is answered once and every answer names what it answers, so nothing the control
+     * plane sends back goes unclaimed however the traffic interleaves.
+     */
+    @Test
+    void everyAnswerIsMatchedToTheMessageItNames() {
+        var worker = start(worker().onJob(JobScript.started().andThen(JobRun::succeeded)));
+
+        deliver(createJob(JOB));
+        worker.reportPending(1);
+
+        await(() -> states().contains(JobState.SUCCESS), "the job never finished");
+        assertEquals(0, worker.unclaimedReplies());
     }
 
     @Test
@@ -490,7 +503,7 @@ class MockWorkerTest {
         worker.reportInfo(ResourceInfo.of(1, 1, 1));
 
         await(() -> !inbound.isEmpty(), "the observer saw nothing");
-        assertEquals(List.of("Response"), inbound);
+        assertEquals(List.of("Ack"), inbound);
         assertEquals(List.of("UpdateResourceInfo"), outbound);
     }
 
@@ -547,22 +560,20 @@ class MockWorkerTest {
         controlPlane.receive(message);
     }
 
-    private static String createJob(UUID requestId, UUID jobId) {
+    private static String createJob(UUID jobId) {
         return """
                 {"type":"createJob",
-                 "requestId":"%s",
                  "jobId":"%s",
                  "spec":{"image":"alpine:3.20","description":"","environment":{},"labels":{},
                          "command":[],"volumes":{},"timeout":60,"lock":""},
                  "resourceClass":{"name":"small","numCpus":1,"memCount":512,"diskSize":1024,
                                   "shared":true},
-                 "secrets":{"TOKEN":"s3cret"}}""".formatted(requestId, jobId);
+                 "secrets":{"TOKEN":"s3cret"}}""".formatted(jobId);
     }
 
     private static String createVolume() {
         return """
                 {"type":"createVolume",
-                 "requestId":"33333333-3333-3333-3333-333333333333",
                  "volumeId":"44444444-4444-4444-4444-444444444444",
                  "projectId":"55555555-5555-5555-5555-555555555555",
                  "name":"shared",
@@ -571,7 +582,7 @@ class MockWorkerTest {
 
     private static String reply(boolean ok, String message) {
         return """
-                {"type":"result","ok":%s,"message":"%s"}""".formatted(ok, message);
+                {"type":"ack","ok":%s,"message":"%s"}""".formatted(ok, message);
     }
 
     private static String presignedUpload(JsonNode request, String url) {
@@ -601,8 +612,11 @@ class MockWorkerTest {
 
     /**
      * The control plane as far as the mock can tell: it records what arrives and answers every
-     * message the way the test asked — one reply per message, in order, which is the rule the
-     * protocol states and the one the mock's bookkeeping depends on.
+     * message the way the test asked — one reply per message, naming the envelope it answers, which
+     * is the rule the protocol states and the one the mock's bookkeeping depends on.
+     *
+     * <p>{@link #sent()} holds the messages themselves; the envelopes carrying them are this class's
+     * own business.
      */
     private static final class FakeControlPlane implements Sink {
         private final List<JsonNode> sent = new CopyOnWriteArrayList<>();
@@ -654,29 +668,49 @@ class MockWorkerTest {
                     .collect(Collectors.toList());
         }
 
-        /** Hands the worker a message, as if the control plane had sent it. */
+        /** Hands the worker a message on the control plane's own initiative. */
         void receive(String message) {
-            var worker = this.worker;
-            if (worker == null) {
-                throw new IllegalStateException("no worker is connected to this control plane");
-            }
-            worker.enqueue(message);
+            deliver(envelope(null, message));
         }
 
         @Override
         public void send(String text) {
-            JsonNode message;
-            try {
-                message = Wire.mapper().readTree(text);
-            } catch (JsonProcessingException e) {
-                throw new AssertionError("the worker sent something that is not JSON: " + text, e);
-            }
+            var envelope = tree(text);
+            var message = envelope.path("message");
             sent.add(message);
-            var type = message.path("type").asText();
-            var answer = answers.get(type);
+            if (!envelope.path("replyTo").isNull()) {
+                // An answer is never answered; this one closed a request the control plane made.
+                return;
+            }
+            var answer = answers.get(message.path("type").asText());
             var reply = answer == null ? reply(true, "") : answer.apply(message);
             if (reply != null) {
-                receive(reply);
+                deliver(envelope(UUID.fromString(envelope.path("id").asText()), reply));
+            }
+        }
+
+        private void deliver(String envelope) {
+            var worker = this.worker;
+            if (worker == null) {
+                throw new IllegalStateException("no worker is connected to this control plane");
+            }
+            worker.enqueue(envelope);
+        }
+
+        /** Wraps one message for the wire, naming what it answers when it answers anything. */
+        private static String envelope(UUID replyTo, String message) {
+            var node = Wire.mapper().createObjectNode();
+            node.put("id", UUID.randomUUID().toString());
+            node.put("replyTo", replyTo == null ? null : replyTo.toString());
+            node.set("message", tree(message));
+            return node.toString();
+        }
+
+        private static JsonNode tree(String json) {
+            try {
+                return Wire.mapper().readTree(json);
+            } catch (JsonProcessingException e) {
+                throw new AssertionError("not JSON: " + json, e);
             }
         }
 

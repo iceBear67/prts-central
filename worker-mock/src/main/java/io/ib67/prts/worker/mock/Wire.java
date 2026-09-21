@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.json.JsonMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import io.ib67.prts.worker.mock.protocol.Inbound;
-import io.ib67.prts.worker.mock.protocol.Outbound;
+import io.ib67.prts.worker.mock.protocol.InboundEnvelope;
+import io.ib67.prts.worker.mock.protocol.OutboundEnvelope;
 
 /**
  * JSON codec for the worker protocol.
@@ -26,17 +26,17 @@ public final class Wire {
     private Wire() {
     }
 
-    public static String write(Outbound message) {
+    public static String write(OutboundEnvelope envelope) {
         try {
-            return MAPPER.writeValueAsString(message);
+            return MAPPER.writeValueAsString(envelope);
         } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException("cannot encode " + message, e);
+            throw new IllegalArgumentException("cannot encode " + envelope, e);
         }
     }
 
-    public static Inbound read(String json) {
+    public static InboundEnvelope read(String json) {
         try {
-            return MAPPER.readValue(json, Inbound.class);
+            return MAPPER.readValue(json, InboundEnvelope.class);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("cannot decode " + json, e);
         }

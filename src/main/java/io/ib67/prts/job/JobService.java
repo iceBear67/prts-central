@@ -33,7 +33,6 @@ import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -198,9 +197,7 @@ public class JobService {
             return cancelled.job();
         }
         try {
-            workerService.getWorker(worker).orElseThrow().getClient()
-                    .cancelJob(jobId)
-                    .await().atMost(Duration.ofSeconds(5));
+            workerService.cancelJob(worker, jobId).join();
             logCancelOutcome(jobId, "worker " + worker + " told to stop the job");
         } catch (Exception ex) {
             LOG.errorf(ex, "job %s was cancelled but worker %s could not be told", jobId, worker);
@@ -325,9 +322,7 @@ public class JobService {
             }
             if (job.worker() != null) {
                 try {
-                    workerService.getWorker(job.worker()).orElseThrow()
-                            .getClient().interruptJob(job.id(), reason)
-                            .await().atMost(Duration.ofSeconds(10));
+                    workerService.interruptJob(job.worker(), job.id(), reason).join();
                 } catch (RuntimeException e) {
                     LOG.errorf(e, "cannot interrupt job %s on worker %s", job.id(), job.worker());
                 }

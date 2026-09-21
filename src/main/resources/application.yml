@@ -156,6 +156,17 @@ acp:
   max-viewers-per-job: 8
   max-page-size: 50
 
+worker:
+  # How long to wait for a worker to acknowledge one message.
+  timeout:
+    create-job: PT30S
+    cancel-job: PT5S
+    interrupt-job: PT10S
+    # Allocating a disk can outlast starting a container.
+    volume: PT1M
+    agent-frame: PT3S
+    close: PT5S
+
 job:
   log:
     max-page-size: 20

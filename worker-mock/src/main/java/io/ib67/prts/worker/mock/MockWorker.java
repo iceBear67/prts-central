@@ -4,15 +4,16 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.ib67.prts.worker.mock.protocol.Inbound;
+import io.ib67.prts.worker.mock.protocol.InboundEnvelope;
 import io.ib67.prts.worker.mock.protocol.JobSpec;
 import io.ib67.prts.worker.mock.protocol.JobState;
 import io.ib67.prts.worker.mock.protocol.Outbound;
+import io.ib67.prts.worker.mock.protocol.OutboundEnvelope;
 import io.ib67.prts.worker.mock.protocol.ResourceClass;
 import io.ib67.prts.worker.mock.protocol.ResourceInfo;
 
 import java.net.URI;
 import java.time.Duration;
-import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
@@ -20,7 +21,6 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
@@ -50,9 +50,10 @@ import java.util.function.Function;
  * thread of its own. A script therefore may block, but an {@link AgentBehaviour} may not.
  *
  * <h2>Replies</h2>
- * The control plane answers every message this worker sends with exactly one message, in order, and
- * without a request id. Replies are matched here in that order, so a worker whose account of what it
- * sent drifts from the control plane's will be told so rather than silently mismatched.
+ * Every message travels in an envelope carrying its own id, and every answer names the id it
+ * answers. Replies are matched here by that id, and this worker answers each unsolicited message it
+ * receives exactly once. An answer for an id nobody is waiting on is counted in
+ * {@link #unclaimedReplies()} rather than matched to some other message.
  */
 public final class MockWorker implements AutoCloseable {
     private static final System.Logger LOG = System.getLogger(MockWorker.class.getName());
@@ -81,9 +82,9 @@ public final class MockWorker implements AutoCloseable {
     private final ExecutorService dispatcher;
     private final ExecutorService runs;
     private final ArtifactUploader uploader = new ArtifactUploader();
-    /** Held while an expectation is recorded and its message sent, so the two orders agree. */
-    private final Object outbox = new Object();
-    private final Deque<Pending> pending = new ConcurrentLinkedDeque<>();
+    /** Answers still owed to this worker, keyed by the envelope id they must name. */
+    private final ConcurrentHashMap<UUID, Pending> pending = new ConcurrentHashMap<>();
+    private final AtomicInteger unclaimed = new AtomicInteger();
     private final List<Inbound> recorded = new CopyOnWriteArrayList<>();
     private final List<Outbound> sent = new CopyOnWriteArrayList<>();
     private final List<Consumer<Inbound>> observers = new CopyOnWriteArrayList<>();
@@ -137,7 +138,7 @@ public final class MockWorker implements AutoCloseable {
      */
     public MockWorker register() {
         var answer = await(post(new Outbound.Register(workerId(), name(), info), "the registration"));
-        if (!(answer instanceof Inbound.Response response) || !response.ok()) {
+        if (!(answer instanceof Inbound.Ack ack) || !ack.ok()) {
             throw new IllegalStateException(
                     "the control plane refused worker " + workerId() + ": " + why(answer));
         }
@@ -212,6 +213,11 @@ public final class MockWorker implements AutoCloseable {
     /** Every message this worker has sent, in order. */
     public List<Outbound> sent() {
         return List.copyOf(sent);
+    }
+
+    /** How many answers arrived naming an envelope nothing was waiting on. */
+    public int unclaimedReplies() {
+        return unclaimed.get();
     }
 
     // ---------------------------------------------------------------- observing
@@ -300,13 +306,14 @@ public final class MockWorker implements AutoCloseable {
     }
 
     private void onMessage(String text) {
-        Inbound message;
+        InboundEnvelope envelope;
         try {
-            message = Wire.read(text);
+            envelope = Wire.read(text);
         } catch (RuntimeException e) {
             LOG.log(System.Logger.Level.WARNING, "cannot decode a message from the control plane: " + text, e);
             return;
         }
+        var message = envelope.message();
         recorded.add(message);
         for (var observer : observers) {
             try {
@@ -315,36 +322,55 @@ public final class MockWorker implements AutoCloseable {
                 LOG.log(System.Logger.Level.WARNING, "an inbound observer threw on " + message, e);
             }
         }
+        if (envelope.isAnswer()) {
+            completeReply(envelope);
+            return;
+        }
         switch (message) {
-            case Inbound.Response reply -> completeReply(reply);
-            case Inbound.PresignedUpload upload -> completeReply(upload);
-            case Inbound.CreateJob create -> accept(create);
-            case Inbound.CancelJob cancel -> cancel(cancel);
-            case Inbound.InterruptJob interrupt -> interrupt(interrupt);
-            case Inbound.CreateVolume volume -> createVolume(volume);
-            case Inbound.DeleteVolume volume -> deleteVolume(volume);
-            case Inbound.AgentFrame frame -> agentFrame(frame);
+            // A job is answered by its script through JobRun.acknowledge, which may take as long as
+            // the script likes, or never come. Volumes are answered once the handler has ruled.
+            case Inbound.CreateJob create -> accept(envelope.id(), create);
+            case Inbound.CreateVolume volume -> createVolume(envelope.id(), volume);
+            case Inbound.DeleteVolume volume -> deleteVolume(envelope.id(), volume);
+            case Inbound.CancelJob cancel -> {
+                cancel(cancel);
+                answer(envelope.id(), new Outbound.Ack(true, ""));
+            }
+            case Inbound.InterruptJob interrupt -> {
+                interrupt(interrupt);
+                answer(envelope.id(), new Outbound.Ack(true, ""));
+            }
+            case Inbound.AgentFrame frame -> {
+                agentFrame(frame);
+                answer(envelope.id(), new Outbound.Ack(true, ""));
+            }
+            case Inbound.Ack ignored -> answer(envelope.id(),
+                    new Outbound.Ack(false, "an acknowledgment must name what it answers"));
+            case Inbound.PresignedUpload ignored -> answer(envelope.id(),
+                    new Outbound.Ack(false, "this worker asked for no upload"));
         }
     }
 
-    private void completeReply(Inbound message) {
-        var entry = pending.pollFirst();
+    private void completeReply(InboundEnvelope envelope) {
+        var entry = pending.remove(envelope.replyTo());
         if (entry == null) {
-            LOG.log(System.Logger.Level.WARNING, "the control plane sent a reply nobody asked for: " + message);
+            unclaimed.incrementAndGet();
+            LOG.log(System.Logger.Level.WARNING,
+                    "the control plane answered " + envelope.replyTo() + ", which nobody asked");
             return;
         }
-        if (message instanceof Inbound.Response || entry.expected().isInstance(message)) {
+        var message = envelope.message();
+        if (message instanceof Inbound.Ack || entry.expected().isInstance(message)) {
             entry.reply().complete(message);
             return;
         }
-        LOG.log(System.Logger.Level.ERROR,
+        entry.reply().completeExceptionally(new IllegalStateException(
                 "expected " + entry.expected().getSimpleName() + " for " + entry.what()
-                        + " but the control plane sent " + message);
-        pending.addFirst(entry);
+                        + " but the control plane sent " + message));
     }
 
-    private void accept(Inbound.CreateJob request) {
-        var job = new Job(request);
+    private void accept(UUID requestId, Inbound.CreateJob request) {
+        var job = new Job(requestId, request);
         if (jobs.putIfAbsent(request.jobId(), job) != null) {
             LOG.log(System.Logger.Level.WARNING,
                     "the control plane asked for job " + request.jobId() + " twice on this worker");
@@ -388,22 +414,20 @@ public final class MockWorker implements AutoCloseable {
         job.markInterrupted(interrupt.reason());
     }
 
-    private void createVolume(Inbound.CreateVolume request) {
+    private void createVolume(UUID requestId, Inbound.CreateVolume request) {
         var refusal = settings.volumes().onCreate(request);
         if (refusal == null) {
             volumes.add(request);
         }
-        post(new Outbound.VolumeAck(request.requestId(), refusal == null, refusal == null ? "" : refusal),
-                "the acknowledgment of volume " + request.volumeId());
+        answer(requestId, new Outbound.Ack(refusal == null, refusal == null ? "" : refusal));
     }
 
-    private void deleteVolume(Inbound.DeleteVolume request) {
+    private void deleteVolume(UUID requestId, Inbound.DeleteVolume request) {
         var refusal = settings.volumes().onDelete(request);
         if (refusal == null) {
             deletedVolumes.add(request.volumeId());
         }
-        post(new Outbound.VolumeAck(request.requestId(), refusal == null, refusal == null ? "" : refusal),
-                "the acknowledgment of volume " + request.volumeId());
+        answer(requestId, new Outbound.Ack(refusal == null, refusal == null ? "" : refusal));
     }
 
     private void agentFrame(Inbound.AgentFrame frame) {
@@ -424,34 +448,43 @@ public final class MockWorker implements AutoCloseable {
     // ---------------------------------------------------------------- the wire out
 
     private Pending post(Outbound message, String what) {
-        return post(message, Inbound.Response.class, what);
+        return post(message, Inbound.Ack.class, what);
     }
 
     private Pending post(Outbound message, Class<? extends Inbound> expected, String what) {
-        synchronized (outbox) {
-            if (!sink.isOpen()) {
-                throw new IllegalStateException("worker " + workerId() + " is not connected; cannot send " + what);
-            }
-            var entry = new Pending(what, expected, new CompletableFuture<>());
-            pending.addLast(entry);
-            sent.add(message);
-            for (var watcher : watchers) {
-                try {
-                    watcher.accept(message);
-                } catch (RuntimeException e) {
-                    LOG.log(System.Logger.Level.WARNING, "an outbound watcher threw on " + message, e);
-                }
-            }
-            sink.send(Wire.write(message));
-            return entry;
+        var envelope = OutboundEnvelope.of(message);
+        var entry = new Pending(envelope.id(), what, expected, new CompletableFuture<>());
+        pending.put(envelope.id(), entry);
+        emit(envelope, what);
+        return entry;
+    }
+
+    /** Answers a message the control plane sent. An answer is never itself answered. */
+    private void answer(UUID replyTo, Outbound message) {
+        emit(OutboundEnvelope.answering(replyTo, message), "the answer to " + replyTo);
+    }
+
+    private void emit(OutboundEnvelope envelope, String what) {
+        if (!sink.isOpen()) {
+            pending.remove(envelope.id());
+            throw new IllegalStateException("worker " + workerId() + " is not connected; cannot send " + what);
         }
+        sent.add(envelope.message());
+        for (var watcher : watchers) {
+            try {
+                watcher.accept(envelope.message());
+            } catch (RuntimeException e) {
+                LOG.log(System.Logger.Level.WARNING, "an outbound watcher threw on " + envelope.message(), e);
+            }
+        }
+        sink.send(Wire.write(envelope));
     }
 
     private Inbound await(Pending entry) {
         try {
             return entry.reply().get(settings.replyTimeout().toMillis(), TimeUnit.MILLISECONDS);
         } catch (TimeoutException e) {
-            pending.remove(entry);
+            pending.remove(entry.id());
             throw new IllegalStateException(
                     "the control plane did not answer " + entry.what() + " within " + settings.replyTimeout(), e);
         } catch (InterruptedException e) {
@@ -463,19 +496,22 @@ public final class MockWorker implements AutoCloseable {
     }
 
     private static String why(Inbound answer) {
-        if (answer instanceof Inbound.Response response) {
-            return response.message().isEmpty() ? "refused without a reason" : response.message();
+        if (answer instanceof Inbound.Ack ack) {
+            return ack.message().isEmpty() ? "refused without a reason" : ack.message();
         }
         return answer.toString();
     }
 
-    private record Pending(String what, Class<? extends Inbound> expected, CompletableFuture<Inbound> reply) {
+    private record Pending(
+            UUID id, String what, Class<? extends Inbound> expected, CompletableFuture<Inbound> reply) {
     }
 
     // ---------------------------------------------------------------- one job
 
     /** One job's side of the conversation, which is what a script is handed. */
     private final class Job implements JobRun {
+        /** The envelope this job arrived in; its acceptance answers that id. */
+        private final UUID requestId;
         private final Inbound.CreateJob request;
         private final CountDownLatch terminal = new CountDownLatch(1);
         private final CountDownLatch stopped = new CountDownLatch(1);
@@ -486,7 +522,8 @@ public final class MockWorker implements AutoCloseable {
         private volatile boolean cancelled;
         private volatile String interruptReason;
 
-        private Job(Inbound.CreateJob request) {
+        private Job(UUID requestId, Inbound.CreateJob request) {
+            this.requestId = requestId;
             this.request = request;
         }
 
@@ -525,11 +562,7 @@ public final class MockWorker implements AutoCloseable {
             if (!acknowledged.compareAndSet(false, true)) {
                 return;
             }
-            var answer = await(post(new Outbound.JobCreated(request.requestId()), "the acceptance of job " + jobId()));
-            if (!(answer instanceof Inbound.Response response) || !response.ok()) {
-                throw new IllegalStateException(
-                        "the control plane refused job " + jobId() + ": " + why(answer));
-            }
+            answer(requestId, new Outbound.Ack(true, ""));
         }
 
         @Override
@@ -609,7 +642,7 @@ public final class MockWorker implements AutoCloseable {
             var answer = await(post(
                     new Outbound.AgentAttached(jobId(), behaviour.initialize(), sessionId),
                     "the agent attach of job " + jobId()));
-            if (!(answer instanceof Inbound.Response response) || !response.ok()) {
+            if (!(answer instanceof Inbound.Ack ack) || !ack.ok()) {
                 throw new IllegalStateException(
                         "the control plane refused the agent of job " + jobId() + ": " + why(answer));
             }

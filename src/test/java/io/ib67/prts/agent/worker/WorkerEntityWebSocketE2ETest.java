@@ -2,7 +2,9 @@ package io.ib67.prts.agent.worker;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.ib67.prts.agent.worker.message.ClientboundEnvelope;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
+import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobState;
@@ -282,12 +284,14 @@ class WorkerEntityWebSocketE2ETest {
             this.socket = builder.buildAsync(socketUri(), inbox).join();
         }
 
-        ClientboundMessage.Response send(ServerboundMessage message) {
+        /** Sends one message and takes its answer, which must name what it answers. */
+        ClientboundMessage.Ack send(ServerboundMessage message) {
             try {
-                socket.sendText(mapper.writerFor(ServerboundMessage.class).writeValueAsString(message), true)
-                        .join();
-                return (ClientboundMessage.Response)
-                        mapper.readValue(inbox.take(), ClientboundMessage.class);
+                var asked = new ServerboundEnvelope(UUID.randomUUID(), null, message);
+                socket.sendText(mapper.writeValueAsString(asked), true).join();
+                var answer = mapper.readValue(inbox.take(), ClientboundEnvelope.class);
+                assertEquals(asked.id(), answer.replyTo(), "the answer names another message");
+                return (ClientboundMessage.Ack) answer.message();
             } catch (JsonProcessingException e) {
                 throw new AssertionError(e);
             }
