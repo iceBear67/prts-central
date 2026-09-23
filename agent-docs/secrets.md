@@ -25,7 +25,7 @@ Encrypted with AES-GCM (128, 192, or 256-bit keys) managed by `SecretCipher`:
 ## Access Boundaries
 
 - **API Redaction**: Plaintext secrets are never exposed over HTTP. `SecretView` exposes name, description, and timestamps only.
-- **Spec Injection**: Plaintext secrets are resolved only by `SecretService.resolve(projectId)` inside `JobLauncher.prepare()`, attaching them to the in-memory `JobSpec` passed directly to the workerEntity via `CreateJob.secrets`.
+- **Spec Injection**: Plaintext secrets are resolved only by `SecretService.resolve(projectId)` inside `JobLauncher.prepare()`, attaching them to the in-memory `JobSpec` passed directly to the worker via `CreateJob.secrets`.
 - **Database Safety**: `job.spec` jsonb excludes secrets (`@JsonIgnore`).
 
 ## Personal Access Tokens (`secret.user`)

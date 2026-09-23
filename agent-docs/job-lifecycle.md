@@ -17,7 +17,7 @@ flowchart LR
         PJS[PendingJobService]
         PJD[PendingJobDispatcher]
     end
-    subgraph workerEntity[agent.workerEntity]
+    subgraph worker[agent.worker]
         WS[WorkerService]
         SCH[WorkerScheduler]
         WWS[WorkerWebSocket]
@@ -38,9 +38,9 @@ flowchart LR
 | Component | Responsibilities | Excluded Operations |
 | --- | --- | --- |
 | `JobLauncher` | Merge template + task scope + override, validate spec & volumes, persist `Job`, pass to scheduler. | Terminal state handling, queue decisions, unplaceable cleanup. |
-| `JobService` | Terminal state transitions (`applyState`, `cancel`), cleanups (`discard`), `JobLock` release, logs, `stopOpen`. | Job creation, workerEntity scheduling. |
+| `JobService` | Terminal state transitions (`applyState`, `cancel`), cleanups (`discard`), `JobLock` release, logs, `stopOpen`. | Job creation, worker scheduling. |
 | `PendingJobService` | Queue persistence, active queue counting, status transitions. | Dispatch execution logic. |
-| `PendingJobDispatcher` | Periodic polling, workerEntity eligibility check, batch claiming, dispatch & retry orchestration. | Direct entity persistence. |
+| `PendingJobDispatcher` | Periodic polling, worker eligibility check, batch claiming, dispatch & retry orchestration. | Direct entity persistence. |
 | `WorkerScheduler` | Worker selection, capacity checks, volume affinity, `JobLock` acquisition. | Queueing, HTTP error handling. |
 
 ## Job Request & Create Flow
@@ -74,11 +74,11 @@ sequenceDiagram
 
 Runs every `job.pending.interval`:
 1. **Expiry**: Marks overdue entries as `EXPIRED` (`expireOverdue`).
-2. **Worker Check**: Idles immediately if no active workerEntity is registered.
+2. **Worker Check**: Idles immediately if no active worker is registered.
 3. **Claiming**: Claims a batch of due entries under `PESSIMISTIC_WRITE` (`QUEUED` -> `DISPATCHING`).
 4. **Launch**: Calls `JobLauncher.launch(projectId, requestedBy, request, PRE_AUTHORIZED)`:
    - `prepare()`: Persists a `PENDING` `Job` entity, resolves project secrets onto an in-memory scheduler copy of `JobSpec`.
-   - `WorkerScheduler.schedule()`: Acquires `JobLock`, verifies volume affinity and workerEntity capacity, and calls workerEntity RPC `CreateJob`.
+   - `WorkerScheduler.schedule()`: Acquires `JobLock`, verifies volume affinity and worker capacity, and calls worker RPC `CreateJob`.
 5. **Outcome Handling**:
    - **Scheduled**: Marks entry `DISPATCHED` with assigned `jobId`.
    - **Unplaceable** (`scheduled = false`): Calls `JobService.discard(jobId)` to delete the transient `PENDING` job row; calls `requeue()` with exponential backoff.
@@ -89,13 +89,13 @@ Runs every `job.pending.interval`:
 ```mermaid
 stateDiagram-v2
     [*] --> PENDING: JobLauncher.prepare
-    PENDING --> RUNNING: workerEntity JobStateUpdate
-    PENDING --> SUCCESS: workerEntity JobStateUpdate
-    PENDING --> FAILED: workerEntity · JobLauncher.fail · WorkerService.failJobsOf
+    PENDING --> RUNNING: worker JobStateUpdate
+    PENDING --> SUCCESS: worker JobStateUpdate
+    PENDING --> FAILED: worker · JobLauncher.launch · WorkerService.unregisterWorker · WorkerService.delete (force)
     PENDING --> CANCELLED: JobService.cancel
     PENDING --> [*]: JobService.discard (unplaceable cleanup)
-    RUNNING --> SUCCESS: workerEntity JobStateUpdate
-    RUNNING --> FAILED: workerEntity · WorkerService.failJobsOf
+    RUNNING --> SUCCESS: worker JobStateUpdate
+    RUNNING --> FAILED: worker · WorkerService.unregisterWorker · WorkerService.delete (force)
     RUNNING --> CANCELLED: JobService.cancel
     SUCCESS --> [*]
     FAILED --> [*]
@@ -104,17 +104,17 @@ stateDiagram-v2
 
 ### Invariants & State Transition Rules
 - **Authoritative Transitions**: All state changes must go through `Job#transitionTo`, ensuring `completedAt` remains synchronized with the DB check constraint `job_completion_consistency`.
-- **`started_at`**: Stamped by `WorkerScheduler.claimJob`, beside the `workerEntity` assignment — placement is the only start the control plane observes, since no later protocol message reports one. It stays null on a job that never reached a workerEntity, so `created_at` (enqueue) and `started_at` together separate queue time from run time. Not covered by a check constraint: a job cancelled while queued has a `completed_at` and no `started_at`.
+- **`started_at`**: Stamped by `WorkerScheduler.claimJob`, beside the `worker` assignment — placement is the only start the control plane observes, since no later protocol message reports one. It stays null on a job that never reached a worker, so `created_at` (enqueue) and `started_at` together separate queue time from run time. Not covered by a check constraint: a job cancelled while queued has a `completed_at` and no `started_at`.
 - **Concurrency**: `JobService.applyState` and `JobService.cancel` acquire `PESSIMISTIC_WRITE` locks on the `job` row.
-- **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent workerEntity reports are ignored.
-- **Worker Disconnect**: When a workerEntity disconnects, `WorkerService.failJobsOf` transitions all open jobs on that workerEntity to `FAILED`.
-- **`JobService.discard`**: Deletes a `PENDING` job only if `job.workerEntity` is null. Throws `IllegalStateException` if a workerEntity was already assigned.
+- **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent worker reports are ignored.
+- **Worker Disconnect**: When a worker disconnects, `WorkerService.unregisterWorker` transitions all open jobs on that worker to `FAILED` (`failAllJobs`, which a forced `WorkerService.delete` also calls).
+- **`JobService.discard`**: Deletes a `PENDING` job only if `job.worker` is null. Throws `IllegalStateException` if a worker was already assigned.
 - **Failure Notification**: Transitions to `FAILED` notify `requested_by` via `NotificationService.notifyIfPresent`. Using `notifyIfPresent` ensures that non-existent or deleted users do not trigger exceptions that would roll back the terminal state transition. Other terminal states do not generate notifications.
 
 ## Mutual Exclusion (`JobLock`)
 
 Specs specifying a non-empty `lock` enforce per-project mutual exclusion:
-- **Acquisition**: `JobLock.tryAcquire` is called by `WorkerScheduler` before workerEntity dispatch. If held by a non-terminal job, acquisition fails and the job is marked unplaceable.
+- **Acquisition**: `JobLock.tryAcquire` is called by `WorkerScheduler` before worker dispatch. If held by a non-terminal job, acquisition fails and the job is marked unplaceable.
 - **Takeover**: If the current lock holder is already terminal or missing, the lock is reassigned to the new job.
-- **Release**: Automatically released when the holding job reaches a terminal state (`applyState`, `cancel`), when unplaceable (`discard`), or upon workerEntity disconnect.
+- **Release**: Automatically released when the holding job reaches a terminal state (`applyState`, `cancel`), when unplaceable (`discard`), or upon worker disconnect.
 

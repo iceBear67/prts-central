@@ -33,7 +33,7 @@ in `project_resource_class` (`ProjectResourceClass`, a composite-key join keyed 
 name).
 
 - **`ResourceClass.shared` defaults to true**, in the column and in the builder, so a deployment that
-  grants nothing keeps the catalogue it had before this existed. A class is restricted only by an
+  grants nothing leaves every class open to every project. A class is restricted only by an
   admin saying so (`shared: false` on create, or `PATCH`).
 - **Both foreign keys cascade at the database level**, which is why neither `ProjectService.delete`
   nor the resource class delete mentions this table. Grants are not a reference that blocks deleting
@@ -48,17 +48,17 @@ name).
     rather than on every later submission.
   - `resolve` runs in `prepare` too, so a queue entry whose grant was withdrawn while it waited is
     refused on dispatch and `PendingJobDispatcher` marks it `FAILED`.
-- **A `TaskScope.resourceClass` is not validated when the task is written**, as before: it is resolved
+- **A `TaskScope.resourceClass` is not validated when the task is written**: it is resolved
   when a job under the task is launched, and refused there.
 - **Reads**: `GET /project/{projectId}/resource-class` is the project's own half of the catalogue
-  (`ResourceClass.listAvailableTo`); `GET /resource-class` still publishes the whole of it to any
+  (`ResourceClass.listAvailableTo`); `GET /resource-class` publishes the whole of it to any
   authenticated caller, because a class is service-wide configuration rather than tenant data. The
   mapping is written from `/api/admin/resource-class/{name}/project`.
 
 ## Volume Isolation
 
 `JobSpec.requireVolumesIn(project)` validates that all requested volumes exist, belong to the project,
-are in `READY` state, share the same workerEntity host, and specify valid mount paths. Cross-workerEntity volume
+are in `READY` state, share the same worker host, and specify valid mount paths. Cross-worker volume
 mismatches are rejected at validation rather than during scheduling to prevent unschedulable jobs from queueing.
 
 `JobSpec.VolumeSpec.MOUNT_POINT` validates mount paths: absolute path of non-empty segments, no `.` or

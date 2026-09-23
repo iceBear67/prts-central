@@ -16,7 +16,7 @@ flowchart LR
     W <--> A[Job ACP Agent]
 ```
 
-Agent traffic multiplexes over the workerEntity WebSocket connection. Viewers communicate with central over standard JSON-RPC.
+Agent traffic multiplexes over the worker WebSocket connection. Viewers communicate with central over standard JSON-RPC.
 
 ## Method Routing
 
@@ -24,7 +24,7 @@ Agent traffic multiplexes over the workerEntity WebSocket connection. Viewers co
 
 | Route | Methods | Description |
 | --- | --- | --- |
-| `LOCAL` | `initialize` | Answered locally from workerEntity's `AgentAttached` snapshot. |
+| `LOCAL` | `initialize` | Answered locally from worker's `AgentAttached` snapshot. |
 | `TO_AGENT` | `session/prompt`, `session/cancel`, `session/set_mode`, `session/set_config_option` | Viewer to agent. Requires `job:agent:interact`. |
 | `TO_CLIENT` | `session/update`, `session/request_permission`, `elicitation/create`, `elicitation/complete` | Agent broadcast to all viewers. |
 
@@ -37,7 +37,7 @@ Central augments the cached `initialize` snapshot with `result._meta.prts` (job 
 
 ## ID Translation
 
-Request IDs are scoped per-connection while multiple viewers share one workerEntity link:
+Request IDs are scoped per-connection while multiple viewers share one worker link:
 - **Viewer to Agent**: `AgentChannel` renumbers the request upstream and maps it back to the originating viewer when answered.
 - **Agent to Viewer**: Broadcast under a renumbered ID. The first viewer response claims the request; subsequent responses are dropped.
 - **Undeliverable requests**: Agent requests with no connected viewers fail immediately.
@@ -56,9 +56,9 @@ Attaching registers an initial root session. Subsequent agent-emitted session ID
 
 | Event | Action |
 | --- | --- |
-| `AgentAttached` | Validates job state and workerEntity ownership, opens root session, replaces previous channel if reattached. |
+| `AgentAttached` | Validates job state and worker ownership, opens root session, replaces previous channel if reattached. |
 | `AgentDetached` | Closes sessions and viewers. |
-| Worker disconnect | `AgentService.onWorkerGone` drops channels and closes viewer sockets before jobs transition to failed. |
+| Worker disconnect | `AgentService.onWorkerGone` (a `WorkerEvent.OFFLINE` consumer) drops the worker's channels and closes their viewer sockets. It runs off the event bus, in no fixed order with `WorkerService` failing the worker's jobs. |
 | Job terminal | `onJobClosed` runs post-commit to close viewer sockets outside the transaction. |
 
 WebSocket close codes:

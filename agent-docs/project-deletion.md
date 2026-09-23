@@ -13,15 +13,15 @@ flowchart TD
 
 1. **`stopWork(projectId, reason)`**:
    - Cancels active queue entries (`PendingJob.cancelActive`).
-   - Hands the project's open jobs to `JobService.stopOpen`, which marks each `CANCELLED`, dispatches `ClientboundMessage.InterruptJob` to its workerEntity, and purges unassigned pending uploads.
-   - *Note*: `InterruptJob` informs the workerEntity that the job no longer exists on the server. Workers must drop the container immediately without reporting terminal state updates.
-   - **Also used by `ProjectService.archive`**: Cancels pending work and interrupts active jobs before setting the project to read-only. The `reason` parameter informs the workerEntity whether the interruption was caused by deletion or archiving.
+   - Hands the project's open jobs to `JobService.stopOpen`, which marks each `CANCELLED`, dispatches `ClientboundMessage.InterruptJob` to its worker, and purges unassigned pending uploads.
+   - *Note*: `InterruptJob` informs the worker that the job no longer exists on the server. Workers must drop the container immediately without reporting terminal state updates.
+   - **Also used by `ProjectService.archive`**: Cancels pending work and interrupts active jobs before setting the project to read-only. The `reason` parameter informs the worker whether the interruption was caused by deletion or archiving.
    - `JobService.stopOpen` is shared with task closure (`Job.listOpenByTask`). See [task-scope.md](task-scope.md).
 2. **`deleteObjects`**:
    - Deletes all S3 objects associated with the project's jobs before database rows are dropped.
 3. **`deleteVolumes`**:
    - Dispatches `DeleteVolume` to workers for all project volumes prior to database cascade deletion.
-   - Best effort: logs warnings if any workerEntity is unreachable.
+   - Best effort: logs warnings if any worker is unreachable.
 4. **`deleteRows`**:
    - Executes inside an independent transaction (`requiringNew()`).
    - Acquires a `PESSIMISTIC_WRITE` lock on the `project` row to block concurrent job insertions.

@@ -1,7 +1,7 @@
-# workerEntity-mock
+# worker-mock
 
-A workerEntity that speaks the control plane's protocol without running anything. It connects to
-`/ws/workerEntity`, registers, answers every request, and does exactly what a test tells it to about the
+A worker that speaks the control plane's protocol without running anything. It connects to
+`/ws/worker`, registers, answers every request, and does exactly what a test tells it to about the
 jobs it is given — so an e2e test can drive a job from placement to its end state, and watch what the
 control plane does with its logs, artifacts and volumes on the way, without a container runtime.
 
@@ -19,7 +19,7 @@ worker-mock/
     JobRun.java            one job as a script sees it
     AgentBehaviour.java    how a job's agent answers the frames it is handed
     VolumeHandler.java     whether to accept a volume
-    MockWorkerMain.java    the same workerEntity as a standalone process
+    MockWorkerMain.java    the same worker as a standalone process
     Sink.java / WorkerSocket.java   the transport, and its only real implementation
     Wire.java              the JSON codec
     protocol/              this module's own model of the messages
@@ -29,7 +29,7 @@ worker-mock/
 ## Using it
 
 ```java
-var workerEntity = MockWorker.builder(baseUri, "test-workerEntity-secret")   // http(s):// or ws(s)://
+var worker = MockWorker.builder(baseUri, "test-worker-secret")   // http(s):// or ws(s)://
         .name("w1")
         .onJob(JobScript.started()
                 .andThen(JobScript.log("building"))
@@ -38,11 +38,11 @@ var workerEntity = MockWorker.builder(baseUri, "test-workerEntity-secret")   // 
         .start();                                                 // connect, then register
 ```
 
-`baseUri` may be the control plane's base URL — the mock appends `/ws/workerEntity` — or the endpoint
+`baseUri` may be the control plane's base URL — the mock appends `/ws/worker` — or the endpoint
 itself. The token goes in `X-Worker-Token`; a refused handshake (HTTP 401) is an
 `IllegalStateException` naming the status.
 
-Tear down with `workerEntity.close()`. An empty workerEntity roster is **not** the end of the control plane's own
+Tear down with `worker.close()`. An empty worker roster is **not** the end of the control plane's own
 teardown: wait for the work tail as well (`Job.listOpenByWorker(workerId).isEmpty()`), or the next
 test's `TRUNCATE` deadlocks against the transactions still failing those jobs — see
 [agent-docs/testing.md](../agent-docs/testing.md).
@@ -81,13 +81,13 @@ by default), naming what was never answered.
 ### Jobs
 
 `createJob` starts the script chosen by `onJob(...)` — one script for every job, or a resolver
-`Function<JobRun, JobScript>` for a workerEntity given several. Before the script runs, unless it declines,
+`Function<JobRun, JobScript>` for a worker given several. Before the script runs, unless it declines,
 the mock answers the `createJob` envelope with `ack`: the control plane blocks for up to 30 seconds
 on that acknowledgment and places nothing until it arrives. A script that declines never answers,
-which is how a workerEntity that will not take the job is written.
+which is how a worker that will not take the job is written.
 
 A script reports through `JobRun`, and nothing is implicit — a script that reports nothing leaves the
-job exactly as the control plane sees it: `PENDING`, assigned to this workerEntity, never finishing.
+job exactly as the control plane sees it: `PENDING`, assigned to this worker, never finishing.
 
 | Step | What goes on the wire |
 | --- | --- |
@@ -126,7 +126,7 @@ has already moved the job to `CANCELLED` itself. Afterwards `wasCancelled()`, `w
 
 Note that a cancellation only counts for the *script*: reach for `awaitCancellation()` if the job
 should behave like one that stops when told. A script that ignores it keeps running, which is how a
-workerEntity that does not honour a cancellation can be imitated.
+worker that does not honour a cancellation can be imitated.
 
 ### Artifacts
 
@@ -134,8 +134,8 @@ workerEntity that does not honour a cancellation can be imitated.
 PUTs the bytes to it with the method the control plane named, throwing on any non-2xx. The size the
 control plane reserved is the size of the array: **the control plane records nothing until its sweeper
 finds an object of exactly that size**, and the sweeper only promotes an upload while the job is still
-open and assigned to the workerEntity that sent it — and it looks every two seconds. So an artifact shows up
-a few seconds after the upload, a script that uploads and then finishes at once loses it, and a workerEntity
+open and assigned to the worker that sent it — and it looks every two seconds. So an artifact shows up
+a few seconds after the upload, a script that uploads and then finishes at once loses it, and a worker
 that writes a different number of bytes uploads into nothing.
 
 ### Volumes
@@ -143,7 +143,7 @@ that writes a different number of bytes uploads into nothing.
 `createVolume` and `deleteVolume` are answered with `ack`. `VolumeHandler` decides: the
 default accepts everything, `VolumeHandler.refusing(reason)` refuses everything the way a host out of
 disk would. A refused allocation is deleted by the control plane, so it is not left `PROVISIONING`.
-What the mock accepted is visible from `workerEntity.volumes()` and `workerEntity.deletedVolumes()`.
+What the mock accepted is visible from `worker.volumes()` and `worker.deletedVolumes()`.
 
 ### The agent
 
@@ -167,7 +167,7 @@ the job over it.
 The mock reports the resources it was built with (8 CPUs, 8192 memory units and 102400 disk units by
 default) and nothing else. It does **not** keep capacity for the jobs it is running: the snapshot
 does not change when a job starts, so placement will go on choosing it. Use `reportInfo(...)` or
-`reportPending(...)` to say otherwise, which is also how a workerEntity that runs out of room is imitated.
+`reportPending(...)` to say otherwise, which is also how a worker that runs out of room is imitated.
 
 `nextInbound(type, timeout)` takes a message (removing it from `inbox()`), `onInbound`/`onSent` watch
 both directions, and `sent()`, `inbox()`, `jobs()`, `job(id)`, `volumes()` and `deletedVolumes()` are
@@ -179,12 +179,12 @@ the record of what happened.
 - No capacity bookkeeping of its own (above), and no placement decisions — those are the control
   plane's.
 - No ACP allowlist or id rewriting: it relays what a behaviour tells it to.
-- No reconnection or retry: `close()` drops the connection and shuts its threads down, and a workerEntity
+- No reconnection or retry: `close()` drops the connection and shuts its threads down, and a worker
   closed that way is not usable again. `disconnect()` is the one that can connect again.
 
 ## In dev mode
 
-The control plane runs one of these for itself: `MockWorkerRunner` (`%dev` only) connects a workerEntity
+The control plane runs one of these for itself: `MockWorkerRunner` (`%dev` only) connects a worker
 back to dev mode at startup, so what the UI creates is actually placed and run. Its scripts, the
 `prts.mock` label a job picks one with, and the configuration are in
 [agent-docs/build-and-run.md](../agent-docs/build-and-run.md). This module reaches that classpath
@@ -192,18 +192,18 @@ through `compileOnly` and `quarkusDev`, never a production one.
 
 ## As a standalone process
 
-The same workerEntity runs out of process for a control plane that is already up — dev mode, a staging
-deployment, or a test that wants the workerEntity outside its own JVM:
+The same worker runs out of process for a control plane that is already up — dev mode, a staging
+deployment, or a test that wants the worker outside its own JVM:
 
 ```
-./gradlew :workerEntity-mock:run --args="--url http://localhost:8080 --token allo --script succeed"
+./gradlew :worker-mock:run --args="--url http://localhost:8080 --token allo --script succeed"
 ```
 
 ```
 --url <url>        control plane base URL (required)
---token <secret>   the shared workerEntity secret (default: allo, the dev value)
---name <name>      the name to register under (default: mock-workerEntity)
---id <uuid>        the workerEntity id to assert (default: a fresh one)
+--token <secret>   the shared worker secret (default: allo, the dev value)
+--name <name>      the name to register under (default: mock-worker)
+--id <uuid>        the worker id to assert (default: a fresh one)
 --cpus/--mem/--disk  reported resources (default: 8 / 8192 / 102400)
 --script <name>    succeed | fail | hang | upload | silent (default: succeed)
 --agent            let every job attach an echoing agent
@@ -211,12 +211,12 @@ deployment, or a test that wants the workerEntity outside its own JVM:
 --help             print this list
 ```
 
-Every message in either direction is printed, `>` for what the workerEntity sends and `<` for what it
+Every message in either direction is printed, `>` for what the worker sends and `<` for what it
 receives. `--jobs` does not combine with `--script hang`, which never finishes anything.
 
 ## Testing
 
-- `./gradlew :workerEntity-mock:test` runs this module's own tests: the wire contract, the script and
+- `./gradlew :worker-mock:test` runs this module's own tests: the wire contract, the script and
   cancellation behaviour, the agent, volumes, and the upload PUT against a local HTTP endpoint. No
   containers, so it runs anywhere.
 - `MockWorkerEntityE2ETest` in the control plane (`./gradlew e2eTest`, tagged `e2e`) is where the mock meets

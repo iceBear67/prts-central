@@ -54,8 +54,8 @@ Resolved task attributes are persisted in `job.spec`. Re-running a job (`Job.toR
 
 ## Worker Affinity
 
-`WorkerScheduler.workersForVolumes` requires all volumes attached to a job to reside on the same workerEntity.
-Consequently, mounting volumes pins a task to the workerEntity hosting those volumes. `TaskService.attach`
+`WorkerScheduler.workersForVolumes` requires all volumes attached to a job to reside on the same worker.
+Consequently, mounting volumes pins a task to the worker hosting those volumes. `TaskService.attach`
 enforces this constraint at mount time (returning 409 Conflict if volumes reside on different workers).
 
 If an individual job override mounts additional volumes that conflict across workers, `JobSpec.requireVolumesIn`
@@ -71,7 +71,7 @@ teardown pass. `TaskTeardownDispatcher` processes any remaining teardown asynchr
 `TaskService.teardown` performs the following steps:
 
 1. `PendingJob.cancelActiveInTask`: Cancels unstarted pending jobs in the task.
-2. `JobService.stopOpen(Job.listOpenByTask(...))`: Cancels open jobs, sends workerEntity interrupts, and cleans up pending uploads.
+2. `JobService.stopOpen(Job.listOpenByTask(...))`: Cancels open jobs, sends worker interrupts, and cleans up pending uploads.
 3. `TaskVolume.deleteByTask`: Unmounts attached volumes.
 
 Closing a task does not delete physical volumes. Volumes are managed and deleted exclusively through
