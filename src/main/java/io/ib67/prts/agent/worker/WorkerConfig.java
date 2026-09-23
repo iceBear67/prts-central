@@ -8,7 +8,7 @@ import java.time.Duration;
 
 @ConfigMapping(prefix = "worker")
 public interface WorkerConfig {
-    /** Shared secret required for {@code X-WorkerEntity-Token} worker authentication. */
+    /** Shared secret required for {@code X-Worker-Token} worker authentication. */
     @NotBlank(message = "worker.secret must not be blank: an empty secret authenticates an empty header")
     String secret();
 

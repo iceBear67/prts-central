@@ -57,6 +57,30 @@ importing the interfaces above, so it is also the executable statement of the wi
 rejects duplicate registrations if an existing session with the same ID is still open (`Ack(false, ...)`).
 If the previous session is already closed, registration succeeds and replaces the existing record. If an old
 session lingers, the worker must retry or an administrator can terminate it via `POST /worker/{id}/disconnect`.
+Before a registration is accepted, every job still open on that worker is failed (see
+[Disconnection](#disconnection)); if that fails, the registration is refused and the worker retries.
+
+## Disconnection
+
+A session ends when its connection closes, when `POST /worker/{id}/disconnect` closes it, when a
+registration of the same id replaces it after it closed and before its `@OnClose` ran, or when this
+process stops.
+
+- **The control plane fails the worker's jobs.** Every open job whose `Job.worker` is that worker
+  becomes `FAILED`, and every request still waiting on the session fails at once. `@OnClose` does it
+  for a connection that closed, `WorkerService.registerWorker` for whatever a worker still has open
+  when it registers, and `WorkerService.failJobsWithoutASession` (a `StartupEvent` observer) for the
+  sessions a previous run of this process held. `Job.worker` names the worker, not the session, so a
+  job the worker accepted before `claimJob` committed is failed by `WorkerScheduler` once it has.
+- **It releases nothing the worker holds.** The `WorkerEntity` row, its volumes in whatever state and
+  their task mounts stay; a queued job that needs those volumes waits for the worker to return, or for
+  its queue entry to expire.
+- **The worker stops those jobs itself** and keeps its volumes. Nobody will tell it to stop, and once
+  it reconnects a `jobStateUpdate` for one of them is ignored and its log lines and uploads are
+  refused, since the jobs are already terminal.
+
+`WorkerService` ends a session, registers the next one and runs the startup pass under one lock, so a
+reconnecting worker is given jobs only once everything its previous sessions left open has failed.
 
 ## Placement & Scheduling (`WorkerScheduler`)
 
@@ -72,9 +96,10 @@ session lingers, the worker must retry or an administrator can terminate it via 
 
 `WorkerClient` owns one send primitive, `call(message, timeout)`: it puts the envelope on the wire and
 completes when the worker answers it. An `Ack(ok = false)` is a refusal of the operation, so it
-completes the future exceptionally carrying the worker's own explanation; so do a send that never left
-and an answer that does not arrive in time. The entry is dropped from the outstanding table however it
-ends.
+completes the future exceptionally with a `WorkerRefusedException` carrying the worker's own
+explanation; a send that never left and an answer that does not arrive in time fail it with other
+exceptions, since the worker may still have acted on them. The entry is dropped from the outstanding
+table however it ends.
 
 The named operations live on `WorkerService` — `createJob`, `cancelJob`, `interruptJob`,
 `createVolume`, `deleteVolume`, `sendAgentFrame` — each taking the worker's id and looking the session
@@ -108,6 +133,9 @@ pending future exceptionally, propagating the worker's failure message to the ca
 
 Volume rows are committed before the call with `VolumeState.PROVISIONING` because transactions cannot span RPCs.
 Upon successful acknowledgment, `VolumeService` transitions the state to `READY`; if refused, the row is deleted.
+Without an answer (a timeout, or the session ending) the row stays `PROVISIONING`: the worker may have
+allocated the volume and lost only the answer, and deleting the row is what sends the `DeleteVolume`
+releasing it. A worker therefore answers `Ack(true)` to a `DeleteVolume` for a volume it does not hold.
 Failed or unacknowledged deletions retain `RELEASING` state to prevent reuse of partially destroyed volumes.
 Only `READY` volumes are usable (`VolumeState.isUsable`), enforced in `JobSpec.requireVolumesIn` and
 `WorkerScheduler.workersForVolumes`.

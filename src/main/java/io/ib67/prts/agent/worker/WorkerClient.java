@@ -49,8 +49,9 @@ public final class WorkerClient {
      * Sends one message and completes when the worker answers it.
      *
      * <p>A refusal is a failure of the operation, so an {@code Ack(ok = false)} completes the future
-     * exceptionally carrying the worker's own explanation; so do a send that never left, and an
-     * answer that does not arrive within {@code timeout}.
+     * exceptionally with a {@link WorkerRefusedException} carrying the worker's own explanation; a
+     * send that never left, and an answer that does not arrive within {@code timeout}, fail it with
+     * other exceptions.
      *
      * <p>Never wait on the returned future from a {@code @OnTextMessage} handler of this same
      * connection: the endpoint processes a connection's messages one at a time, so the answer being
@@ -80,7 +81,7 @@ public final class WorkerClient {
             return;
         }
         if (envelope.message() instanceof ServerboundMessage.Ack(var ok, var reason) && !ok) {
-            waiting.completeExceptionally(new IllegalStateException(
+            waiting.completeExceptionally(new WorkerRefusedException(
                     reason.isEmpty() ? "the worker refused the request" : reason));
             return;
         }

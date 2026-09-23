@@ -240,6 +240,66 @@ class MockWorkerTest {
         assertFalse(types().contains("jobStateUpdate"));
     }
 
+    // ---------------------------------------------------------------- losing the connection
+
+    /**
+     * The control plane fails every job of a worker it loses and accepts no report on them, so the
+     * worker stops them itself, without a cancelJob.
+     */
+    @Test
+    void losingTheConnectionStopsEveryJobStillRunning() throws InterruptedException {
+        var released = new CountDownLatch(1);
+        var worker = start(worker().onJob(job -> {
+            job.running();
+            job.awaitCancellation();
+            released.countDown();
+        }));
+        deliver(createJob(JOB));
+        await(() -> states().contains(JobState.RUNNING), "the job never started");
+
+        worker.abort();
+
+        assertTrue(released.await(WAIT.toSeconds(), TimeUnit.SECONDS), "the job was never stopped");
+        assertTrue(awaitJob().wasCancelled());
+        assertFalse(worker.isRegistered());
+    }
+
+    @Test
+    void aJobThatEndedBeforeTheDropIsNotStopped() {
+        var worker = start(worker().onJob(JobScript.success()));
+        deliver(createJob(JOB));
+        await(() -> states().contains(JobState.SUCCESS), "the job never finished");
+
+        worker.abort();
+
+        assertFalse(awaitJob().wasCancelled());
+    }
+
+    /** Nothing will answer a request sent over a connection that is gone, so it fails at once. */
+    @Test
+    void aReplyOwedWhenTheConnectionDropsFailsAtOnce() {
+        var failure = new CompletableFuture<Throwable>();
+        controlPlane.answer("uploadArtifactRequest", request -> null);
+        var worker = start(worker().replyTimeout(Duration.ofMinutes(1)).onJob(JobScript.doing(job -> {
+            job.running();
+            try {
+                job.upload("report.txt", new byte[]{1});
+            } catch (RuntimeException e) {
+                failure.complete(e);
+                throw e;
+            }
+        })));
+        deliver(createJob(JOB));
+        await(() -> types().contains("uploadArtifactRequest"), "the upload was never asked for");
+
+        worker.abort();
+
+        // WAIT is well short of the minute the reply timeout would take.
+        await(() -> failure.isDone(), "the upload was still waiting for its answer");
+        var cause = failure.join().getCause();
+        assertTrue(cause != null && cause.getMessage().contains("lost its connection"), String.valueOf(cause));
+    }
+
     // ---------------------------------------------------------------- volumes
 
     @Test

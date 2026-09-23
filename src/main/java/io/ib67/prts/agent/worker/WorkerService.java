@@ -11,10 +11,12 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.JobState;
 import io.quarkus.narayana.jta.QuarkusTransaction;
+import io.quarkus.runtime.StartupEvent;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.vertx.core.eventbus.EventBus;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.event.Observes;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.ClientErrorException;
 import jakarta.ws.rs.core.Response;
@@ -126,26 +128,38 @@ public class WorkerService {
      *
      * <p>A worker workerId is whatever the registration claims it is, so taking over a live one would hand the
      * claimant every job — and every project secret — routed to it. A session already closed but not yet
-     * unregistered is replaced, so a reconnect after a drop still lands.
+     * unregistered is replaced, so a reconnect after a drop still lands, after every job still open on
+     * the worker is failed.
      *
      * @throws IllegalStateException if the worker already holds a live session
+     * @throws RuntimeException      if the jobs left open cannot be failed; the worker retries
      */
     void registerWorker(UUID id, Worker worker) {
-        Worker displaced;
         synchronized (this) {
             var current = activeWorkers.get(id);
             if (current != null && current.getClient().isOpen()) {
                 LOG.warnf("refused a registration for worker %s: its session is still live", id);
                 throw new IllegalStateException("worker " + id + " already has a live session");
             }
+            if (current != null) {
+                // Its own onClose will find this session in its place and return. Removed before the
+                // jobs are looked up, as unregisterWorker does, so WorkerScheduler can tell a
+                // placement recorded after the lookup. No OFFLINE: its consumer closes agent channels
+                // by worker id at no fixed time and could reach the new session's; the old channels
+                // close as their jobs fail.
+                activeWorkers.remove(id, current);
+                scheduler.onWorkerRemoved(id);
+                current.getClient().failAll(new IllegalStateException("worker re-registered on a new connection"));
+            }
+            // No session of this worker is open now, and Job.worker names the worker, not the session:
+            // what is still open on it was left by one that ended — replaced above, lost to a restart of
+            // this process, or not failed by an unregisterWorker that errored. Failed before the new
+            // session enters the roster, where it could be given jobs the lookup would also find.
+            failOpenJobs(id);
             worker.setDisabled(QuarkusTransaction.requiringNew()
                     .call(() -> WorkerEntity.upsert(id, worker.getName()).isDisabled()));
-            displaced = activeWorkers.put(id, worker);
+            activeWorkers.put(id, worker);
             eventBus.publish(WorkerEvent.ONLINE, worker);
-        }
-        if (displaced != null) {
-            scheduler.onWorkerRemoved(id);
-            displaced.getClient().failAll(new IllegalStateException("worker re-registered on a new connection"));
         }
     }
 
@@ -237,30 +251,64 @@ public class WorkerService {
         return worker;
     }
 
-    /** Unregisters a worker if the closing connection matches its active session. */
+    /**
+     * Unregisters a worker if the closing connection matches its active session.
+     *
+     * <p>Under the same lock as {@link #registerWorker}: a reconnect registering between the removal
+     * and the lookup would have the jobs it is given failed as this session's.
+     */
     void unregisterWorker(UUID id, WebSocketConnection connection) {
-        var worker = activeWorkers.get(id);
-        if (worker == null || !worker.getClient().isFor(connection) || !activeWorkers.remove(id, worker)) {
-            return;
+        synchronized (this) {
+            var worker = activeWorkers.get(id);
+            if (worker == null || !worker.getClient().isFor(connection) || !activeWorkers.remove(id, worker)) {
+                return;
+            }
+            eventBus.publish(WorkerEvent.OFFLINE, id);
+            worker.getClient().failAll(new IllegalStateException("worker disconnected"));
+            failAllJobs(id);
         }
-        eventBus.publish(WorkerEvent.OFFLINE, id);
-        worker.getClient().failAll(new IllegalStateException("worker disconnected"));
-        failAllJobs(id);
+    }
+
+    /**
+     * Fails the jobs of every worker a previous run of this process held a session with. Nothing
+     * outlives the process, and each worker stopped its jobs when its connection dropped.
+     *
+     * <p>A worker already registered again is skipped: its registration failed what it had left, and
+     * what it holds now is live. Under the registration lock, so that holds whenever this runs.
+     */
+    void failJobsWithoutASession(@Observes StartupEvent event) {
+        synchronized (this) {
+            var lost = QuarkusTransaction.requiringNew().call(() -> Job.listOpenAssigned().stream()
+                    .filter(job -> !activeWorkers.containsKey(job.getWorker()))
+                    .map(Job::getId)
+                    .toList());
+            for (var jobId : lost) {
+                jobService.applyState(jobId, JobState.FAILED);
+            }
+            if (!lost.isEmpty()) {
+                LOG.infof("failed %s job(s) left open on workers by a previous run", lost.size());
+            }
+        }
     }
 
     /** Fails everything the worker was still holding. Returns how many, best effort. */
     private int failAllJobs(UUID workerId) {
         try {
-            var open = QuarkusTransaction.requiringNew()
-                    .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
-            for (var jobId : open) {
-                jobService.applyState(jobId, JobState.FAILED);
-            }
-            return open.size();
+            return failOpenJobs(workerId);
         } catch (RuntimeException e) {
             LOG.errorf(e, "cannot fail the jobs of disconnected worker %s", workerId);
             return 0;
         }
+    }
+
+    /** Fails every job still open on the worker. Returns how many. */
+    private int failOpenJobs(UUID workerId) {
+        var open = QuarkusTransaction.requiringNew()
+                .call(() -> Job.listOpenByWorker(workerId).stream().map(Job::getId).toList());
+        for (var jobId : open) {
+            jobService.applyState(jobId, JobState.FAILED);
+        }
+        return open.size();
     }
 
     /**

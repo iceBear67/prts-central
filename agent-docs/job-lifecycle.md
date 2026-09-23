@@ -91,11 +91,11 @@ stateDiagram-v2
     [*] --> PENDING: JobLauncher.prepare
     PENDING --> RUNNING: worker JobStateUpdate
     PENDING --> SUCCESS: worker JobStateUpdate
-    PENDING --> FAILED: worker · JobLauncher.launch · WorkerService.unregisterWorker · WorkerService.delete (force)
+    PENDING --> FAILED: worker · JobLauncher.launch · WorkerService.unregisterWorker · WorkerService.registerWorker · WorkerService.failJobsWithoutASession · WorkerService.delete (force)
     PENDING --> CANCELLED: JobService.cancel
     PENDING --> [*]: JobService.discard (unplaceable cleanup)
     RUNNING --> SUCCESS: worker JobStateUpdate
-    RUNNING --> FAILED: worker · WorkerService.unregisterWorker · WorkerService.delete (force)
+    RUNNING --> FAILED: worker · WorkerService.unregisterWorker · WorkerService.registerWorker · WorkerService.failJobsWithoutASession · WorkerService.delete (force)
     RUNNING --> CANCELLED: JobService.cancel
     SUCCESS --> [*]
     FAILED --> [*]
@@ -107,7 +107,7 @@ stateDiagram-v2
 - **`started_at`**: Stamped by `WorkerScheduler.claimJob`, beside the `worker` assignment — placement is the only start the control plane observes, since no later protocol message reports one. It stays null on a job that never reached a worker, so `created_at` (enqueue) and `started_at` together separate queue time from run time. Not covered by a check constraint: a job cancelled while queued has a `completed_at` and no `started_at`.
 - **Concurrency**: `JobService.applyState` and `JobService.cancel` acquire `PESSIMISTIC_WRITE` locks on the `job` row.
 - **Terminal Lock-in**: Once terminal (`SUCCESS`, `FAILED`, `CANCELLED`), subsequent worker reports are ignored.
-- **Worker Disconnect**: When a worker disconnects, `WorkerService.unregisterWorker` transitions all open jobs on that worker to `FAILED` (`failAllJobs`, which a forced `WorkerService.delete` also calls).
+- **Worker Disconnect**: When a worker disconnects, `WorkerService.unregisterWorker` transitions all open jobs on that worker to `FAILED` (`failAllJobs`, which a forced `WorkerService.delete` also calls). The worker stops them itself. Three other paths fail what a session left: `WorkerService.registerWorker` fails every job still open on a worker before accepting its registration (a session it replaced before that session's `@OnClose` ran, or one lost to a restart), `WorkerService.failJobsWithoutASession` does the same at startup for workers that have not registered again, and a job the worker accepted just before its session ended is failed by `JobLauncher.launch`, since `WorkerScheduler` throws once the late placement commits. The worker row, its volumes and their task mounts stay. See [docs/worker-protocol.md](../docs/worker-protocol.md#disconnection).
 - **`JobService.discard`**: Deletes a `PENDING` job only if `job.worker` is null. Throws `IllegalStateException` if a worker was already assigned.
 - **Failure Notification**: Transitions to `FAILED` notify `requested_by` via `NotificationService.notifyIfPresent`. Using `notifyIfPresent` ensures that non-existent or deleted users do not trigger exceptions that would roll back the terminal state transition. Other terminal states do not generate notifications.
 

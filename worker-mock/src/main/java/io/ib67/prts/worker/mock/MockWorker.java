@@ -148,14 +148,22 @@ public final class MockWorker implements AutoCloseable {
 
     /** Closes this worker's connection politely, leaving it able to connect again. */
     public void disconnect() {
-        registered = false;
-        sink.close();
+        try {
+            sink.close();
+        } finally {
+            // Not left to the socket's listener: its onClose waits for the control plane's close
+            // frame, and after an abort it may never come.
+            onTransportGone();
+        }
     }
 
     /** Drops this worker's connection without a close frame, the way a killed host would. */
     public void abort() {
-        registered = false;
-        sink.abort();
+        try {
+            sink.abort();
+        } finally {
+            onTransportGone();
+        }
     }
 
     @Override
@@ -301,8 +309,29 @@ public final class MockWorker implements AutoCloseable {
         }
     }
 
+    /**
+     * The connection dropped, however it dropped. The control plane has failed every job it placed
+     * here and accepts no report on them, so the worker stops them itself; its volumes stay.
+     */
     private void onTransportGone() {
+        if (sink.isOpen()) {
+            // Reported late for a connection that a newer one has already replaced.
+            return;
+        }
         registered = false;
+        // Nothing will answer these any more; fail them now rather than at the reply timeout.
+        var lost = new IllegalStateException("worker " + workerId() + " lost its connection");
+        for (var id : List.copyOf(pending.keySet())) {
+            var entry = pending.remove(id);
+            if (entry != null) {
+                entry.reply().completeExceptionally(lost);
+            }
+        }
+        for (var job : jobs.values()) {
+            if (!job.state().isTerminal()) {
+                job.markCancelled();
+            }
+        }
     }
 
     private void onMessage(String text) {

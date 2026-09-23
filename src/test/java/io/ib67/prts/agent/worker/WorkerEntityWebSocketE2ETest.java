@@ -2,6 +2,8 @@ package io.ib67.prts.agent.worker;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.ib67.prts.agent.worker.entity.VolumeState;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.agent.worker.message.ClientboundEnvelope;
 import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
@@ -10,8 +12,11 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
+import io.quarkus.runtime.StartupEvent;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
+import io.quarkus.websockets.next.OpenConnections;
+import io.quarkus.websockets.next.WebSocketConnection;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -27,12 +32,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import java.util.function.UnaryOperator;
+import java.util.stream.Collectors;
 
 import static io.ib67.prts.testing.Fixtures.as;
 import static io.ib67.prts.testing.Fixtures.inTx;
@@ -40,6 +50,7 @@ import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,7 +66,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 class WorkerEntityWebSocketE2ETest {
 
     private static final String SECRET = "test-worker-secret";
-    private static final String WORKER_TOKEN = "X-WorkerEntity-Token";
+    private static final String WORKER_TOKEN = "X-Worker-Token";
 
     private static final Duration REPLY = Duration.ofSeconds(10);
     private static final Duration SETTLE = Duration.ofSeconds(10);
@@ -71,6 +82,10 @@ class WorkerEntityWebSocketE2ETest {
     DatabaseCleaner databaseCleaner;
     @Inject
     WorkerService workerService;
+    @Inject
+    VolumeService volumeService;
+    @Inject
+    OpenConnections openConnections;
     @Inject
     ObjectMapper mapper;
 
@@ -255,6 +270,95 @@ class WorkerEntityWebSocketE2ETest {
         assertEquals(JobState.RUNNING, stateOf(elsewhere));
     }
 
+    /**
+     * A registration can replace a session that closed before its onClose ran; that onClose then
+     * finds the new session and leaves it be. The window cannot be hit from outside, so the closed
+     * session is registered directly on a connection that never sent Register: its onClose has no
+     * worker id to act on, which leaves it in the roster exactly as the race does.
+     */
+    @Test
+    void aClosedSessionReplacedByAReRegistrationHasItsJobsFailed() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var workerId = UUID.randomUUID();
+        var opened = openConnections.stream().map(WebSocketConnection::id).collect(Collectors.toSet());
+        var first = connect();
+        var firstOnServer = new AtomicReference<WebSocketConnection>();
+        await(() -> {
+            openConnections.stream().filter(c -> !opened.contains(c.id())).findFirst().ifPresent(firstOnServer::set);
+            return firstOnServer.get() != null;
+        }, "the first connection never opened on the server");
+        workerService.registerWorker(workerId, new Worker("w1", new WorkerClient(firstOnServer.get()), null));
+        var job = fixtures.createJob(project, alice, klass, JobState.RUNNING, workerId);
+        first.close();
+        await(() -> !firstOnServer.get().isOpen(), "the first connection never closed on the server");
+        assertTrue(workerService.getWorker(workerId).isPresent(), "nothing should have unregistered it");
+
+        var second = connect();
+        assertTrue(second.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+
+        assertEquals(JobState.FAILED, stateOf(job));
+        // The first connection's onClose, arriving after the registration that replaced it.
+        workerService.unregisterWorker(workerId, firstOnServer.get());
+        assertTrue(second.send(new ServerboundMessage.UpdateResourceInfo(info(1))).ok(),
+                "the late onClose unregistered the session that replaced it");
+    }
+
+    /** Nothing held a session for this worker, as after a restart of the control plane. */
+    @Test
+    void aRegistrationFailsWhatItsWorkerLeftOpen() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var workerId = fixtures.createWorker("w1");
+        var job = fixtures.createJob(project, alice, klass, JobState.RUNNING, workerId);
+
+        assertTrue(connect().send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+
+        assertEquals(JobState.FAILED, stateOf(job));
+    }
+
+    @Test
+    void jobsLeftOpenByAPreviousRunAreFailedAtStartup() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var live = UUID.randomUUID();
+        assertTrue(connect().send(new ServerboundMessage.Register(live, "w1", null)).ok());
+        var running = fixtures.createJob(project, alice, klass, JobState.RUNNING, live);
+        var left = fixtures.createJob(project, alice, klass, JobState.RUNNING, fixtures.createWorker("gone"));
+
+        workerService.failJobsWithoutASession(new StartupEvent());
+
+        assertEquals(JobState.FAILED, stateOf(left));
+        assertEquals(JobState.RUNNING, stateOf(running));
+    }
+
+    /** The worker may have allocated it and lost only the answer, so the row is kept. */
+    @Test
+    void aVolumeCreationLeftUnansweredByADisconnectStaysProvisioning() {
+        var project = fixtures.createProject("mine");
+        var session = connect();
+        assertTrue(session.send(new ServerboundMessage.Register(UUID.randomUUID(), "w1", null)).ok());
+        var background = Executors.newSingleThreadExecutor();
+        try {
+            var created = CompletableFuture.supplyAsync(
+                    () -> volumeService.create(project, "shared", 1024), background);
+            var request = assertInstanceOf(ClientboundMessage.CreateVolume.class, session.receive().message());
+
+            session.close();
+
+            var failure = assertThrows(ExecutionException.class,
+                    () -> created.get(SETTLE.toSeconds(), TimeUnit.SECONDS));
+            assertEquals("worker disconnected", failure.getCause().getMessage());
+            assertEquals(VolumeState.PROVISIONING,
+                    inTx(() -> WorkerVolume.<WorkerVolume>findById(request.volumeId()).getState()));
+        } finally {
+            background.shutdown();
+        }
+    }
+
     private Session connect() {
         var session = new Session(CLIENT.newWebSocketBuilder().header(WORKER_TOKEN, SECRET));
         sessions.add(session);
@@ -292,6 +396,15 @@ class WorkerEntityWebSocketE2ETest {
                 var answer = mapper.readValue(inbox.take(), ClientboundEnvelope.class);
                 assertEquals(asked.id(), answer.replyTo(), "the answer names another message");
                 return (ClientboundMessage.Ack) answer.message();
+            } catch (JsonProcessingException e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        /** Takes the next message the control plane sent on its own initiative. */
+        ClientboundEnvelope receive() {
+            try {
+                return mapper.readValue(inbox.take(), ClientboundEnvelope.class);
             } catch (JsonProcessingException e) {
                 throw new AssertionError(e);
             }

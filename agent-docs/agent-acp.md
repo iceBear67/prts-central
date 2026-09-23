@@ -58,7 +58,7 @@ Attaching registers an initial root session. Subsequent agent-emitted session ID
 | --- | --- |
 | `AgentAttached` | Validates job state and worker ownership, opens root session, replaces previous channel if reattached. |
 | `AgentDetached` | Closes sessions and viewers. |
-| Worker disconnect | `AgentService.onWorkerGone` (a `WorkerEvent.OFFLINE` consumer) drops the worker's channels and closes their viewer sockets. It runs off the event bus, in no fixed order with `WorkerService` failing the worker's jobs. |
+| Worker disconnect | `AgentService.onWorkerGone` (a `WorkerEvent.OFFLINE` consumer) drops the worker's channels and closes their viewer sockets. It runs off the event bus, in no fixed order with `WorkerService` failing the worker's jobs. A session replaced by a re-registration publishes no `OFFLINE`, since the consumer matches channels by worker id and could reach the new session's; its channels close through `onJobClosed` as its jobs fail. |
 | Job terminal | `onJobClosed` runs post-commit to close viewer sockets outside the transaction. |
 
 WebSocket close codes:

@@ -131,5 +131,4 @@ Remaining testing gaps and current constraints:
 - **`ProjectService` concurrent deletion (`Rows.BUSY`)**: Triggering the race condition between `stopWork` and table locking in `deleteRows` requires precise multi-threaded transaction coordination.
 - **Worker WebSocket `@OnError` handling**: Error reply behavior through websockets-next needs further verification.
 - **ACP viewer socket OIDC authentication**: `AgentWebSocketE2ETest` tests handshake auth via PAT. Browser OIDC session cookie authentication is unexercised because `%test` disables OIDC.
-- **Worker reconnection / re-registration**: Verifying that closing an old connection does not unregister a newly re-registered worker session.
 - **Concurrent `JobLock` acquisition on new lock names**: Concurrent first-time acquisition races rely on database unique constraint violation handling in `WorkerScheduler.acquireLock`, which requires multi-threaded concurrent transaction testing.

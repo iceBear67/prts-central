@@ -95,7 +95,8 @@ public interface JobRun {
     // ---- waiting ----
 
     /**
-     * Blocks until the control plane cancels or interrupts this job.
+     * Blocks until the control plane cancels or interrupts this job, or the connection to it drops:
+     * the control plane fails every job of a worker it loses, so the worker stops them itself.
      *
      * <p>Returns on interruption as well: that is the mock being torn down, not a cancellation.
      */
@@ -104,6 +105,7 @@ public interface JobRun {
     /** @return whether the job was cancelled, interrupted, or terminal within the timeout */
     boolean awaitCancellation(Duration timeout);
 
+    /** True after a {@code cancelJob}, and after the connection dropped while the job was open. */
     boolean wasCancelled();
 
     boolean wasInterrupted();

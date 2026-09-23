@@ -305,6 +305,11 @@ public class Job extends PanacheEntityBase {
         return list("worker = ?1 and state in ?2", workerId, List.of(JobState.PENDING, JobState.RUNNING));
     }
 
+    /** Lists all uncompleted jobs assigned to any worker. */
+    public static List<Job> listOpenAssigned() {
+        return list("worker is not null and state in ?1", List.of(JobState.PENDING, JobState.RUNNING));
+    }
+
     /** Returns the number of jobs referencing the specified resource class. */
     public static long countByResourceClass(String name) {
         return count("resourceClass.name = ?1", name);

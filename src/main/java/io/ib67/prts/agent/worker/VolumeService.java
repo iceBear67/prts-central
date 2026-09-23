@@ -16,6 +16,7 @@ import org.jboss.logging.Logger;
 
 import java.util.NoSuchElementException;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 
 /**
  * Allocates and releases project worker volumes.
@@ -33,7 +34,8 @@ public class VolumeService {
      * Allocates a volume on a worker selected by the scheduler.
      *
      * <p>Persists the record as {@link VolumeState#PROVISIONING} prior to the RPC,
-     * transitioning to {@link VolumeState#READY} on acknowledgment or removing the record on failure.
+     * transitioning to {@link VolumeState#READY} on acknowledgment or removing the record on refusal.
+     * Without an answer the record stays {@code PROVISIONING}.
      */
     public WorkerVolume create(UUID projectId, String name, long sizeBytes) {
         var workerId = workerService.scheduler.selectVolumeHost()
@@ -53,7 +55,11 @@ public class VolumeService {
         });
         workerService.createVolume(workerId, volumeId, projectId, name, sizeBytes)
                 .whenComplete((allocated, t) -> {
-                    if (t != null) discard(volumeId);
+                    // Only a refusal says the worker holds nothing. A timeout or a dropped session may
+                    // follow an allocation whose answer was lost, so the row stays PROVISIONING (never
+                    // usable) until a delete asks the worker to release it.
+                    var cause = t instanceof CompletionException ? t.getCause() : t;
+                    if (cause instanceof WorkerRefusedException) discard(volumeId);
                 }).join();
         return QuarkusTransaction.requiringNew().call(() -> {
             var volume = WorkerVolume.<WorkerVolume>findById(volumeId);

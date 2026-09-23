@@ -1,6 +1,7 @@
 package io.ib67.prts.agent.worker;
 
 import io.ib67.prts.agent.worker.entity.VolumeState;
+import io.ib67.prts.agent.worker.entity.WorkerVolume;
 import io.ib67.prts.job.JobLauncher;
 import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.Artifact;
@@ -8,14 +9,19 @@ import io.ib67.prts.job.entity.Job;
 import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobRequest;
 import io.ib67.prts.job.entity.JobState;
+import io.ib67.prts.job.task.TaskScope;
+import io.ib67.prts.job.task.entity.TaskVolume;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
 import io.ib67.prts.worker.mock.JobRun;
 import io.ib67.prts.worker.mock.JobScript;
 import io.ib67.prts.worker.mock.MockWorker;
+import io.ib67.prts.worker.mock.VolumeHandler;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -27,12 +33,18 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -69,6 +81,8 @@ class MockWorkerEntityE2ETest {
     WorkerService workerService;
     @Inject
     VolumeService volumeService;
+    @Inject
+    EntityManager entityManager;
 
     private final List<MockWorker> workers = new ArrayList<>();
     private Fixtures.Actor alice;
@@ -221,6 +235,103 @@ class MockWorkerEntityE2ETest {
                 "the volume was never released on the worker", SETTLE);
     }
 
+    /** A refusal is the one answer saying the worker holds nothing, so only it drops the row. */
+    @Test
+    void aVolumeTheWorkerRefusesIsNotKept() {
+        start(worker().volumes(VolumeHandler.refusing("no space left on the host")));
+
+        var failure = assertThrows(CompletionException.class,
+                () -> volumeService.create(project, "shared", 1024));
+
+        assertInstanceOf(WorkerRefusedException.class, failure.getCause());
+        assertEquals("no space left on the host", failure.getCause().getMessage());
+        assertEquals(0L, Fixtures.inTx(() -> WorkerVolume.count()));
+    }
+
+    // ---------------------------------------------------------------- losing the worker
+
+    /**
+     * What a lost connection means on both sides: the control plane fails the job, the worker stops
+     * it without being told, and the volume the worker hosts stays as it was.
+     */
+    @Test
+    void aDroppedWorkerHasItsJobFailedStopsItAndKeepsItsVolume() {
+        var worker = start(worker().onJob(JobScript.busy()));
+        var volume = volumeService.create(project, "shared", 1024).getId();
+        fixtures.mountVolume(fixtures.createTask(project, alice, "t", TaskScope.EMPTY), volume, "/data");
+        var jobId = launch();
+        await(() -> stateOf(jobId) == JobState.RUNNING, "the job never started running", SETTLE);
+
+        worker.abort();
+
+        await(() -> stateOf(jobId) == JobState.FAILED, "the job was never failed", SETTLE);
+        assertTrue(worker.job(jobId).wasCancelled(), "the mock never stopped the job");
+        assertEquals(VolumeState.READY, Fixtures.inTx(() -> WorkerVolume.<WorkerVolume>findById(volume).getState()));
+        assertEquals(1L, Fixtures.inTx(() -> TaskVolume.countByVolume(volume)));
+        assertTrue(worker.deletedVolumes().isEmpty());
+    }
+
+    /**
+     * The session ends between the worker's acknowledgment and the placement being recorded, so
+     * failing that session's jobs cannot find this one. Held in that window by locking the job row
+     * that {@code claimJob} has to write, and re-registered before it may, so the claim lands with a
+     * live session under the same worker id.
+     */
+    @Test
+    void aJobAcceptedJustBeforeItsWorkerDropsIsFailed() throws Exception {
+        var offered = new CompletableFuture<UUID>();
+        var acknowledge = new CountDownLatch(1);
+        var worker = start(worker().onJob(new JobScript() {
+            @Override
+            public void run(JobRun job) throws InterruptedException {
+                offered.complete(job.jobId());
+                acknowledge.await(SETTLE.toSeconds(), TimeUnit.SECONDS);
+                job.acknowledge();
+                job.awaitCancellation();
+            }
+
+            @Override
+            public boolean acknowledge() {
+                return false;
+            }
+        }));
+        var background = Executors.newCachedThreadPool();
+        var release = new CountDownLatch(1);
+        try {
+            var launched = CompletableFuture.supplyAsync(() -> launcher.launch(
+                    project, alice.id(), new JobRequest(template, null, null, null), JobLauncher.PRE_AUTHORIZED),
+                    background);
+            var jobId = offered.get(SETTLE.toSeconds(), TimeUnit.SECONDS);
+            var held = new CountDownLatch(1);
+            var holder = CompletableFuture.runAsync(() -> Fixtures.inTx(() -> {
+                Job.findById(jobId, LockModeType.PESSIMISTIC_WRITE);
+                held.countDown();
+                awaitQuietly(release);
+            }), background);
+            assertTrue(held.await(SETTLE.toSeconds(), TimeUnit.SECONDS), "the job row was never locked");
+            acknowledge.countDown();
+            await(this::aRowLockIsAwaited, "the placement never reached the locked row", SETTLE);
+
+            worker.abort();
+            await(() -> workerService.getWorker(worker.workerId()).isEmpty(),
+                    "the dropped session was never removed", SETTLE);
+            worker.connect().register();
+            release.countDown();
+            holder.get(SETTLE.toSeconds(), TimeUnit.SECONDS);
+
+            var failure = assertThrows(ExecutionException.class,
+                    () -> launched.get(SETTLE.toSeconds(), TimeUnit.SECONDS));
+            assertTrue(failure.getCause().getMessage().contains("disconnected before the placement"),
+                    failure.getCause().toString());
+            assertEquals(JobState.FAILED, stateOf(jobId));
+            assertEquals(worker.workerId(), workerOf(jobId));
+            assertTrue(worker.job(jobId).wasCancelled(), "the mock never stopped the job");
+        } finally {
+            release.countDown();
+            background.shutdown();
+        }
+    }
+
     // ---------------------------------------------------------------- harness
 
     private MockWorker.Builder worker() {
@@ -256,6 +367,21 @@ class MockWorkerEntityE2ETest {
 
     private static List<Artifact> artifactsOf(UUID jobId) {
         return Fixtures.inTx(() -> Artifact.listByJob(jobId));
+    }
+
+    /** A {@code FOR UPDATE} waiting on a held row lock shows as a lock not yet granted. */
+    private boolean aRowLockIsAwaited() {
+        return Fixtures.inTx(() -> ((Number) entityManager
+                .createNativeQuery("select count(*) from pg_locks where not granted")
+                .getSingleResult()).longValue() > 0);
+    }
+
+    private static void awaitQuietly(CountDownLatch latch) {
+        try {
+            latch.await(SETTLE.toSeconds(), TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private static void await(BooleanSupplier settled, String message, Duration limit) {

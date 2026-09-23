@@ -128,6 +128,11 @@ Note that a cancellation only counts for the *script*: reach for `awaitCancellat
 should behave like one that stops when told. A script that ignores it keeps running, which is how a
 worker that does not honour a cancellation can be imitated.
 
+Losing the connection — `disconnect()`, `abort()`, or the control plane going away — stops every job
+that has not reported a terminal state, the way a real worker does: the control plane fails them all
+and accepts no report on them. They end up `wasCancelled()` with no `cancelJob` in `inbox()`, and a
+script still waiting on a reply is failed at once rather than at the reply timeout. Volumes are kept.
+
 ### Artifacts
 
 `upload(name, content)` announces `content.length` as the size, waits for the presigned URL and then
@@ -142,7 +147,8 @@ that writes a different number of bytes uploads into nothing.
 
 `createVolume` and `deleteVolume` are answered with `ack`. `VolumeHandler` decides: the
 default accepts everything, `VolumeHandler.refusing(reason)` refuses everything the way a host out of
-disk would. A refused allocation is deleted by the control plane, so it is not left `PROVISIONING`.
+disk would. A refused allocation is deleted by the control plane, so it is not left `PROVISIONING`;
+one left unanswered, because the connection dropped first, stays `PROVISIONING` until it is deleted.
 What the mock accepted is visible from `worker.volumes()` and `worker.deletedVolumes()`.
 
 ### The agent

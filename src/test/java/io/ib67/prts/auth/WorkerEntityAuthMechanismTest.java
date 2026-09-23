@@ -19,7 +19,7 @@ import static org.mockito.Mockito.when;
 class WorkerEntityAuthMechanismTest {
 
     // Header literal used to ensure protocol compatibility.
-    private static final String HEADER = "X-WorkerEntity-Token";
+    private static final String HEADER = "X-Worker-Token";
     private static final String SECRET = "correct-horse-battery-staple";
 
     private final WorkerConfig workerConfig = mock(WorkerConfig.class);

@@ -49,6 +49,7 @@ final class WorkerScheduler {
      * Attempts to place a job on an eligible worker.
      *
      * @return null on success or if the job has already finished; otherwise an error message explaining why placement failed
+     * @throws IllegalStateException if the worker's session ended before the placement was recorded
      */
     @Nullable
     String schedule0(UUID jobId, ResourceClass required, JobSpec spec) {
@@ -77,6 +78,13 @@ final class WorkerScheduler {
                 // Job was cancelled while dispatching; cancel on the worker.
                 cancelQuietly(pick, jobId);
                 return null;
+            }
+            // A session leaves the roster before its jobs are looked up to be failed, and the claim
+            // above committed before this read: either that lookup sees the claim, or this sees the
+            // session gone. The worker stopped the job itself when its connection dropped.
+            if (workers.get(pick.workerId()) != pick.worker()) {
+                throw new IllegalStateException("worker " + pick.workerId()
+                        + " disconnected before the placement of job " + jobId + " was recorded");
             }
             dispatched = true;
             return null;
