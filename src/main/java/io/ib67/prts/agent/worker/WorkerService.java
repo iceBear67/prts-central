@@ -180,7 +180,6 @@ public class WorkerService {
             worker.setDisabled(QuarkusTransaction.requiringNew()
                     .call(() -> WorkerEntity.upsert(id, worker.getName()).isDisabled()));
             activeWorkers.put(id, worker);
-            eventBus.publish(WorkerEvent.ONLINE, worker);
         }
     }
 
