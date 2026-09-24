@@ -38,7 +38,7 @@ public class VolumeService {
      * Without an answer the record stays {@code PROVISIONING}.
      */
     public WorkerVolume create(UUID projectId, String name, long sizeBytes) {
-        var workerId = workerService.scheduler.selectVolumeHost()
+        var workerId = workerService.selectVolumeHost()
                 .orElseThrow(() -> new IllegalStateException("No available worker for this project volume"));
         var volumeId = QuarkusTransaction.requiringNew().call(() -> {
             var worker = WorkerEntity.<WorkerEntity>findByIdOptional(workerId)

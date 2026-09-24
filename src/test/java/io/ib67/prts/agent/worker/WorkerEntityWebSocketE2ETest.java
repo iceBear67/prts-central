@@ -164,7 +164,7 @@ class WorkerEntityWebSocketE2ETest {
         assertEquals("", response.message());
         as(admin).get("/api/worker").then()
                 .statusCode(200)
-                .body("items.workerId", contains(workerId.toString()))
+                .body("items.id", contains(workerId.toString()))
                 .body("items[0].name", equalTo("w1"))
                 .body("items[0].connected", equalTo(true))
                 .body("items[0].disabled", equalTo(false));

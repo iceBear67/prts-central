@@ -131,6 +131,8 @@ blocks its caller forever.
 
 The three are answered `Ack(true, "")` by `WorkerWebSocket` as soon as they are dispatched;
 `AgentService` handles them off the event bus and reports its own failures to the log only.
+It handles them on a worker thread, one at a time in the order they arrived, so a job's frames reach
+the transcript and the viewers in the order the worker sent them.
 Correlation of the frames themselves is the JSON-RPC layer's business, in `AgentService`.
 `AgentService.forwardToAgent` does not wait for the worker's acknowledgment of a frame it sends: it
 runs while a viewer or another frame is being served, and a round trip per frame would stall that

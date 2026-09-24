@@ -15,6 +15,7 @@ import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.job.entity.ProjectRole;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
+import io.ib67.prts.testing.MutedLogs;
 import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.junit.QuarkusTest;
 import jakarta.inject.Inject;
@@ -46,8 +47,8 @@ import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
 
@@ -79,6 +80,8 @@ class AgentWebSocketE2ETest {
     WorkerService workerService;
     @Inject
     JobService jobService;
+    @Inject
+    AgentChannels channels;
     @Inject
     ObjectMapper mapper;
 
@@ -143,11 +146,17 @@ class AgentWebSocketE2ETest {
                 projectId, owner, fixtures.createResourceClass("other"), JobState.RUNNING,
                 fixtures.createWorker("w2"));
 
-        var response = worker.call(new ServerboundMessage.AgentAttached(
-                elsewhere, mapper.createObjectNode(), ROOT));
+        try (var ignoredLogs = new MutedLogs(AgentService.class)) {
+            var response = worker.call(new ServerboundMessage.AgentAttached(
+                    elsewhere, mapper.createObjectNode(), ROOT));
+            assertTrue(response.ok(), response.message());
+            // The refusal reaches only the log. AgentService handles one worker's messages in order,
+            // so once this attach has opened its channel the one above has been handled.
+            attachAgent();
+        }
 
-        assertFalse(response.ok());
-        assertTrue(response.message().contains("is not on worker"), response.message());
+        assertNull(channels.get(elsewhere));
+        assertTrue(inTx(() -> AgentSession.listByJob(elsewhere)).isEmpty());
     }
 
     // ---- the conversation ----
@@ -311,6 +320,8 @@ class AgentWebSocketE2ETest {
         var response = worker.call(new ServerboundMessage.AgentAttached(
                 jobId, mapper.createObjectNode().put("protocolVersion", 1), ROOT));
         assertTrue(response.ok(), response.message());
+        // Acknowledged once dispatched; AgentService opens the channel after that.
+        await(() -> channels.get(jobId) != null, "the agent's channel never opened");
     }
 
     private String agentPath() {

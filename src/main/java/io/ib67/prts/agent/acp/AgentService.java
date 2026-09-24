@@ -56,7 +56,9 @@ public class AgentService {
     AcpConfig acpConfig;
 
     // WorkerWebSocket already answered the worker; a failure here reaches nobody but the log.
-    @ConsumeEvent(WorkerEvent.SERVERBOUND_EVENT)
+    // Blocking: the transcript is written from here. Ordered: a job's frames must reach the
+    // transcript and the viewers in the order the worker sent them.
+    @ConsumeEvent(value = WorkerEvent.SERVERBOUND_EVENT, blocking = true, ordered = true)
     void onWorkerEvent(WorkerEvent.C2S message) {
         try {
             switch (message.message()) {
@@ -100,7 +102,8 @@ public class AgentService {
     /**
      * Tears down all agent channels associated with a disconnected worker.
      */
-    @ConsumeEvent(WorkerEvent.OFFLINE)
+    // Blocking: closing a channel closes its sessions in the transcript.
+    @ConsumeEvent(value = WorkerEvent.OFFLINE, blocking = true)
     void onWorkerGone(UUID workerId) {
         channels.closeByWorker(workerId);
     }

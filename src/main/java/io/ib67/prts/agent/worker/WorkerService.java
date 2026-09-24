@@ -351,6 +351,11 @@ public class WorkerService {
         return false;
     }
 
+    /** Selects a connected worker to host a new volume, empty if none is available. */
+    Optional<UUID> selectVolumeHost() {
+        return scheduler.selectVolumeHost();
+    }
+
     /** Whether the job was placed on the worker, which only then may report on it. */
     boolean isPlacedOn(UUID jobId, UUID workerId) {
         return workerId.equals(placements.get(jobId));
