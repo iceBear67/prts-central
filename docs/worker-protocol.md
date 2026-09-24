@@ -92,6 +92,18 @@ reconnecting worker is given jobs only once everything its previous sessions lef
    - Acquires the project-scoped `JobLock` if `spec.lock()` is defined.
 4. **No Internal Queueing**: Returns `scheduled = false` if no worker qualifies or locks cannot be acquired. The caller (`PendingJobDispatcher`) handles requeueing.
 
+## Reports on a Job
+
+`jobStateUpdate` and `updateJobLog` are accepted only from the worker the job was placed on; any
+other worker gets `Ack(false, "job not assigned to this worker: ...")` and nothing is applied.
+Before it sends `createJob`, `WorkerScheduler` publishes `WorkerEvent.ASSIGNED`, from which
+`WorkerService` keeps a cache of the worker each job was offered to: the worker may report as soon as
+it has the job, before `claimJob` commits `Job.worker`. A job missing from the cache is looked up in
+`Job.worker`.
+The cache holds `worker.placement-cache-size` entries (10000); only a placement not yet claimed
+depends on its entry, so it has to hold what can be placed within one `create-job` timeout. `uploadArtifactRequest` and the agent messages check `Job.worker`
+themselves, in `ArtifactService` and `AgentTranscript` / `AgentChannels`.
+
 ## Sending to a Worker
 
 `WorkerClient` owns one send primitive, `call(message, timeout)`: it puts the envelope on the wire and

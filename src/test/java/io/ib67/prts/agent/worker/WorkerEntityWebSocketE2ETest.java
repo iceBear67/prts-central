@@ -9,6 +9,7 @@ import io.ib67.prts.agent.worker.message.ClientboundMessage;
 import io.ib67.prts.agent.worker.message.ServerboundEnvelope;
 import io.ib67.prts.agent.worker.message.ServerboundMessage;
 import io.ib67.prts.job.entity.Job;
+import io.ib67.prts.job.entity.JobLog;
 import io.ib67.prts.job.entity.JobState;
 import io.ib67.prts.testing.DatabaseCleaner;
 import io.ib67.prts.testing.Fixtures;
@@ -59,7 +60,8 @@ import static org.junit.jupiter.api.Assertions.fail;
 /**
  * End-to-end tests for worker WebSocket connections (/ws/worker).
  *
- * <p>Tests handshake authentication, registration, resource reporting, and disconnect handling.
+ * <p>Tests handshake authentication, registration, resource reporting, reports on jobs, and
+ * disconnect handling.
  */
 @QuarkusTest
 @Tag("e2e")
@@ -252,6 +254,99 @@ class WorkerEntityWebSocketE2ETest {
                 .body("items[0].info.current.numCpus", equalTo(2));
     }
 
+    // ---- reporting on jobs ----
+
+    /** Otherwise any worker could end, or write into, a job of any project. */
+    @Test
+    void aWorkerCannotReportOnAJobPlacedOnAnother() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var session = connect();
+        assertTrue(session.send(new ServerboundMessage.Register(UUID.randomUUID(), "w1", null)).ok());
+        var job = fixtures.createJob(project, alice, klass, JobState.RUNNING, fixtures.createWorker("w2"));
+
+        var state = session.send(new ServerboundMessage.JobStateUpdate(job, JobState.SUCCESS));
+        var log = session.send(new ServerboundMessage.UpdateJobLog(job, "stdout", "forged", false));
+
+        assertFalse(state.ok());
+        assertEquals("job not assigned to this worker: " + job, state.message());
+        assertFalse(log.ok());
+        assertEquals("job not assigned to this worker: " + job, log.message());
+        assertEquals(JobState.RUNNING, stateOf(job));
+        assertEquals(0L, inTx(() -> JobLog.countByJob(job)));
+    }
+
+    @Test
+    void aWorkerCannotReportOnAJobNeverOfferedToIt() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var session = connect();
+        assertTrue(session.send(new ServerboundMessage.Register(UUID.randomUUID(), "w1", null)).ok());
+        var job = fixtures.createJob(project, alice, klass, JobState.PENDING, null);
+
+        var response = session.send(new ServerboundMessage.JobStateUpdate(job, JobState.FAILED));
+
+        assertFalse(response.ok());
+        assertEquals(JobState.PENDING, stateOf(job));
+    }
+
+    /** Nothing was placed through this process, so the placement is read from the job row. */
+    @Test
+    void aWorkerReportsOnAJobRecordedAsItsOwn() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var workerId = UUID.randomUUID();
+        var session = connect();
+        assertTrue(session.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+        var job = fixtures.createJob(project, alice, klass, JobState.RUNNING, workerId);
+
+        var log = session.send(new ServerboundMessage.UpdateJobLog(job, "stdout", "hello", false));
+        var state = session.send(new ServerboundMessage.JobStateUpdate(job, JobState.SUCCESS));
+
+        assertTrue(log.ok(), log.message());
+        assertTrue(state.ok(), state.message());
+        assertEquals(JobState.SUCCESS, stateOf(job));
+    }
+
+    /**
+     * The claim that sets {@code Job.worker} waits for the worker to accept the job, and the worker
+     * may report first: here before it even answers the offer.
+     */
+    @Test
+    void aWorkerReportsOnAJobOfferedToItBeforeThePlacementIsClaimed() {
+        var alice = fixtures.createActor("alice");
+        var project = fixtures.createProject("mine");
+        var klass = fixtures.createResourceClass("small");
+        var workerId = UUID.randomUUID();
+        var session = connect();
+        assertTrue(session.send(new ServerboundMessage.Register(workerId, "w1", null)).ok());
+        var job = fixtures.createJob(project, alice, klass, JobState.PENDING, null);
+        var background = Executors.newSingleThreadExecutor();
+        try {
+            var placed = CompletableFuture.supplyAsync(
+                    () -> workerService.schedule(job, klass, Fixtures.spec("alpine")), background);
+            var offer = session.receive();
+            assertInstanceOf(ClientboundMessage.CreateJob.class, offer.message());
+
+            var log = session.send(new ServerboundMessage.UpdateJobLog(job, "stdout", "starting", false));
+            var running = session.send(new ServerboundMessage.JobStateUpdate(job, JobState.RUNNING));
+            session.answer(offer, new ServerboundMessage.Ack(true, ""));
+
+            assertTrue(log.ok(), log.message());
+            assertTrue(running.ok(), running.message());
+            assertTrue(placed.orTimeout(SETTLE.toSeconds(), TimeUnit.SECONDS).join());
+            assertEquals(workerId, inTx(() -> Job.<Job>findById(job).getWorker()));
+            // Ended here, so the disconnect after the test has nothing left to fail.
+            assertTrue(session.send(new ServerboundMessage.JobStateUpdate(job, JobState.SUCCESS)).ok());
+            assertEquals(JobState.SUCCESS, stateOf(job));
+        } finally {
+            background.shutdown();
+        }
+    }
+
     /** Disconnecting a worker marks its open jobs as FAILED. */
     @Test
     void disconnectingFailsOnlyTheJobsThatWorkerWasRunning() {
@@ -396,6 +491,16 @@ class WorkerEntityWebSocketE2ETest {
                 var answer = mapper.readValue(inbox.take(), ClientboundEnvelope.class);
                 assertEquals(asked.id(), answer.replyTo(), "the answer names another message");
                 return (ClientboundMessage.Ack) answer.message();
+            } catch (JsonProcessingException e) {
+                throw new AssertionError(e);
+            }
+        }
+
+        /** Answers a message the control plane asked. */
+        void answer(ClientboundEnvelope asked, ServerboundMessage reply) {
+            try {
+                var answer = new ServerboundEnvelope(UUID.randomUUID(), asked.id(), reply);
+                socket.sendText(mapper.writeValueAsString(answer), true).join();
             } catch (JsonProcessingException e) {
                 throw new AssertionError(e);
             }

@@ -33,7 +33,6 @@ public class WorkerWebSocket {
     EventBus eventBus;
 
     // Disconnecting unregisters the worker and fails any orphaned running jobs.
-    // todo subject to refactor
     @OnClose
     @Blocking
     public void onClose() {
@@ -84,6 +83,7 @@ public class WorkerWebSocket {
         }
         eventBus.publish(WorkerEvent.SERVERBOUND_EVENT, new WorkerEvent.C2S(workerId(), message));
         return switch (message) {
+            // actually unreachable
             case ServerboundMessage.Register r -> handleWorkerRegister(r);
             case ServerboundMessage.UpdateJobLog u -> handleUpdateJobLog(u);
             case ServerboundMessage.UpdateResourceInfo u -> handleUpdateResourceInfo(u);
@@ -116,6 +116,9 @@ public class WorkerWebSocket {
     }
 
     private ClientboundMessage handleUpdateJobLog(ServerboundMessage.UpdateJobLog u) {
+        if (!workerService.isPlacedOn(u.jobId(), workerId())) {
+            return refuseNotPlaced(u.jobId());
+        }
         try {
             jobService.appendLog(u.jobId(), u.topic(), u.message(), u.error());
             return new ClientboundMessage.Ack(true, "");
@@ -131,8 +134,17 @@ public class WorkerWebSocket {
     }
 
     private ClientboundMessage handleJobStateUpdate(ServerboundMessage.JobStateUpdate u) {
+        if (!workerService.isPlacedOn(u.jobId(), workerId())) {
+            return refuseNotPlaced(u.jobId());
+        }
         jobService.applyState(u.jobId(), u.state());
         return new ClientboundMessage.Ack(true, "");
+    }
+
+    // Any registered worker could otherwise end, or write into, a job of any project.
+    private ClientboundMessage refuseNotPlaced(UUID jobId) {
+        LOG.warnf("worker %s reported on job %s, which was not placed on it", workerId(), jobId);
+        return new ClientboundMessage.Ack(false, "job not assigned to this worker: " + jobId);
     }
 
     private ClientboundMessage handleUploadArtifactRequest(ServerboundMessage.UploadArtifactRequest r) {

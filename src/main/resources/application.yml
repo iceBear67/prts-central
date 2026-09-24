@@ -168,6 +168,9 @@ worker:
     volume: PT1M
     agent-frame: PT3S
     close: PT5S
+  # How many job placements are kept in memory to check a worker's reports against; must hold what
+  # can be placed within one create-job timeout.
+  placement-cache-size: 10000
 
 job:
   log:

@@ -3,6 +3,7 @@ package io.ib67.prts.agent.worker;
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 import jakarta.validation.constraints.NotBlank;
+ import jakarta.validation.constraints.Positive;
 
 import java.time.Duration;
 
@@ -13,6 +14,16 @@ public interface WorkerConfig {
     String secret();
 
     Timeout timeout();
+
+    /**
+     * How many job placements are kept in memory to check a worker's reports against. Only a
+     * placement not yet claimed needs its entry, every other one is also in {@code Job.worker}: this
+     * has to hold what can be placed within one {@code createJob} timeout.
+     */
+    @WithDefault("10000")
+    @Positive(message = "worker.placement-cache-size must be positive: "
+            + "a job not yet claimed by its worker is known only to this cache")
+    int placementCacheSize();
 
     /**
      * How long the control plane waits for a worker to acknowledge one message.

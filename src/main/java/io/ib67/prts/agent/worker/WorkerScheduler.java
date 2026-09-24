@@ -32,11 +32,13 @@ final class WorkerScheduler {
     private static final Logger LOG = Logger.getLogger(WorkerScheduler.class);
 
     private final Map<UUID, Worker> workers;
+    private final EventBus bus;
     private final WorkerService service;
     private final Set<UUID> lockedWorkers = ConcurrentHashMap.newKeySet();
 
     WorkerScheduler(Map<UUID, Worker> workers, EventBus bus, WorkerService service) {
         this.workers = workers;
+        this.bus = bus;
         this.service = service;
         bus.consumer(WorkerEvent.OFFLINE, m -> onWorkerRemoved((UUID) m.body()));
     }
@@ -67,6 +69,7 @@ final class WorkerScheduler {
                 return "no available worker can run this job";
             }
             var pick = selected.get();
+            announce(jobId, pick.workerId());
             service.createJob(pick.workerId(), jobId, spec, required)
                     .whenComplete((accepted, throwable) -> {
                         unlock(pick.workerId());
@@ -93,6 +96,14 @@ final class WorkerScheduler {
                 releaseLock(jobId);
             }
         }
+    }
+
+    /**
+     * Announces which worker the job goes to, before it is sent: the worker may report on the job as
+     * soon as it has it, before {@link #claimJob} sets {@code Job.worker}.
+     */
+    private void announce(UUID jobId, UUID workerId) {
+        bus.publish(WorkerEvent.ASSIGNED, new WorkerEvent.Assignment(jobId, workerId));
     }
 
     private boolean isSchedulable(UUID jobId) {

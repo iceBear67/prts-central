@@ -1,6 +1,8 @@
 package io.ib67.prts.agent.worker;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import io.ib67.prts.agent.job.JobSpec;
 import io.ib67.prts.agent.worker.entity.ResourceClass;
 import io.ib67.prts.agent.worker.entity.WorkerEntity;
@@ -12,6 +14,7 @@ import io.ib67.prts.job.JobService;
 import io.ib67.prts.job.entity.JobState;
 import io.quarkus.narayana.jta.QuarkusTransaction;
 import io.quarkus.runtime.StartupEvent;
+import io.quarkus.vertx.ConsumeEvent;
 import io.quarkus.websockets.next.WebSocketConnection;
 import io.vertx.core.eventbus.EventBus;
 import jakarta.annotation.PostConstruct;
@@ -43,11 +46,29 @@ public class WorkerService {
     WorkerConfig workerConfig;
 
     private final Map<UUID, Worker> activeWorkers = new ConcurrentHashMap<>();
+    /**
+     * The worker each job was offered to, the only one that may report on it. Filled from
+     * {@link WorkerEvent#ASSIGNED} before the job is sent, since the worker may report as soon as it
+     * has the job, before the placement is claimed on {@code Job.worker}; a job missing here is
+     * looked up in that column.
+     */
+    private LoadingCache<UUID, UUID> placements;
     WorkerScheduler scheduler;
 
     @PostConstruct
     private void postConstruct() {
         scheduler = new WorkerScheduler(activeWorkers, eventBus, this);
+        placements = Caffeine.newBuilder()
+                .maximumSize(workerConfig.placementCacheSize())
+                .build(jobId -> QuarkusTransaction.requiringNew().call(() -> Job.<Job>findByIdOptional(jobId)
+                        .map(Job::getWorker)
+                        .orElse(null)));
+    }
+
+    // Blocking: a put waits for a load of the same key to finish, and a load reads the database.
+    @ConsumeEvent(value = WorkerEvent.ASSIGNED, blocking = true)
+    void onAssigned(WorkerEvent.Assignment assignment) {
+        placements.put(assignment.job(), assignment.worker());
     }
 
     /**
@@ -329,5 +350,10 @@ public class WorkerService {
         }
         LOG.infof("job %s was not placed: %s", jobId, refused);
         return false;
+    }
+
+    /** Whether the job was placed on the worker, which only then may report on it. */
+    boolean isPlacedOn(UUID jobId, UUID workerId) {
+        return workerId.equals(placements.get(jobId));
     }
 }
